@@ -1,0 +1,11 @@
+#! /bin/bash
+
+set -e
+
+go build
+
+./raft -port 9202 -node 9201 -node 9203 &
+./raft -port 9203 -node 9201 -node 9202 &
+./raft -port 9201 -node 9202 -node 9203 &
+
+read && killall raft
