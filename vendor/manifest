@@ -1,0 +1,13 @@
+{
+	"version": 0,
+	"dependencies": [
+		{
+			"importpath": "github.com/gogo/protobuf",
+			"repository": "https://github.com/gogo/protobuf",
+			"vcs": "git",
+			"revision": "d7788ac7ca647999a3775cb756e449ab177dd138",
+			"branch": "master",
+			"notests": true
+		}
+	]
+}
