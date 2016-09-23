@@ -31,7 +31,7 @@ type node struct {
 	done chan struct{}
 }
 
-func (n *node) ReqVote(ctx context.Context, request *gorums.RequestVote_Request) (*gorums.RequestVote_Response, error) {
+func (n *node) RequestVote(ctx context.Context, request *gorums.RequestVoteRequest) (*gorums.RequestVoteResponse, error) {
 	n.Lock()
 	defer n.Unlock()
 
@@ -54,7 +54,7 @@ func (n *node) ReqVote(ctx context.Context, request *gorums.RequestVote_Request)
 
 	// #RV1 Reply false if term < currentTerm.
 	if request.Term < n.currentTerm {
-		return &gorums.RequestVote_Response{VoteGranted: false, Term: n.currentTerm}, nil
+		return &gorums.RequestVoteResponse{VoteGranted: false, Term: n.currentTerm}, nil
 	}
 
 	// #RV2 If votedFor is null or candidateId, and candidate's log is at least as up-to-date as receiver's log, grant vote. TODO: log part.
@@ -62,7 +62,7 @@ func (n *node) ReqVote(ctx context.Context, request *gorums.RequestVote_Request)
 	// We can vote for the same candidate again (e.g. response was lost).
 	// TODO: Make sure that no node can have id(address) = 0. Should probably change to -1.
 	if n.votedFor != 0 && n.votedFor != request.CandidateID {
-		return &gorums.RequestVote_Response{VoteGranted: false, Term: n.currentTerm}, nil
+		return &gorums.RequestVoteResponse{VoteGranted: false, Term: n.currentTerm}, nil
 	}
 
 	// DEBUG
@@ -81,10 +81,10 @@ func (n *node) ReqVote(ctx context.Context, request *gorums.RequestVote_Request)
 
 	n.election.Reset(n.electionTimeout)
 
-	return &gorums.RequestVote_Response{VoteGranted: true, Term: n.currentTerm}, nil
+	return &gorums.RequestVoteResponse{VoteGranted: true, Term: n.currentTerm}, nil
 }
 
-func (n *node) AppEntries(ctx context.Context, request *gorums.AppendEntries_Request) (*gorums.AppendEntries_Response, error) {
+func (n *node) AppendEntries(ctx context.Context, request *gorums.AppendEntriesRequest) (*gorums.AppendEntriesResponse, error) {
 	n.Lock()
 	defer n.Unlock()
 
@@ -104,7 +104,7 @@ func (n *node) AppEntries(ctx context.Context, request *gorums.AppendEntries_Req
 
 	// #AE1 Reply false if term < currentTerm.
 	if request.Term < n.currentTerm {
-		return &gorums.AppendEntries_Response{Success: false, Term: n.currentTerm}, nil
+		return &gorums.AppendEntriesResponse{Success: false, Term: n.currentTerm}, nil
 	}
 
 	// DEBUG
@@ -121,10 +121,10 @@ func (n *node) AppEntries(ctx context.Context, request *gorums.AppendEntries_Req
 
 	n.election.Reset(n.electionTimeout)
 
-	return &gorums.AppendEntries_Response{Success: true, Term: n.currentTerm}, nil
+	return &gorums.AppendEntriesResponse{Success: true, Term: n.currentTerm}, nil
 }
 
-func (n *node) handleRequestVote(response *gorums.RequestVote_Response) {
+func (n *node) handleRequestVote(response *gorums.RequestVoteResponse) {
 	n.Lock()
 	defer n.Unlock()
 
@@ -186,7 +186,7 @@ func (n *node) handleRequestVote(response *gorums.RequestVote_Response) {
 	// This would have happened if we didn't receive a response in time.
 }
 
-func (n *node) handleAppendEntries(response *gorums.AppendEntries_Response) {
+func (n *node) handleAppendEntries(response *gorums.AppendEntriesResponse) {
 	n.Lock()
 	defer n.Unlock()
 
@@ -227,7 +227,7 @@ func (n *node) startElection() {
 	n.election.Reset(n.electionTimeout)
 
 	// #C4 Send RequestVote RPCs to all other servers.
-	req := n.conf.ReqVoteFuture(&gorums.RequestVote_Request{CandidateID: n.id, Term: n.currentTerm})
+	req := n.conf.RequestVoteFuture(&gorums.RequestVoteRequest{CandidateID: n.id, Term: n.currentTerm})
 
 	go func() {
 		reply, err := req.Get()
@@ -252,7 +252,7 @@ func (n *node) sendAppendEntries() {
 	log.Println(n.id, "is sending AppendEntries to followers for term", n.currentTerm)
 
 	// #L1
-	req := n.conf.AppEntriesFuture(&gorums.AppendEntries_Request{LeaderID: n.id, Term: n.currentTerm})
+	req := n.conf.AppendEntriesFuture(&gorums.AppendEntriesRequest{LeaderID: n.id, Term: n.currentTerm})
 
 	go func() {
 		reply, err := req.Get()

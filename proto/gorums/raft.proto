@@ -3,8 +3,8 @@ syntax = "proto3";
 package gorums;
 
 service Register {
-  rpc ReqVote(RequestVote.Request) returns (RequestVote.Response) {}
-  rpc AppEntries(AppendEntries.Request) returns (AppendEntries.Response) {}
+  rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse) {}
+  rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse) {}
 }
 
 message Entry {
@@ -13,34 +13,31 @@ message Entry {
   bytes data = 2;
 }
 
-message RequestVote {
-  message Request {
-    uint32 candidateID= 1;
-    uint64 term = 2;
-    uint64 prevLogTerm = 3;
-    uint64 prevLogIndex = 4;
-  }
-  message Response {
-    uint64 term = 1;
-
-    bool voteGranted = 2;
-  }
+message RequestVoteRequest {
+  uint32 candidateID= 1;
+  uint64 term = 2;
+  uint64 prevLogTerm = 3;
+  uint64 prevLogIndex = 4;
 }
 
-message AppendEntries {
-  message Request {
-    uint32 leaderID = 1;
-    uint64 term = 2;
-    uint64 prevLogIndex = 3;
-    uint64 prevLogTerm = 4;
-    uint64 commitIndex = 5;
+message RequestVoteResponse {
+  uint64 term = 1;
 
-    repeated Entry entries = 6;
-  }
+  bool voteGranted = 2;
+}
 
-  message Response {
-    uint64 term = 1;
+message AppendEntriesRequest {
+  uint32 leaderID = 1;
+  uint64 term = 2;
+  uint64 prevLogIndex = 3;
+  uint64 prevLogTerm = 4;
+  uint64 commitIndex = 5;
 
-    bool success = 2;
-  }
+  repeated Entry entries = 6;
+}
+
+message AppendEntriesResponse {
+  uint64 term = 1;
+
+  bool success = 2;
 }

@@ -7,7 +7,7 @@ type raftQSpec struct {
 	q int
 }
 
-func (qs *raftQSpec) ReqVoteQF(replies []*gorums.RequestVote_Response) (*gorums.RequestVote_Response, bool) {
+func (qs *raftQSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*gorums.RequestVoteResponse, bool) {
 	if len(replies) < qs.q {
 		return nil, false
 	}
@@ -28,7 +28,7 @@ func (qs *raftQSpec) ReqVoteQF(replies []*gorums.RequestVote_Response) (*gorums.
 		}
 	}
 
-	response := &gorums.RequestVote_Response{Term: term}
+	response := &gorums.RequestVoteResponse{Term: term}
 
 	if votes >= qs.q {
 		response.VoteGranted = true
@@ -37,7 +37,7 @@ func (qs *raftQSpec) ReqVoteQF(replies []*gorums.RequestVote_Response) (*gorums.
 	return response, true
 }
 
-func (qs *raftQSpec) AppEntriesQF(replies []*gorums.AppendEntries_Response) (*gorums.AppendEntries_Response, bool) {
+func (qs *raftQSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse) (*gorums.AppendEntriesResponse, bool) {
 	if len(replies) < qs.q {
 		return nil, false
 	}
