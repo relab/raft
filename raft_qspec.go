@@ -13,14 +13,17 @@ func (qs *raftQSpec) ReqVoteQF(replies []*gorums.RequestVote_Response) (*gorums.
 	}
 
 	var term uint64
-	votes := 0
 
 	for _, reply := range replies {
 		if reply.Term > term {
 			term = reply.Term
 		}
+	}
 
-		if reply.VoteGranted {
+	votes := 0
+
+	for _, reply := range replies {
+		if reply.Term == term && reply.VoteGranted {
 			votes++
 		}
 	}
