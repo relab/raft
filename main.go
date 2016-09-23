@@ -52,6 +52,9 @@ func main() {
 		done:             make(chan struct{}),
 	}
 
+	// Make sure we don't handle any RPCs before we are done initializing.
+	raftNode.Lock()
+
 	// Drain immediately as we are in the follower state.
 	// TODO: Can we create a timer without starting it?
 	<-raftNode.heartbeat.C

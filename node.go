@@ -295,6 +295,8 @@ func (n *node) Run(nodes []string) {
 
 	n.conf = conf
 
+	// Initialization done.
+	n.Unlock()
 
 OUT:
 	for {
