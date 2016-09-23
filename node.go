@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"sync"
 	"time"
 
 	"golang.org/x/net/context"
@@ -12,8 +11,6 @@ import (
 )
 
 type node struct {
-	sync.RWMutex
-
 	id uint32
 
 	votedFor uint32
@@ -28,40 +25,37 @@ type node struct {
 	election  *time.Timer
 	heartbeat *time.Timer
 
-	incoming chan messageIn
+	reqVoteReqIn  chan reqVoteReq
+	reqVoteRespIn chan *gorums.RequestVote_Response
+
+	appEntriesReqIn  chan appEntriesReq
+	appEntriesRespIn chan *gorums.AppendEntries_Response
 
 	done chan struct{}
 }
 
-type messageIn struct {
-	message  interface{}
-	response chan interface{}
+type reqVoteReq struct {
+	message  *gorums.RequestVote_Request
+	response chan<- *gorums.RequestVote_Response
+}
+
+type appEntriesReq struct {
+	message  *gorums.AppendEntries_Request
+	response chan<- *gorums.AppendEntries_Response
 }
 
 func (n *node) ReqVote(ctx context.Context, request *gorums.RequestVote_Request) (*gorums.RequestVote_Response, error) {
-	response := make(chan interface{})
-	n.incoming <- messageIn{request, response}
+	response := make(chan *gorums.RequestVote_Response)
+	n.reqVoteReqIn <- reqVoteReq{request, response}
 
-	switch r := (<-response).(type) {
-	case *gorums.RequestVote_Response:
-		return r, nil
-	default:
-		// TODO: This should never happen. Better way? Program should panic as this is a programming error.
-		panic("RESPONSE CHANNEL FED WRONG TYPE")
-	}
+	return <-response, nil
 }
 
 func (n *node) AppEntries(ctx context.Context, request *gorums.AppendEntries_Request) (*gorums.AppendEntries_Response, error) {
-	response := make(chan interface{})
-	n.incoming <- messageIn{request, response}
+	response := make(chan *gorums.AppendEntries_Response)
+	n.appEntriesReqIn <- appEntriesReq{request, response}
 
-	switch r := (<-response).(type) {
-	case *gorums.AppendEntries_Response:
-		return r, nil
-	default:
-		// TODO: This should never happen. Better way? Program should panic as this is a programming error.
-		panic("RESPONSE CHANNEL FED WRONG TYPE")
-	}
+	return <-response, nil
 }
 
 func (n *node) respondRequestVote(request *gorums.RequestVote_Request) *gorums.RequestVote_Response {
@@ -254,7 +248,7 @@ func (n *node) startElection() {
 			// TODO: Can we safely ignore this as the protocol should just retry the election?
 			log.Println(err)
 		} else {
-			n.incoming <- messageIn{reply.Reply, nil}
+			n.reqVoteRespIn <- reply.Reply
 		}
 	}()
 
@@ -276,7 +270,7 @@ func (n *node) sendAppendEntries() {
 			// TODO: Can we safely ignore this as the protocol should just retry the election?
 			log.Println(err)
 		} else {
-			n.incoming <- messageIn{reply.Reply, nil}
+			n.appEntriesRespIn <- reply.Reply
 		}
 	}()
 
@@ -315,23 +309,41 @@ func (n *node) Run(nodes []string) {
 OUT:
 	for {
 		select {
-		case in := <-n.incoming:
+		case in := <-n.reqVoteReqIn:
 			// DEBUG
-			dlog("lock: incoming")
-
-			switch message := (in.message).(type) {
-			case *gorums.RequestVote_Request:
-				in.response <- n.respondRequestVote(message)
-			case *gorums.AppendEntries_Request:
-				in.response <- n.respondAppendEntries(message)
-			case *gorums.RequestVote_Response:
-				n.handleRequestVote(message)
-			case *gorums.AppendEntries_Response:
-				n.handleAppendEntries(message)
-			}
+			dlog("lock: reqVoteReqIn")
+			in.response <- n.respondRequestVote(in.message)
 
 			// DEBUG
-			dlog("unlock: incoming")
+			dlog("unlock: reqVoteReqIn")
+
+		case in := <-n.appEntriesReqIn:
+			// DEBUG
+			dlog("lock: appEntriesReqIn")
+
+			in.response <- n.respondAppendEntries(in.message)
+
+			// DEBUG
+			dlog("unlock: appEntriesReqIn")
+
+		case resp := <-n.reqVoteRespIn:
+			// DEBUG
+			dlog("lock: reqVoteReqIn")
+
+			n.handleRequestVote(resp)
+
+			// DEBUG
+			dlog("unlock: reqVoteReqIn")
+
+		case resp := <-n.appEntriesRespIn:
+			// DEBUG
+			dlog("lock: appEntriesRespIn")
+
+			n.handleAppendEntries(resp)
+
+			// DEBUG
+			dlog("unlock: appEntriesRespIn")
+
 		case <-n.election.C:
 			// DEBUG
 			dlog("lock: election")
