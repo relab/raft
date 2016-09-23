@@ -48,6 +48,7 @@ func main() {
 		electionTimeout:  rndTimeout,
 		heartbeatTimeout: 500 * time.Millisecond,
 		heartbeat:        time.NewTimer(0),
+		election:         time.NewTimer(rndTimeout),
 		done:             make(chan struct{}),
 	}
 
@@ -71,9 +72,6 @@ func main() {
 
 		close(raftNode.done)
 	}()
-
-	// Allow server to start
-	<-time.After(time.Millisecond * 4000)
 
 	raftNode.Run(nodes)
 

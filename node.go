@@ -275,7 +275,7 @@ func (n *node) Run(nodes []string) {
 		gorums.WithGrpcDialOptions(
 			grpc.WithBlock(),
 			grpc.WithInsecure(),
-			grpc.WithTimeout(time.Second)))
+			grpc.WithTimeout(time.Second*10)))
 
 	if err != nil {
 		log.Fatal(err)
@@ -295,7 +295,6 @@ func (n *node) Run(nodes []string) {
 
 	n.conf = conf
 
-	n.election = time.NewTimer(n.electionTimeout)
 
 OUT:
 	for {
