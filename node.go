@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"sync"
 	"time"
 
 	"golang.org/x/net/context"
@@ -11,6 +12,8 @@ import (
 )
 
 type node struct {
+	sync.Mutex
+
 	id uint32
 
 	votedFor uint32
@@ -25,40 +28,13 @@ type node struct {
 	election  *time.Timer
 	heartbeat *time.Timer
 
-	reqVoteReqIn  chan reqVoteReq
-	reqVoteRespIn chan *gorums.RequestVote_Response
-
-	appEntriesReqIn  chan appEntriesReq
-	appEntriesRespIn chan *gorums.AppendEntries_Response
-
 	done chan struct{}
 }
 
-type reqVoteReq struct {
-	message  *gorums.RequestVote_Request
-	response chan<- *gorums.RequestVote_Response
-}
-
-type appEntriesReq struct {
-	message  *gorums.AppendEntries_Request
-	response chan<- *gorums.AppendEntries_Response
-}
-
 func (n *node) ReqVote(ctx context.Context, request *gorums.RequestVote_Request) (*gorums.RequestVote_Response, error) {
-	response := make(chan *gorums.RequestVote_Response)
-	n.reqVoteReqIn <- reqVoteReq{request, response}
+	n.Lock()
+	defer n.Unlock()
 
-	return <-response, nil
-}
-
-func (n *node) AppEntries(ctx context.Context, request *gorums.AppendEntries_Request) (*gorums.AppendEntries_Response, error) {
-	response := make(chan *gorums.AppendEntries_Response)
-	n.appEntriesReqIn <- appEntriesReq{request, response}
-
-	return <-response, nil
-}
-
-func (n *node) respondRequestVote(request *gorums.RequestVote_Request) *gorums.RequestVote_Response {
 	// DEBUG
 	log.Println(request.CandidateID, "requesting vote from", n.id, "for term", request.Term)
 
@@ -78,7 +54,7 @@ func (n *node) respondRequestVote(request *gorums.RequestVote_Request) *gorums.R
 
 	// #RV1 Reply false if term < currentTerm.
 	if request.Term < n.currentTerm {
-		return &gorums.RequestVote_Response{VoteGranted: false, Term: n.currentTerm}
+		return &gorums.RequestVote_Response{VoteGranted: false, Term: n.currentTerm}, nil
 	}
 
 	// #RV2 If votedFor is null or candidateId, and candidate's log is at least as up-to-date as receiver's log, grant vote. TODO: log part.
@@ -86,7 +62,7 @@ func (n *node) respondRequestVote(request *gorums.RequestVote_Request) *gorums.R
 	// We can vote for the same candidate again (e.g. response was lost).
 	// TODO: Make sure that no node can have id(address) = 0. Should probably change to -1.
 	if n.votedFor != 0 && n.votedFor != request.CandidateID {
-		return &gorums.RequestVote_Response{VoteGranted: false, Term: n.currentTerm}
+		return &gorums.RequestVote_Response{VoteGranted: false, Term: n.currentTerm}, nil
 	}
 
 	// DEBUG
@@ -105,10 +81,13 @@ func (n *node) respondRequestVote(request *gorums.RequestVote_Request) *gorums.R
 
 	n.election.Reset(n.electionTimeout)
 
-	return &gorums.RequestVote_Response{VoteGranted: true, Term: n.currentTerm}
+	return &gorums.RequestVote_Response{VoteGranted: true, Term: n.currentTerm}, nil
 }
 
-func (n *node) respondAppendEntries(request *gorums.AppendEntries_Request) *gorums.AppendEntries_Response {
+func (n *node) AppEntries(ctx context.Context, request *gorums.AppendEntries_Request) (*gorums.AppendEntries_Response, error) {
+	n.Lock()
+	defer n.Unlock()
+
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	if request.Term > n.currentTerm {
 		n.currentTerm = request.Term
@@ -125,7 +104,7 @@ func (n *node) respondAppendEntries(request *gorums.AppendEntries_Request) *goru
 
 	// #AE1 Reply false if term < currentTerm.
 	if request.Term < n.currentTerm {
-		return &gorums.AppendEntries_Response{Success: false, Term: n.currentTerm}
+		return &gorums.AppendEntries_Response{Success: false, Term: n.currentTerm}, nil
 	}
 
 	// DEBUG
@@ -142,10 +121,13 @@ func (n *node) respondAppendEntries(request *gorums.AppendEntries_Request) *goru
 
 	n.election.Reset(n.electionTimeout)
 
-	return &gorums.AppendEntries_Response{Success: true, Term: n.currentTerm}
+	return &gorums.AppendEntries_Response{Success: true, Term: n.currentTerm}, nil
 }
 
 func (n *node) handleRequestVote(response *gorums.RequestVote_Response) {
+	n.Lock()
+	defer n.Unlock()
+
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	if response.Term > n.currentTerm {
 		n.currentTerm = response.Term
@@ -205,6 +187,9 @@ func (n *node) handleRequestVote(response *gorums.RequestVote_Response) {
 }
 
 func (n *node) handleAppendEntries(response *gorums.AppendEntries_Response) {
+	n.Lock()
+	defer n.Unlock()
+
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	if response.Term > n.currentTerm {
 		n.currentTerm = response.Term
@@ -223,6 +208,9 @@ func (n *node) handleAppendEntries(response *gorums.AppendEntries_Response) {
 }
 
 func (n *node) startElection() {
+	n.Lock()
+	defer n.Unlock()
+
 	// We are now a candidate. See Raft Paper Figure 2 -> Rules for Servers -> Candidates.
 	// #C1 Increment currentTerm.
 	n.currentTerm++
@@ -248,7 +236,7 @@ func (n *node) startElection() {
 			// TODO: Can we safely ignore this as the protocol should just retry the election?
 			log.Println(err)
 		} else {
-			n.reqVoteRespIn <- reply.Reply
+			n.handleRequestVote(reply.Reply)
 		}
 	}()
 
@@ -257,6 +245,9 @@ func (n *node) startElection() {
 }
 
 func (n *node) sendAppendEntries() {
+	n.Lock()
+	defer n.Unlock()
+
 	// DEBUG
 	log.Println(n.id, "is sending AppendEntries to followers for term", n.currentTerm)
 
@@ -270,7 +261,7 @@ func (n *node) sendAppendEntries() {
 			// TODO: Can we safely ignore this as the protocol should just retry the election?
 			log.Println(err)
 		} else {
-			n.appEntriesRespIn <- reply.Reply
+			n.handleAppendEntries(reply.Reply)
 		}
 	}()
 
@@ -309,41 +300,6 @@ func (n *node) Run(nodes []string) {
 OUT:
 	for {
 		select {
-		case in := <-n.reqVoteReqIn:
-			// DEBUG
-			dlog("lock: reqVoteReqIn")
-			in.response <- n.respondRequestVote(in.message)
-
-			// DEBUG
-			dlog("unlock: reqVoteReqIn")
-
-		case in := <-n.appEntriesReqIn:
-			// DEBUG
-			dlog("lock: appEntriesReqIn")
-
-			in.response <- n.respondAppendEntries(in.message)
-
-			// DEBUG
-			dlog("unlock: appEntriesReqIn")
-
-		case resp := <-n.reqVoteRespIn:
-			// DEBUG
-			dlog("lock: reqVoteReqIn")
-
-			n.handleRequestVote(resp)
-
-			// DEBUG
-			dlog("unlock: reqVoteReqIn")
-
-		case resp := <-n.appEntriesRespIn:
-			// DEBUG
-			dlog("lock: appEntriesRespIn")
-
-			n.handleAppendEntries(resp)
-
-			// DEBUG
-			dlog("unlock: appEntriesRespIn")
-
 		case <-n.election.C:
 			// DEBUG
 			dlog("lock: election")

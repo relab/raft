@@ -48,10 +48,6 @@ func main() {
 		electionTimeout:  rndTimeout,
 		heartbeatTimeout: 500 * time.Millisecond,
 		heartbeat:        time.NewTimer(0),
-		reqVoteReqIn:     make(chan reqVoteReq),
-		reqVoteRespIn:    make(chan *gorums.RequestVote_Response),
-		appEntriesReqIn:  make(chan appEntriesReq),
-		appEntriesRespIn: make(chan *gorums.AppendEntries_Response),
 		done:             make(chan struct{}),
 	}
 
