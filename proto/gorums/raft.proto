@@ -14,7 +14,7 @@ message Entry {
 }
 
 message RequestVoteRequest {
-  uint32 candidateID= 1;
+  uint32 candidateID = 1;
   uint64 term = 2;
   uint64 prevLogTerm = 3;
   uint64 prevLogIndex = 4;
