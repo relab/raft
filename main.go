@@ -49,6 +49,7 @@ func main() {
 		heartbeatTimeout: 500 * time.Millisecond,
 		heartbeat:        time.NewTimer(0),
 		election:         time.NewTimer(rndTimeout),
+		nodeConfs:        make(map[uint32]*gorums.Configuration),
 		done:             make(chan struct{}),
 	}
 

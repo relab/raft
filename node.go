@@ -20,7 +20,8 @@ type node struct {
 
 	currentTerm uint64
 
-	conf *gorums.Configuration
+	conf      *gorums.Configuration
+	nodeConfs map[uint32]*gorums.Configuration
 
 	electionTimeout  time.Duration
 	heartbeatTimeout time.Duration
@@ -252,18 +253,20 @@ func (n *node) sendAppendEntries() {
 	log.Println(n.id, "is sending AppendEntries to followers for term", n.currentTerm)
 
 	// #L1
-	req := n.conf.AppendEntriesFuture(&gorums.AppendEntriesRequest{LeaderID: n.id, Term: n.currentTerm})
+	for _, conf := range n.nodeConfs {
+		req := conf.AppendEntriesFuture(&gorums.AppendEntriesRequest{LeaderID: n.id, Term: n.currentTerm})
 
-	go func() {
-		reply, err := req.Get()
+		go func(req *gorums.AppendEntriesFuture) {
+			reply, err := req.Get()
 
-		if err != nil {
-			// TODO: Can we safely ignore this as the protocol should just retry the election?
-			log.Println(err)
-		} else {
-			n.handleAppendEntries(reply.Reply)
-		}
-	}()
+			if err != nil {
+				// TODO: Can we safely ignore this as the protocol should just retry the election?
+				log.Println(err)
+			} else {
+				n.handleAppendEntries(reply.Reply)
+			}
+		}(req)
+	}
 
 	// TODO: Later sendAppendEntries might not necessarily be called by a heartbeat timeout.
 	// Make sure timer is in the correct state (stopped and drained).
@@ -294,6 +297,20 @@ func (n *node) Run(nodes []string) {
 	}
 
 	n.conf = conf
+
+	for _, id := range mgr.NodeIDs() {
+		if id == n.id {
+			continue
+		}
+
+		conf, err := mgr.NewConfiguration([]uint32{id}, qs, time.Second)
+
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		n.nodeConfs[id] = conf
+	}
 
 	// Initialization done.
 	n.Unlock()
