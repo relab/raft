@@ -1,9 +1,10 @@
-package main
+package raft_test
 
 import (
 	"reflect"
 	"testing"
 
+	"github.com/relab/raft"
 	"github.com/relab/raft/proto/gorums"
 )
 
@@ -73,11 +74,8 @@ var qspecs = []struct {
 	spec gorums.QuorumSpec
 }{
 	{
-		"raftQspec n:3, q:2",
-		&raftQSpec{
-			n: 3,
-			q: 2,
-		},
+		"QuorumSpec N3 Q2",
+		&raft.QuorumSpec{N: 3, Q: 2},
 	},
 }
 

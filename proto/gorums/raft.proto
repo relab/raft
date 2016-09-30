@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package gorums;
 
-service Register {
+service Raft {
   rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse) {}
   rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse) {}
 }
@@ -14,7 +14,7 @@ message Entry {
 }
 
 message RequestVoteRequest {
-  uint32 candidateID = 1;
+  int64 candidateID = 1;
   uint64 term = 2;
   uint64 prevLogTerm = 3;
   uint64 prevLogIndex = 4;
@@ -27,7 +27,7 @@ message RequestVoteResponse {
 }
 
 message AppendEntriesRequest {
-  uint32 leaderID = 1;
+  int64 leaderID = 1;
   uint64 term = 2;
   uint64 prevLogIndex = 3;
   uint64 prevLogTerm = 4;

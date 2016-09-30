@@ -1,14 +1,14 @@
-package main
+package raft
 
 import "github.com/relab/raft/proto/gorums"
 
-type raftQSpec struct {
-	n int
-	q int
+type QuorumSpec struct {
+	N int
+	Q int
 }
 
-func (qs *raftQSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*gorums.RequestVoteResponse, bool) {
-	if len(replies) < qs.q {
+func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*gorums.RequestVoteResponse, bool) {
+	if len(replies) < qspec.Q {
 		return nil, false
 	}
 
@@ -30,15 +30,15 @@ func (qs *raftQSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*goru
 
 	response := &gorums.RequestVoteResponse{Term: term}
 
-	if votes >= qs.q {
+	if votes >= qspec.Q {
 		response.VoteGranted = true
 	}
 
 	return response, true
 }
 
-func (qs *raftQSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse) (*gorums.AppendEntriesResponse, bool) {
-	if len(replies) < qs.q {
+func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse) (*gorums.AppendEntriesResponse, bool) {
+	if len(replies) < 1 {
 		return nil, false
 	}
 

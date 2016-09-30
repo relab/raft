@@ -23,7 +23,7 @@ _testmain.go
 *.test
 *.prof
 
-raft
+cmd/replica/replica
 vendor/**
 !vendor/manifest
 *.pb.go
