@@ -262,9 +262,6 @@ func (r *Replica) startElection() {
 
 	debug.Debugln(r.id, ":: ELECTION STARTED, for term", r.currentTerm)
 
-	// #C2 Vote for self.
-	// TODO: We could make this implicit (remember r.votedFor = r.id)
-
 	// #C3 Reset election timer.
 	r.election.Reset(r.electionTimeout)
 
