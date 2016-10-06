@@ -187,6 +187,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 	}
 
 	// #RV2 If votedFor is null or candidateId, and candidate's log is at least as up-to-date as receiver's log, grant vote.
+	// TODO: Is len(r.log) off by one?
 	if request.Term == r.currentTerm && r.votedFor == NONE || r.votedFor == request.CandidateID &&
 		(request.LastLogTerm > r.logTerm(len(r.log)) ||
 			(request.LastLogTerm == r.logTerm(len(r.log)) && request.LastLogIndex >= uint64(len(r.log)))) {
@@ -303,7 +304,8 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 	// Cont. from startElection(). We have now received a response from Gorums.
 
 	// #C5 If votes received from majority of server: become leader.
-	if response.VoteGranted {
+	// Make sure we have not stepped down while waiting for replies.
+	if response.VoteGranted && r.state == CANDIDATE {
 		// We have received at least a quorum of votes.
 		// We are the leader for this term. See Raft Paper Figure 2 -> Rules for Servers -> Leaders.
 
@@ -312,28 +314,22 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 		r.state = LEADER
 		r.leader = r.id
 
-		// #L1 Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
-		// repeat during idle periods to prevent election timeouts. TODO: implement.
+		for i := range r.nextIndex {
+			r.nextIndex[i] = len(r.log)
+		}
 
-		// Reset heartbeat (forcing a immediate AppendEntries RPC).
+		// #L1 Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
 		r.heartbeat.Reset(0)
 
 		r.election.Stop()
 
-		// TODO: This should be enough for now. We are only implementing the leader election.
 		return
 	}
 
 	// TODO: We didn't win the election. We should continue sending AppendEntries RPCs until the election runs out.
 
-	// #C6 If AppendEntries RPC received from new leader: convert to follower.
-	// We didn't win the election but we have identified another leader for the term.
-	// Step down to follower.
-	// TODO: This needs to be dealt with in respondAppendEntries.
-	// TODO: How do we deal with late responses?
-
 	// #C7 If election timeout elapses: start new election.
-	// This would have happened if we didn't receive a response in time.
+	// This will happened if we don't receive enough replies in time. Or we lose the election but don't see a higher term number.
 }
 
 func (r *Replica) sendAppendEntries() {
