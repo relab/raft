@@ -33,6 +33,13 @@ const (
 
 const NONE = -1
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func randomTimeout() time.Duration {
 	return time.Duration(ELECTION+rand.Intn(ELECTION*2-ELECTION)) * time.Millisecond
 }
@@ -40,7 +47,8 @@ func randomTimeout() time.Duration {
 type Replica struct {
 	sync.Mutex
 
-	id int64
+	id     int64
+	leader int64
 
 	state State
 
@@ -51,6 +59,8 @@ type Replica struct {
 	currentTerm uint64
 
 	log []*gorums.Entry
+
+	commitIndex int
 
 	nextIndex  []int
 	matchIndex []int
@@ -199,27 +209,43 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 	r.Lock()
 	defer r.Unlock()
 
-	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if request.Term > r.currentTerm {
-		r.becomeFollower(request.Term)
-
-		debug.Debugln(r.id, ":: OK", r.currentTerm)
-
-		return &gorums.AppendEntriesResponse{Success: true, Term: r.currentTerm}, nil
-	}
-
 	// #AE1 Reply false if term < currentTerm.
 	if request.Term < r.currentTerm {
 		return &gorums.AppendEntriesResponse{Success: false, Term: r.currentTerm}, nil
 	}
 
-	debug.Debugln(r.id, ":: OK", r.currentTerm)
+	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
+	if request.Term > r.currentTerm {
+		r.becomeFollower(request.Term)
+	}
+
+	r.leader = request.LeaderID
+	r.state = FOLLOWER
 
 	// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
 	// Here we are receiving AppendEntries RPC from the current leader so we reset the election timeout.
 	r.election.Reset(r.electionTimeout)
 
-	return &gorums.AppendEntriesResponse{Success: true, Term: r.currentTerm}, nil
+	success := request.PrevLogIndex == 0 || (request.PrevLogIndex <= uint64(len(r.log)) && r.log[request.PrevLogIndex].Term == request.PrevLogTerm)
+
+	if success {
+		debug.Debugln(r.id, ":: OK", r.currentTerm)
+
+		index := int(request.PrevLogIndex)
+
+		for _, entry := range request.Entries {
+			index++
+
+			if r.logTerm(index) != entry.Term {
+				r.log = r.log[:index-1] // Remove excessive log entries. TODO: Confirm index. Most likely we will have a off by one error.
+				r.log = append(r.log, entry)
+			}
+
+			r.commitIndex = min(int(request.CommitIndex), index)
+		}
+	}
+
+	return &gorums.AppendEntriesResponse{Success: success, Term: r.currentTerm}, nil
 }
 
 func (r *Replica) startElection() {
@@ -284,6 +310,7 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 		debug.Debugln(r.id, ":: ELECTED LEADER, for term", r.currentTerm)
 
 		r.state = LEADER
+		r.leader = r.id
 
 		// #L1 Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
 		// repeat during idle periods to prevent election timeouts. TODO: implement.
