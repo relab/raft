@@ -40,7 +40,11 @@ func main() {
 		log.Fatal(err)
 	}
 
+	w := make(chan struct{})
+
 	go func() {
+		w <- struct{}{}
+
 		err := s.Serve(l)
 
 		if err != nil {
@@ -48,8 +52,8 @@ func main() {
 		}
 	}()
 
-	// Give the server some time to start
-	<-time.After(100 * time.Millisecond)
+	// This should trick the scheduler into starting the server first.
+	<-w
 
 	if err := rs.Init(nodes); err != nil {
 		log.Fatal(err)

@@ -42,6 +42,7 @@ message AppendEntriesResponse {
   int64 followerID = 1;
 
   uint64 term = 2;
+  uint64 matchIndex = 3;
 
-  bool success = 3;
+  bool success = 4;
 }

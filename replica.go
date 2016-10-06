@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
 	"sync"
@@ -86,7 +87,7 @@ func (r *Replica) logTerm(index int) uint64 {
 		return 0
 	}
 
-	return r.log[index].Term
+	return r.log[index-1].Term
 }
 
 func (r *Replica) Init(nodes []string) error {
@@ -150,8 +151,8 @@ func (r *Replica) Init(nodes []string) error {
 	r.matchIndex = make([]int, peers)
 
 	// Initialized to leader last log index + 1.
-	for i := range r.matchIndex {
-		r.matchIndex[i] = 1
+	for i := range r.nextIndex {
+		r.nextIndex[i] = 1
 	}
 
 	r.Unlock()
@@ -187,17 +188,10 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	if request.Term > r.currentTerm {
 		r.becomeFollower(request.Term)
-
-		debug.Debugln(r.id, ":: VOTE GRANTED, to", request.CandidateID, "for term", request.Term)
-
-		r.votedFor = request.CandidateID
-
-		return &gorums.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm}, nil
 	}
 
 	// #RV2 If votedFor is null or candidateId, and candidate's log is at least as up-to-date as receiver's log, grant vote.
-	// TODO: Is len(r.log) off by one?
-	if request.Term == r.currentTerm && r.votedFor == NONE || r.votedFor == request.CandidateID &&
+	if (r.votedFor == NONE || r.votedFor == request.CandidateID) &&
 		(request.LastLogTerm > r.logTerm(len(r.log)) ||
 			(request.LastLogTerm == r.logTerm(len(r.log)) && request.LastLogIndex >= uint64(len(r.log)))) {
 		debug.Debugln(r.id, ":: VOTE GRANTED, to", request.CandidateID, "for term", request.Term)
@@ -219,43 +213,50 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 	r.Lock()
 	defer r.Unlock()
 
+	debug.Traceln(r.id, "::APPENDENTRIES,", request)
+
 	// #AE1 Reply false if term < currentTerm.
 	if request.Term < r.currentTerm {
-		return &gorums.AppendEntriesResponse{Success: false, Term: r.currentTerm}, nil
+		return &gorums.AppendEntriesResponse{FollowerID: r.id, Success: false, Term: r.currentTerm}, nil
 	}
+
+	success := request.PrevLogIndex == 0 || (request.PrevLogIndex-1 < uint64(len(r.log)) && r.log[request.PrevLogIndex-1].Term == request.PrevLogTerm)
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	if request.Term > r.currentTerm {
 		r.becomeFollower(request.Term)
+	} else if r.id != request.LeaderID {
+		r.becomeFollower(r.currentTerm)
 	}
-
-	r.leader = request.LeaderID
-	r.state = FOLLOWER
-
-	// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
-	// Here we are receiving AppendEntries RPC from the current leader so we reset the election timeout.
-	r.election.Reset(r.electionTimeout)
-
-	success := request.PrevLogIndex == 0 || (request.PrevLogIndex <= uint64(len(r.log)) && r.log[request.PrevLogIndex].Term == request.PrevLogTerm)
 
 	if success {
 		debug.Debugln(r.id, ":: OK", r.currentTerm)
+
+		r.leader = request.LeaderID
 
 		index := int(request.PrevLogIndex)
 
 		for _, entry := range request.Entries {
 			index++
 
-			if r.logTerm(index) != entry.Term {
-				r.log = r.log[:index-1] // Remove excessive log entries. TODO: Confirm index. Most likely we will have a off by one error.
+			if index == len(r.log) || r.logTerm(index) != entry.Term {
+				r.log = r.log[:index-1] // Remove excessive log entries.
 				r.log = append(r.log, entry)
+
+				log := ""
+
+				for _, entry := range r.log {
+					log += string(entry.Data) + " "
+				}
+
+				debug.Debugln(r.id, ":: LOG, len:", len(r.log), "data:", log)
 			}
 
 			r.commitIndex = min(int(request.CommitIndex), index)
 		}
 	}
 
-	return &gorums.AppendEntriesResponse{Success: success, Term: r.currentTerm}, nil
+	return &gorums.AppendEntriesResponse{FollowerID: r.id, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success}, nil
 }
 
 func (r *Replica) startElection() {
@@ -321,7 +322,7 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 		r.leader = r.id
 
 		for i := range r.nextIndex {
-			r.nextIndex[i] = len(r.log)
+			r.nextIndex[i] = len(r.log) + 1
 		}
 
 		// #L1 Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
@@ -344,9 +345,30 @@ func (r *Replica) sendAppendEntries() {
 
 	debug.Debugln(r.id, ":: APPENDENTRIES, for term", r.currentTerm)
 
+	n := rand.Intn(100)
+
+	if n > 90 {
+		debug.Debugln(r.id, ":: APPENDENTRIES, with log entry")
+		r.log = append(r.log, &gorums.Entry{Term: r.currentTerm, Data: []byte(fmt.Sprintf("%d", r.currentTerm))})
+	}
+
 	// #L1
-	for _, conf := range r.confs {
-		req := conf.AppendEntriesFuture(&gorums.AppendEntriesRequest{LeaderID: r.id, Term: r.currentTerm})
+	for id, conf := range r.confs {
+		entries := []*gorums.Entry{}
+
+		nextIndex := r.nextIndex[id] - 1
+
+		if len(r.log) > nextIndex {
+			entries = r.log[nextIndex : nextIndex+1]
+		}
+
+		req := conf.AppendEntriesFuture(&gorums.AppendEntriesRequest{
+			LeaderID:     r.id,
+			Term:         r.currentTerm,
+			PrevLogIndex: uint64(nextIndex),
+			PrevLogTerm:  r.logTerm(nextIndex),
+			Entries:      entries,
+		})
 
 		go func(req *gorums.AppendEntriesFuture) {
 			reply, err := req.Get()
@@ -380,7 +402,7 @@ func (r *Replica) handleAppendEntriesResponse(response *gorums.AppendEntriesResp
 
 	if r.state == LEADER {
 		if response.Success {
-			r.matchIndex[response.FollowerID]++
+			r.matchIndex[response.FollowerID] = int(response.MatchIndex)
 			r.nextIndex[response.FollowerID] = r.matchIndex[response.FollowerID] + 1
 
 			return
