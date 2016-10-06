@@ -275,7 +275,7 @@ func (r *Replica) startElection() {
 	r.election.Reset(r.electionTimeout)
 
 	// #C4 Send RequestVote RPCs to all other servers.
-	req := r.conf.RequestVoteFuture(&gorums.RequestVoteRequest{CandidateID: r.id, Term: r.currentTerm})
+	req := r.conf.RequestVoteFuture(&gorums.RequestVoteRequest{CandidateID: r.id, Term: r.currentTerm, LastLogIndex: r.logTerm(len(r.log)), LastLogTerm: uint64(len(r.log))})
 
 	go func() {
 		reply, err := req.Get()
