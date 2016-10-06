@@ -160,6 +160,11 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 
 	debug.Debugln(r.id, ":: VOTE REQUESTED, from", request.CandidateID, "for term", request.Term)
 
+	// #RV1 Reply false if term < currentTerm.
+	if request.Term < r.currentTerm {
+		return &gorums.RequestVoteResponse{VoteGranted: false, Term: r.currentTerm}, nil
+	}
+
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	if request.Term > r.currentTerm {
 		r.becomeFollower(request.Term)
@@ -171,27 +176,23 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 		return &gorums.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm}, nil
 	}
 
-	// #RV1 Reply false if term < currentTerm.
-	if request.Term < r.currentTerm {
-		return &gorums.RequestVoteResponse{VoteGranted: false, Term: r.currentTerm}, nil
+	// #RV2 If votedFor is null or candidateId, and candidate's log is at least as up-to-date as receiver's log, grant vote.
+	if request.Term == r.currentTerm && r.votedFor == NONE || r.votedFor == request.CandidateID &&
+		(request.LastLogTerm > r.logTerm(len(r.log)) ||
+			(request.LastLogTerm == r.logTerm(len(r.log)) && request.LastLogIndex >= uint64(len(r.log)))) {
+		debug.Debugln(r.id, ":: VOTE GRANTED, to", request.CandidateID, "for term", request.Term)
+
+		r.votedFor = request.CandidateID
+
+		// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
+		// Here we are granting a vote to a candidate so we reset the election timeout.
+		r.election.Reset(r.electionTimeout)
+
+		return &gorums.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm}, nil
 	}
 
-	// #RV2 If votedFor is null or candidateId, and candidate's log is at least as up-to-date as receiver's log, grant vote. TODO: log part.
-	// Make sure we don't double vote.
-	// We can vote for the same candidate again (e.g. response was lost).
-	if r.votedFor != NONE && r.votedFor != request.CandidateID {
-		return &gorums.RequestVoteResponse{VoteGranted: false, Term: r.currentTerm}, nil
-	}
-
-	debug.Debugln(r.id, ":: VOTE GRANTED, to", request.CandidateID, "for term", request.Term)
-
-	r.votedFor = request.CandidateID
-
-	// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
-	// Here we are granting a vote to a candidate so we reset the election timeout.
-	r.election.Reset(r.electionTimeout)
-
-	return &gorums.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm}, nil
+	// #RV2 The candidate's log was not up-to-date
+	return &gorums.RequestVoteResponse{VoteGranted: false, Term: r.currentTerm}, nil
 }
 
 func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntriesRequest) (*gorums.AppendEntriesResponse, error) {
