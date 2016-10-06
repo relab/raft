@@ -37,6 +37,15 @@ func min(a, b int) int {
 	if a < b {
 		return a
 	}
+
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+
 	return b
 }
 
@@ -364,7 +373,21 @@ func (r *Replica) handleAppendEntriesResponse(response *gorums.AppendEntriesResp
 		return
 	}
 
-	// TODO: Deal with AppendEntries response.
+	// Ignore late response
+	if response.Term < r.currentTerm {
+		return
+	}
+
+	if r.state == LEADER {
+		if response.Success {
+			r.matchIndex[response.FollowerID]++
+			r.nextIndex[response.FollowerID] = r.matchIndex[response.FollowerID] + 1
+
+			return
+		}
+
+		r.nextIndex[response.FollowerID] = max(0, r.nextIndex[response.FollowerID]-1)
+	}
 }
 
 func (r *Replica) becomeFollower(term uint64) {
