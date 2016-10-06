@@ -140,6 +140,12 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	if request.Term > r.currentTerm {
 		r.becomeFollower(request.Term)
+
+		debug.Debugln(r.id, ":: VOTE GRANTED, to", request.CandidateID, "for term", request.Term)
+
+		r.votedFor = request.CandidateID
+
+		return &gorums.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm}, nil
 	}
 
 	// #RV1 Reply false if term < currentTerm.
@@ -172,6 +178,10 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	if request.Term > r.currentTerm {
 		r.becomeFollower(request.Term)
+
+		debug.Debugln(r.id, ":: OK", r.currentTerm)
+
+		return &gorums.AppendEntriesResponse{Success: true, Term: r.currentTerm}, nil
 	}
 
 	// #AE1 Reply false if term < currentTerm.
@@ -193,6 +203,7 @@ func (r *Replica) startElection() {
 	defer r.Unlock()
 
 	r.state = CANDIDATE
+	r.electionTimeout = randomTimeout()
 
 	// We are now a candidate. See Raft Paper Figure 2 -> Rules for Servers -> Candidates.
 	// #C1 Increment currentTerm.
@@ -230,6 +241,8 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	if response.Term > r.currentTerm {
 		r.becomeFollower(response.Term)
+
+		return
 	}
 
 	// Ignore late response
@@ -259,6 +272,8 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 		// TODO: This should be enough for now. We are only implementing the leader election.
 		return
 	}
+
+	// TODO: We didn't win the election. We should continue sending AppendEntries RPCs until the election runs out.
 
 	// #C6 If AppendEntries RPC received from new leader: convert to follower.
 	// We didn't win the election but we have identified another leader for the term.
@@ -301,16 +316,20 @@ func (r *Replica) handleAppendEntriesResponse(response *gorums.AppendEntriesResp
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	if response.Term > r.currentTerm {
 		r.becomeFollower(response.Term)
+
+		return
 	}
 
 	// TODO: Deal with AppendEntries response.
 }
 
 func (r *Replica) becomeFollower(term uint64) {
+	debug.Debugln(r.id, ":: STEPDOWN,", r.currentTerm, "->", term)
+
 	r.state = FOLLOWER
 	r.currentTerm = term
 	r.votedFor = NONE
 
+	r.election.Reset(r.electionTimeout)
 	r.heartbeat.Stop()
-
 }
