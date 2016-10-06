@@ -50,11 +50,24 @@ type Replica struct {
 	votedFor    int64
 	currentTerm uint64
 
+	log []*gorums.Entry
+
+	nextIndex  []int
+	matchIndex []int
+
 	electionTimeout  time.Duration
 	heartbeatTimeout time.Duration
 
 	election  Timer
 	heartbeat Timer
+}
+
+func (r *Replica) logTerm(index int) uint64 {
+	if index < 1 || index > len(r.log) {
+		return 0
+	}
+
+	return r.log[index].Term
 }
 
 func (r *Replica) Init(nodes []string) error {
@@ -111,6 +124,16 @@ func (r *Replica) Init(nodes []string) error {
 	r.heartbeat.Stop()
 
 	r.votedFor = NONE
+
+	peers := len(mgr.NodeIDs())
+
+	r.nextIndex = make([]int, peers)
+	r.matchIndex = make([]int, peers)
+
+	// Initialized to leader last log index + 1.
+	for i := range r.matchIndex {
+		r.matchIndex[i] = 1
+	}
 
 	r.Unlock()
 
