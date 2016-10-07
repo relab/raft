@@ -8,39 +8,29 @@ type QuorumSpec struct {
 }
 
 func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*gorums.RequestVoteResponse, bool) {
-	if len(replies) < qspec.Q {
-		return nil, false
-	}
-
-	var term uint64
-
-	for _, reply := range replies {
-		if reply.Term > term {
-			term = reply.Term
-		}
-	}
-
 	votes := 0
+	response := &gorums.RequestVoteResponse{Term: replies[0].Term}
 
 	for _, reply := range replies {
-		if reply.Term == term && reply.VoteGranted {
+		if reply.Term > response.Term {
+			response.Term = reply.Term
+
+			return response, true
+		}
+
+		if reply.VoteGranted {
 			votes++
 		}
 	}
 
-	response := &gorums.RequestVoteResponse{Term: term}
-
 	if votes >= qspec.Q {
 		response.VoteGranted = true
+		return response, true
 	}
 
-	return response, true
+	return response, false
 }
 
 func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse) (*gorums.AppendEntriesResponse, bool) {
-	if len(replies) < 1 {
-		return nil, false
-	}
-
 	return replies[0], true
 }

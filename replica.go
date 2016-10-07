@@ -182,7 +182,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 
 	// #RV1 Reply false if term < currentTerm.
 	if request.Term < r.currentTerm {
-		return &gorums.RequestVoteResponse{VoteGranted: false, Term: r.currentTerm}, nil
+		return &gorums.RequestVoteResponse{Term: r.currentTerm}, nil
 	}
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
@@ -206,7 +206,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 	}
 
 	// #RV2 The candidate's log was not up-to-date
-	return &gorums.RequestVoteResponse{VoteGranted: false, Term: r.currentTerm}, nil
+	return &gorums.RequestVoteResponse{Term: r.currentTerm}, nil
 }
 
 func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntriesRequest) (*gorums.AppendEntriesResponse, error) {
@@ -281,10 +281,10 @@ func (r *Replica) startElection() {
 	go func() {
 		reply, err := req.Get()
 
-		if err != nil {
-			log.Println(err)
-		} else {
+		if reply.Reply != nil {
 			r.handleRequestVoteResponse(reply.Reply)
+		} else {
+			log.Println("Got no replies:", err)
 		}
 	}()
 
@@ -312,7 +312,7 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 
 	// #C5 If votes received from majority of server: become leader.
 	// Make sure we have not stepped down while waiting for replies.
-	if response.VoteGranted && r.state == CANDIDATE {
+	if r.state == CANDIDATE && response.VoteGranted {
 		// We have received at least a quorum of votes.
 		// We are the leader for this term. See Raft Paper Figure 2 -> Rules for Servers -> Leaders.
 

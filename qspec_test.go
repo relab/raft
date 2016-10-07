@@ -15,18 +15,12 @@ var requestVoteQFTests = []struct {
 	reply   *gorums.RequestVoteResponse
 }{
 	{
-		"no responses, len(replies) = 0",
-		[]*gorums.RequestVoteResponse{},
-		false,
-		nil,
-	},
-	{
 		"not enough responses, len(replies) < q",
 		[]*gorums.RequestVoteResponse{
 			{Term: 2, VoteGranted: true},
 		},
 		false,
-		nil,
+		&gorums.RequestVoteResponse{Term: 2, VoteGranted: false},
 	},
 	{
 		"grant vote, len(replies) = q",
@@ -65,7 +59,7 @@ var requestVoteQFTests = []struct {
 			{Term: 5, VoteGranted: false},
 		},
 		true,
-		&gorums.RequestVoteResponse{Term: 5, VoteGranted: false},
+		&gorums.RequestVoteResponse{Term: 4, VoteGranted: false},
 	},
 }
 
