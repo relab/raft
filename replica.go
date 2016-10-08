@@ -34,7 +34,7 @@ const (
 
 const NONE = -1
 
-func min(a, b int) int {
+func min(a, b uint64) uint64 {
 	if a < b {
 		return a
 	}
@@ -42,7 +42,7 @@ func min(a, b int) int {
 	return b
 }
 
-func max(a, b int) int {
+func max(a, b uint64) uint64 {
 	if a > b {
 		return a
 	}
@@ -252,7 +252,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 				debug.Debugln(r.id, ":: LOG, len:", len(r.log), "data:", log)
 			}
 
-			r.commitIndex = min(int(request.CommitIndex), index)
+			r.commitIndex = int(min(request.CommitIndex, uint64(index)))
 		}
 	}
 
@@ -408,7 +408,7 @@ func (r *Replica) handleAppendEntriesResponse(response *gorums.AppendEntriesResp
 			return
 		}
 
-		r.nextIndex[response.FollowerID] = max(0, r.nextIndex[response.FollowerID]-1)
+		r.nextIndex[response.FollowerID] = int(max(0, uint64(r.nextIndex[response.FollowerID]-1)))
 	}
 }
 

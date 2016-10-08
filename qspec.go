@@ -12,8 +12,8 @@ func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*
 	response := &gorums.RequestVoteResponse{Term: replies[0].Term}
 
 	for _, reply := range replies {
-		if reply.Term > response.Term {
-			response.Term = reply.Term
+		if reply.Term != response.Term {
+			response.Term = max(response.Term, reply.Term)
 
 			return response, true
 		}
@@ -21,11 +21,11 @@ func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*
 		if reply.VoteGranted {
 			votes++
 		}
-	}
 
-	if votes >= qspec.Q {
-		response.VoteGranted = true
-		return response, true
+		if votes >= qspec.Q {
+			response.VoteGranted = true
+			return response, true
+		}
 	}
 
 	return response, false

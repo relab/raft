@@ -42,14 +42,14 @@ var requestVoteQFTests = []struct {
 		&gorums.RequestVoteResponse{Term: 4, VoteGranted: true},
 	},
 	{
-		"higher term, len(replies) = n",
+		"last reply higher term, len(replies) = n",
 		[]*gorums.RequestVoteResponse{
 			{Term: 3, VoteGranted: true},
 			{Term: 3, VoteGranted: true},
 			{Term: 4, VoteGranted: false},
 		},
 		true,
-		&gorums.RequestVoteResponse{Term: 4, VoteGranted: false},
+		&gorums.RequestVoteResponse{Term: 3, VoteGranted: true},
 	},
 	{
 		"diff terms, len(replies) = n",
@@ -57,6 +57,16 @@ var requestVoteQFTests = []struct {
 			{Term: 3, VoteGranted: false},
 			{Term: 4, VoteGranted: false},
 			{Term: 5, VoteGranted: false},
+		},
+		true,
+		&gorums.RequestVoteResponse{Term: 4, VoteGranted: false},
+	},
+	{
+		"first reply high term, len(replies) = n",
+		[]*gorums.RequestVoteResponse{
+			{Term: 4, VoteGranted: false},
+			{Term: 3, VoteGranted: true},
+			{Term: 3, VoteGranted: true},
 		},
 		true,
 		&gorums.RequestVoteResponse{Term: 4, VoteGranted: false},
