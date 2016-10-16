@@ -1,6 +1,6 @@
 .PHONY: build
 build:
-	protoc --gorums_out=plugins=grpc+gorums:. proto/gorums/raft.proto
+	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. proto/gorums/raft.proto
 	cd proto/gorums; go install .
 	cd debug; go install .
 
