@@ -176,7 +176,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 
 	// #RV1 Reply false if term < currentTerm.
 	if request.Term < r.currentTerm {
-		return &gorums.RequestVoteResponse{Term: r.currentTerm}, nil
+		return &gorums.RequestVoteResponse{Term: r.currentTerm, RequestTerm: request.Term}, nil
 	}
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
@@ -196,11 +196,11 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 		// Here we are granting a vote to a candidate so we reset the election timeout.
 		r.election.Reset(r.electionTimeout)
 
-		return &gorums.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm}, nil
+		return &gorums.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm, RequestTerm: request.Term}, nil
 	}
 
 	// #RV2 The candidate's log was not up-to-date
-	return &gorums.RequestVoteResponse{Term: r.currentTerm}, nil
+	return &gorums.RequestVoteResponse{Term: r.currentTerm, RequestTerm: request.Term}, nil
 }
 
 func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntriesRequest) (*gorums.AppendEntriesResponse, error) {

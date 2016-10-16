@@ -28,8 +28,9 @@ message RequestVoteRequest {
 
 message RequestVoteResponse {
   uint64 term = 1;
+  uint64 requestTerm = 2;
 
-  bool voteGranted = 2;
+  bool voteGranted = 3;
 }
 
 message AppendEntriesRequest {

@@ -9,11 +9,11 @@ type QuorumSpec struct {
 
 func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*gorums.RequestVoteResponse, bool) {
 	votes := 0
-	response := &gorums.RequestVoteResponse{Term: replies[0].Term}
+	response := &gorums.RequestVoteResponse{Term: replies[0].RequestTerm}
 
 	for _, reply := range replies {
-		if reply.Term != response.Term {
-			response.Term = max(response.Term, reply.Term)
+		if reply.Term > response.Term {
+			response.Term = reply.Term
 
 			return response, true
 		}
