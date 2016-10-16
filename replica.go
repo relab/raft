@@ -15,7 +15,7 @@ import (
 	"github.com/relab/raft/proto/gorums"
 )
 
-// Represents one of the Raft server states.
+// State represents one of the Raft server states.
 type State int
 
 // Server states.
@@ -32,6 +32,8 @@ const (
 	ELECTION  = 150
 )
 
+// NONE represents no server.
+// This must be a value which cannot be returned from idutil.IDFromAddress(address).
 const NONE = 0
 
 func min(a, b uint64) uint64 {
@@ -54,11 +56,14 @@ func randomTimeout() time.Duration {
 	return time.Duration(ELECTION+rand.Intn(ELECTION*2-ELECTION)) * time.Millisecond
 }
 
+// Replica represents a Raft server
 type Replica struct {
+	// Must be acquired before mutating Replica state.
 	sync.Mutex
 
-	id     uint32
-	leader uint32
+	id       uint32
+	leader   uint32
+	votedFor uint32
 
 	state State
 
@@ -66,7 +71,6 @@ type Replica struct {
 
 	nodes map[uint32]*gorums.Node
 
-	votedFor    uint32
 	currentTerm uint64
 
 	log []*gorums.Entry
@@ -91,6 +95,8 @@ func (r *Replica) logTerm(index int) uint64 {
 	return r.log[index-1].Term
 }
 
+// Init initializes a Replica.
+// This must always be run before Run.
 func (r *Replica) Init(this string, nodes []string) error {
 	mgr, err := gorums.NewManager(nodes,
 		gorums.WithGrpcDialOptions(
@@ -154,6 +160,9 @@ func (r *Replica) Init(this string, nodes []string) error {
 	return nil
 }
 
+// Run handles timeouts.
+// Always call Init before this method.
+// All RPCs are handled by Gorums.
 func (r *Replica) Run() {
 	for {
 		select {
@@ -168,6 +177,8 @@ func (r *Replica) Run() {
 	}
 }
 
+// RequestVote handles a RequestVoteRequest which is invoked by candidates to gather votes.
+// See Raft paper § 5.2.
 func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRequest) (*gorums.RequestVoteResponse, error) {
 	r.Lock()
 	defer r.Unlock()
@@ -203,6 +214,8 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 	return &gorums.RequestVoteResponse{Term: r.currentTerm, RequestTerm: request.Term}, nil
 }
 
+// AppendEntries invoked by leader to replicate log entries, also used as a heartbeat.
+// See Raft paper § 5.3 and § 5.2.
 func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntriesRequest) (*gorums.AppendEntriesResponse, error) {
 	r.Lock()
 	defer r.Unlock()
