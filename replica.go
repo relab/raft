@@ -32,7 +32,7 @@ const (
 	ELECTION  = 150
 )
 
-const NONE = -1
+const NONE = 0
 
 func min(a, b uint64) uint64 {
 	if a < b {
@@ -57,23 +57,23 @@ func randomTimeout() time.Duration {
 type Replica struct {
 	sync.Mutex
 
-	id     int64
-	leader int64
+	id     uint32
+	leader uint32
 
 	state State
 
 	conf  *gorums.Configuration
-	confs []*gorums.Configuration
+	confs map[uint32]*gorums.Configuration
 
-	votedFor    int64
+	votedFor    uint32
 	currentTerm uint64
 
 	log []*gorums.Entry
 
 	commitIndex int
 
-	nextIndex  []int
-	matchIndex []int
+	nextIndex  map[uint32]int
+	matchIndex map[uint32]int
 
 	electionTimeout  time.Duration
 	heartbeatTimeout time.Duration
@@ -122,9 +122,13 @@ func (r *Replica) Init(this string, nodes []string) error {
 		return err
 	}
 
-	for i, nid := range mgr.NodeIDs() {
+	peers := len(mgr.NodeIDs())
+
+	r.confs = make(map[uint32]*gorums.Configuration, peers)
+
+	for _, nid := range mgr.NodeIDs() {
 		if id == nid {
-			r.id = int64(i)
+			r.id = nid
 		}
 
 		conf, err := mgr.NewConfiguration([]uint32{nid}, qspec, time.Second)
@@ -133,7 +137,7 @@ func (r *Replica) Init(this string, nodes []string) error {
 			return err
 		}
 
-		r.confs = append(r.confs, conf)
+		r.confs[nid] = conf
 	}
 
 	r.electionTimeout = randomTimeout()
@@ -147,14 +151,13 @@ func (r *Replica) Init(this string, nodes []string) error {
 
 	r.votedFor = NONE
 
-	peers := len(mgr.NodeIDs())
+	r.nextIndex = make(map[uint32]int, peers)
+	r.matchIndex = make(map[uint32]int, peers)
 
-	r.nextIndex = make([]int, peers)
-	r.matchIndex = make([]int, peers)
-
-	// Initialized to leader last log index + 1.
-	for i := range r.nextIndex {
-		r.nextIndex[i] = 1
+	for _, id := range mgr.NodeIDs() {
+		// Initialized to leader last log index + 1.
+		r.nextIndex[id] = 1
+		r.matchIndex[id] = 0
 	}
 
 	r.Unlock()
@@ -323,8 +326,8 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 		r.state = LEADER
 		r.leader = r.id
 
-		for i := range r.nextIndex {
-			r.nextIndex[i] = len(r.log) + 1
+		for id := range r.nextIndex {
+			r.nextIndex[id] = len(r.log) + 1
 		}
 
 		// #L1 Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
