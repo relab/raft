@@ -30,7 +30,3 @@ func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*
 
 	return response, false
 }
-
-func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse) (*gorums.AppendEntriesResponse, bool) {
-	return replies[0], true
-}
