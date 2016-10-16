@@ -62,8 +62,9 @@ type Replica struct {
 
 	state State
 
-	conf  *gorums.Configuration
-	confs map[uint32]*gorums.Configuration
+	conf *gorums.Configuration
+
+	nodes map[uint32]*gorums.Node
 
 	votedFor    uint32
 	currentTerm uint64
@@ -103,9 +104,11 @@ func (r *Replica) Init(this string, nodes []string) error {
 		return err
 	}
 
+	n := len(nodes)
+
 	qspec := &QuorumSpec{
-		N: len(mgr.NodeIDs()),
-		Q: len(mgr.NodeIDs())/2 + 1,
+		N: n,
+		Q: n/2 + 1,
 	}
 
 	conf, err := mgr.NewConfiguration(mgr.NodeIDs(), qspec, time.Second)
@@ -118,26 +121,16 @@ func (r *Replica) Init(this string, nodes []string) error {
 
 	id, err := idutil.IDFromAddress(this)
 
-	if err != nil {
-		return err
-	}
+	r.nodes = make(map[uint32]*gorums.Node, n)
 
-	peers := len(mgr.NodeIDs())
+	for _, node := range mgr.Nodes(false) {
+		nid := node.ID()
 
-	r.confs = make(map[uint32]*gorums.Configuration, peers)
-
-	for _, nid := range mgr.NodeIDs() {
 		if id == nid {
-			r.id = nid
+			r.id = id
 		}
 
-		conf, err := mgr.NewConfiguration([]uint32{nid}, qspec, time.Second)
-
-		if err != nil {
-			return err
-		}
-
-		r.confs[nid] = conf
+		r.nodes[nid] = node
 	}
 
 	r.electionTimeout = randomTimeout()
@@ -151,10 +144,10 @@ func (r *Replica) Init(this string, nodes []string) error {
 
 	r.votedFor = NONE
 
-	r.nextIndex = make(map[uint32]int, peers)
-	r.matchIndex = make(map[uint32]int, peers)
+	r.nextIndex = make(map[uint32]int, n)
+	r.matchIndex = make(map[uint32]int, n)
 
-	for _, id := range mgr.NodeIDs() {
+	for id := range r.nodes {
 		// Initialized to leader last log index + 1.
 		r.nextIndex[id] = 1
 		r.matchIndex[id] = 0
@@ -358,7 +351,7 @@ func (r *Replica) sendAppendEntries() {
 	}
 
 	// #L1
-	for id, conf := range r.confs {
+	for id, node := range r.nodes {
 		entries := []*gorums.Entry{}
 
 		nextIndex := r.nextIndex[id] - 1
@@ -367,23 +360,25 @@ func (r *Replica) sendAppendEntries() {
 			entries = r.log[nextIndex : nextIndex+1]
 		}
 
-		req := conf.AppendEntriesFuture(&gorums.AppendEntriesRequest{
+		req := &gorums.AppendEntriesRequest{
 			LeaderID:     r.id,
 			Term:         r.currentTerm,
 			PrevLogIndex: uint64(nextIndex),
 			PrevLogTerm:  r.logTerm(nextIndex),
 			Entries:      entries,
-		})
+		}
 
-		go func(req *gorums.AppendEntriesFuture) {
-			reply, err := req.Get()
+		go func(node *gorums.Node, req *gorums.AppendEntriesRequest) {
+			// TOOD: It's unclear at the moment which context I should use.
+			// I'm assuming I need some form of timeout?
+			resp, err := node.RaftClient.AppendEntries(context.TODO(), req)
 
 			if err != nil {
 				log.Println(err)
 			} else {
-				r.handleAppendEntriesResponse(reply.Reply)
+				r.handleAppendEntriesResponse(resp)
 			}
-		}(req)
+		}(node, req)
 	}
 
 	r.heartbeat.Reset(r.heartbeatTimeout)
