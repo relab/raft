@@ -1,9 +1,6 @@
 package main
 
-import (
-	"fmt"
-	"strings"
-)
+import "strings"
 
 type Nodes []string
 
@@ -12,7 +9,7 @@ func (n *Nodes) String() string {
 }
 
 func (n *Nodes) Set(value string) error {
-	*n = append(*n, fmt.Sprintf(":%s", value))
+	*n = append(*n, value)
 
 	return nil
 }

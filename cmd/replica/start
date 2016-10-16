@@ -4,8 +4,8 @@ set -e
 
 go build
 
-./replica -node 9202 -node 9201 -node 9203 -verbosity 1 &
-./replica -node 9203 -node 9201 -node 9202 -verbosity 1 &
-./replica -node 9201 -node 9202 -node 9203 -verbosity 1 &
+./replica -this :9202 -node :9201 -node :9203 -verbosity 1 &
+./replica -this :9203 -node :9201 -node :9202 -verbosity 1 &
+./replica -this :9201 -node :9202 -node :9203 -verbosity 1 &
 
 read && killall replica

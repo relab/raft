@@ -14,7 +14,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-var verbosity = flag.Int("verbosity", 0, "verbosity")
+var verbosity = flag.Int("verbosity", 0, "verbosity level")
+var this = flag.String("this", "", "local server address")
 var nodes Nodes
 
 func init() {
@@ -26,6 +27,14 @@ func main() {
 
 	flag.Parse()
 
+	if len(*this) == 0 {
+		log.Fatal("Missing local server address.")
+	}
+
+	if len(nodes) == 0 {
+		log.Fatal("Missing server addresses.")
+	}
+
 	debug.SetVerbosity(*verbosity)
 
 	rs := &raft.Replica{}
@@ -34,7 +43,7 @@ func main() {
 	s := grpc.NewServer()
 	gorums.RegisterRaftServer(s, rs)
 
-	l, err := net.Listen("tcp", nodes[0])
+	l, err := net.Listen("tcp", *this)
 
 	if err != nil {
 		log.Fatal(err)
@@ -51,7 +60,7 @@ func main() {
 	// Wait for the server to start
 	<-time.After(500 * time.Millisecond)
 
-	if err := rs.Init(nodes); err != nil {
+	if err := rs.Init(*this, nodes); err != nil {
 		log.Fatal(err)
 	}
 

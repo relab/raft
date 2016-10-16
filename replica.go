@@ -90,7 +90,9 @@ func (r *Replica) logTerm(index int) uint64 {
 	return r.log[index-1].Term
 }
 
-func (r *Replica) Init(nodes []string) error {
+func (r *Replica) Init(this string, nodes []string) error {
+	nodes = append(nodes, this)
+
 	mgr, err := gorums.NewManager(nodes,
 		gorums.WithGrpcDialOptions(
 			grpc.WithBlock(),
@@ -114,7 +116,7 @@ func (r *Replica) Init(nodes []string) error {
 
 	r.conf = conf
 
-	id, err := idutil.IDFromAddress(nodes[0])
+	id, err := idutil.IDFromAddress(this)
 
 	if err != nil {
 		return err
