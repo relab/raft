@@ -92,8 +92,6 @@ func (r *Replica) logTerm(index int) uint64 {
 }
 
 func (r *Replica) Init(this string, nodes []string) error {
-	nodes = append(nodes, this)
-
 	mgr, err := gorums.NewManager(nodes,
 		gorums.WithGrpcDialOptions(
 			grpc.WithBlock(),
@@ -104,11 +102,11 @@ func (r *Replica) Init(this string, nodes []string) error {
 		return err
 	}
 
-	n := len(nodes)
+	n := len(nodes) + 1
 
 	qspec := &QuorumSpec{
 		N: n,
-		Q: n/2 + 1,
+		Q: n / 2,
 	}
 
 	conf, err := mgr.NewConfiguration(mgr.NodeIDs(), qspec, time.Second)
@@ -119,18 +117,16 @@ func (r *Replica) Init(this string, nodes []string) error {
 
 	r.conf = conf
 
-	id, err := idutil.IDFromAddress(this)
+	r.id, err = idutil.IDFromAddress(this)
 
-	r.nodes = make(map[uint32]*gorums.Node, n)
+	if err != nil {
+		return err
+	}
+
+	r.nodes = make(map[uint32]*gorums.Node, n-1)
 
 	for _, node := range mgr.Nodes(false) {
-		nid := node.ID()
-
-		if id == nid {
-			r.id = id
-		}
-
-		r.nodes[nid] = node
+		r.nodes[node.ID()] = node
 	}
 
 	r.electionTimeout = randomTimeout()
@@ -144,8 +140,8 @@ func (r *Replica) Init(this string, nodes []string) error {
 
 	r.votedFor = NONE
 
-	r.nextIndex = make(map[uint32]int, n)
-	r.matchIndex = make(map[uint32]int, n)
+	r.nextIndex = make(map[uint32]int, n-1)
+	r.matchIndex = make(map[uint32]int, n-1)
 
 	for id := range r.nodes {
 		// Initialized to leader last log index + 1.
@@ -267,6 +263,9 @@ func (r *Replica) startElection() {
 	// We are now a candidate. See Raft Paper Figure 2 -> Rules for Servers -> Candidates.
 	// #C1 Increment currentTerm.
 	r.currentTerm++
+
+	// #C2 Vote for self.
+	r.votedFor = r.id
 
 	debug.Debugln(r.id, ":: ELECTION STARTED, for term", r.currentTerm)
 
