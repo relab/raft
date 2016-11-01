@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"sync"
 	"time"
 
 	"golang.org/x/net/context"
@@ -58,9 +57,6 @@ func randomTimeout() time.Duration {
 
 // Replica represents a Raft server
 type Replica struct {
-	// Must be acquired before mutating Replica state.
-	sync.Mutex
-
 	id       uint32
 	leader   uint32
 	votedFor uint32
@@ -85,6 +81,8 @@ type Replica struct {
 
 	election  Timer
 	heartbeat Timer
+
+	ops chan func(*Replica)
 }
 
 func (r *Replica) logTerm(index int) uint64 {
@@ -155,7 +153,7 @@ func (r *Replica) Init(this string, nodes []string) error {
 		r.matchIndex[id] = 0
 	}
 
-	r.Unlock()
+	r.ops = make(chan func(*Replica), 1<<10)
 
 	return nil
 }
@@ -173,174 +171,205 @@ func (r *Replica) Run() {
 
 		case <-r.heartbeat.C:
 			r.sendAppendEntries()
+
+		case op := <-r.ops:
+			op(r)
 		}
 	}
+}
+
+type requestVoteResult struct {
+	val *gorums.RequestVoteResponse
+	err error
 }
 
 // RequestVote handles a RequestVoteRequest which is invoked by candidates to gather votes.
 // See Raft paper § 5.2.
 func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRequest) (*gorums.RequestVoteResponse, error) {
-	r.Lock()
-	defer r.Unlock()
+	result := make(chan requestVoteResult, 1)
+	r.ops <- func(r *Replica) {
+		debug.Debugln(r.id, ":: VOTE REQUESTED, from", request.CandidateID, "for term", request.Term)
 
-	debug.Debugln(r.id, ":: VOTE REQUESTED, from", request.CandidateID, "for term", request.Term)
+		// #RV1 Reply false if term < currentTerm.
+		if request.Term < r.currentTerm {
+			result <- requestVoteResult{
+				&gorums.RequestVoteResponse{Term: r.currentTerm, RequestTerm: request.Term},
+				nil,
+			}
+		}
 
-	// #RV1 Reply false if term < currentTerm.
-	if request.Term < r.currentTerm {
-		return &gorums.RequestVoteResponse{Term: r.currentTerm, RequestTerm: request.Term}, nil
+		// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
+		if request.Term > r.currentTerm {
+			r.becomeFollower(request.Term)
+		}
+
+		// #RV2 If votedFor is null or candidateId, and candidate's log is at least as up-to-date as receiver's log, grant vote.
+		if (r.votedFor == NONE || r.votedFor == request.CandidateID) &&
+			(request.LastLogTerm > r.logTerm(len(r.log)) ||
+				(request.LastLogTerm == r.logTerm(len(r.log)) && request.LastLogIndex >= uint64(len(r.log)))) {
+			debug.Debugln(r.id, ":: VOTE GRANTED, to", request.CandidateID, "for term", request.Term)
+
+			r.votedFor = request.CandidateID
+
+			// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
+			// Here we are granting a vote to a candidate so we reset the election timeout.
+			r.election.Reset(r.electionTimeout)
+
+			result <- requestVoteResult{
+				&gorums.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm, RequestTerm: request.Term},
+				nil,
+			}
+		}
+
+		// #RV2 The candidate's log was not up-to-date
+		result <- requestVoteResult{
+			&gorums.RequestVoteResponse{Term: r.currentTerm, RequestTerm: request.Term},
+			nil,
+		}
 	}
+	res := <-result
+	return res.val, res.err
+}
 
-	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if request.Term > r.currentTerm {
-		r.becomeFollower(request.Term)
-	}
-
-	// #RV2 If votedFor is null or candidateId, and candidate's log is at least as up-to-date as receiver's log, grant vote.
-	if (r.votedFor == NONE || r.votedFor == request.CandidateID) &&
-		(request.LastLogTerm > r.logTerm(len(r.log)) ||
-			(request.LastLogTerm == r.logTerm(len(r.log)) && request.LastLogIndex >= uint64(len(r.log)))) {
-		debug.Debugln(r.id, ":: VOTE GRANTED, to", request.CandidateID, "for term", request.Term)
-
-		r.votedFor = request.CandidateID
-
-		// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
-		// Here we are granting a vote to a candidate so we reset the election timeout.
-		r.election.Reset(r.electionTimeout)
-
-		return &gorums.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm, RequestTerm: request.Term}, nil
-	}
-
-	// #RV2 The candidate's log was not up-to-date
-	return &gorums.RequestVoteResponse{Term: r.currentTerm, RequestTerm: request.Term}, nil
+type appendEntriesResult struct {
+	val *gorums.AppendEntriesResponse
+	err error
 }
 
 // AppendEntries invoked by leader to replicate log entries, also used as a heartbeat.
 // See Raft paper § 5.3 and § 5.2.
 func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntriesRequest) (*gorums.AppendEntriesResponse, error) {
-	r.Lock()
-	defer r.Unlock()
+	result := make(chan appendEntriesResult, 1)
+	r.ops <- func(r *Replica) {
+		debug.Traceln(r.id, "::APPENDENTRIES,", request)
 
-	debug.Traceln(r.id, "::APPENDENTRIES,", request)
+		// #AE1 Reply false if term < currentTerm.
+		if request.Term < r.currentTerm {
+			result <- appendEntriesResult{
+				&gorums.AppendEntriesResponse{FollowerID: r.id, Success: false, Term: r.currentTerm},
+				nil,
+			}
+		}
 
-	// #AE1 Reply false if term < currentTerm.
-	if request.Term < r.currentTerm {
-		return &gorums.AppendEntriesResponse{FollowerID: r.id, Success: false, Term: r.currentTerm}, nil
-	}
+		success := request.PrevLogIndex == 0 || (request.PrevLogIndex-1 < uint64(len(r.log)) && r.log[request.PrevLogIndex-1].Term == request.PrevLogTerm)
 
-	success := request.PrevLogIndex == 0 || (request.PrevLogIndex-1 < uint64(len(r.log)) && r.log[request.PrevLogIndex-1].Term == request.PrevLogTerm)
+		// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
+		if request.Term > r.currentTerm {
+			r.becomeFollower(request.Term)
+		} else if r.id != request.LeaderID {
+			r.becomeFollower(r.currentTerm)
+		}
 
-	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if request.Term > r.currentTerm {
-		r.becomeFollower(request.Term)
-	} else if r.id != request.LeaderID {
-		r.becomeFollower(r.currentTerm)
-	}
+		if success {
+			debug.Debugln(r.id, ":: OK", r.currentTerm)
 
-	if success {
-		debug.Debugln(r.id, ":: OK", r.currentTerm)
+			r.leader = request.LeaderID
 
-		r.leader = request.LeaderID
+			index := int(request.PrevLogIndex)
 
-		index := int(request.PrevLogIndex)
+			for _, entry := range request.Entries {
+				index++
 
-		for _, entry := range request.Entries {
-			index++
+				if index == len(r.log) || r.logTerm(index) != entry.Term {
+					r.log = r.log[:index-1] // Remove excessive log entries.
+					r.log = append(r.log, entry)
 
-			if index == len(r.log) || r.logTerm(index) != entry.Term {
-				r.log = r.log[:index-1] // Remove excessive log entries.
-				r.log = append(r.log, entry)
+					log := ""
 
-				log := ""
+					for _, entry := range r.log {
+						log += string(entry.Data) + " "
+					}
 
-				for _, entry := range r.log {
-					log += string(entry.Data) + " "
+					debug.Debugln(r.id, ":: LOG, len:", len(r.log), "data:", log)
 				}
 
-				debug.Debugln(r.id, ":: LOG, len:", len(r.log), "data:", log)
+				r.commitIndex = int(min(request.CommitIndex, uint64(index)))
 			}
+		}
 
-			r.commitIndex = int(min(request.CommitIndex, uint64(index)))
+		result <- appendEntriesResult{
+			&gorums.AppendEntriesResponse{FollowerID: r.id, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success},
+			nil,
 		}
 	}
 
-	return &gorums.AppendEntriesResponse{FollowerID: r.id, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success}, nil
+	res := <-result
+	return res.val, res.err
 }
 
 func (r *Replica) startElection() {
-	r.Lock()
-	defer r.Unlock()
+	r.ops <- func(*Replica) {
+		r.state = CANDIDATE
+		r.electionTimeout = randomTimeout()
 
-	r.state = CANDIDATE
-	r.electionTimeout = randomTimeout()
+		// We are now a candidate. See Raft Paper Figure 2 -> Rules for Servers -> Candidates.
+		// #C1 Increment currentTerm.
+		r.currentTerm++
 
-	// We are now a candidate. See Raft Paper Figure 2 -> Rules for Servers -> Candidates.
-	// #C1 Increment currentTerm.
-	r.currentTerm++
+		// #C2 Vote for self.
+		r.votedFor = r.id
 
-	// #C2 Vote for self.
-	r.votedFor = r.id
+		debug.Debugln(r.id, ":: ELECTION STARTED, for term", r.currentTerm)
 
-	debug.Debugln(r.id, ":: ELECTION STARTED, for term", r.currentTerm)
+		// #C3 Reset election timer.
+		r.election.Reset(r.electionTimeout)
 
-	// #C3 Reset election timer.
-	r.election.Reset(r.electionTimeout)
+		// #C4 Send RequestVote RPCs to all other servers.
+		req := r.conf.RequestVoteFuture(&gorums.RequestVoteRequest{CandidateID: r.id, Term: r.currentTerm, LastLogIndex: r.logTerm(len(r.log)), LastLogTerm: uint64(len(r.log))})
 
-	// #C4 Send RequestVote RPCs to all other servers.
-	req := r.conf.RequestVoteFuture(&gorums.RequestVoteRequest{CandidateID: r.id, Term: r.currentTerm, LastLogIndex: r.logTerm(len(r.log)), LastLogTerm: uint64(len(r.log))})
+		go func() {
+			reply, err := req.Get()
 
-	go func() {
-		reply, err := req.Get()
+			if reply.Reply != nil {
+				r.handleRequestVoteResponse(reply.Reply)
+			} else {
+				log.Println("Got no replies:", err)
+			}
+		}()
 
-		if reply.Reply != nil {
-			r.handleRequestVoteResponse(reply.Reply)
-		} else {
-			log.Println("Got no replies:", err)
-		}
-	}()
-
-	// Election is now started. Election will be continued in handleRequestVote when a response from Gorums is received.
-	// See RequestVoteQF for the quorum function creating the response.
+		// Election is now started. Election will be continued in handleRequestVote when a response from Gorums is received.
+		// See RequestVoteQF for the quorum function creating the response.
+	}
 }
 
 func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse) {
-	r.Lock()
-	defer r.Unlock()
+	r.ops <- func(*Replica) {
+		// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
+		if response.Term > r.currentTerm {
+			r.becomeFollower(response.Term)
 
-	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if response.Term > r.currentTerm {
-		r.becomeFollower(response.Term)
-
-		return
-	}
-
-	// Ignore late response
-	if response.Term < r.currentTerm {
-		return
-	}
-
-	// Cont. from startElection(). We have now received a response from Gorums.
-
-	// #C5 If votes received from majority of server: become leader.
-	// Make sure we have not stepped down while waiting for replies.
-	if r.state == CANDIDATE && response.VoteGranted {
-		// We have received at least a quorum of votes.
-		// We are the leader for this term. See Raft Paper Figure 2 -> Rules for Servers -> Leaders.
-
-		debug.Debugln(r.id, ":: ELECTED LEADER, for term", r.currentTerm)
-
-		r.state = LEADER
-		r.leader = r.id
-
-		for id := range r.nextIndex {
-			r.nextIndex[id] = len(r.log) + 1
+			return
 		}
 
-		// #L1 Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
-		r.heartbeat.Reset(0)
+		// Ignore late response
+		if response.Term < r.currentTerm {
+			return
+		}
 
-		r.election.Stop()
+		// Cont. from startElection(). We have now received a response from Gorums.
 
-		return
+		// #C5 If votes received from majority of server: become leader.
+		// Make sure we have not stepped down while waiting for replies.
+		if r.state == CANDIDATE && response.VoteGranted {
+			// We have received at least a quorum of votes.
+			// We are the leader for this term. See Raft Paper Figure 2 -> Rules for Servers -> Leaders.
+
+			debug.Debugln(r.id, ":: ELECTED LEADER, for term", r.currentTerm)
+
+			r.state = LEADER
+			r.leader = r.id
+
+			for id := range r.nextIndex {
+				r.nextIndex[id] = len(r.log) + 1
+			}
+
+			// #L1 Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
+			r.heartbeat.Reset(0)
+
+			r.election.Stop()
+
+			return
+		}
 	}
 
 	// TODO: We didn't win the election. We should continue sending AppendEntries RPCs until the election runs out.
@@ -350,77 +379,75 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 }
 
 func (r *Replica) sendAppendEntries() {
-	r.Lock()
-	defer r.Unlock()
+	r.ops <- func(r *Replica) {
+		debug.Debugln(r.id, ":: APPENDENTRIES, for term", r.currentTerm)
 
-	debug.Debugln(r.id, ":: APPENDENTRIES, for term", r.currentTerm)
+		n := rand.Intn(100)
 
-	n := rand.Intn(100)
-
-	if n > 90 {
-		debug.Debugln(r.id, ":: APPENDENTRIES, with log entry")
-		r.log = append(r.log, &gorums.Entry{Term: r.currentTerm, Data: []byte(fmt.Sprintf("%d", r.currentTerm))})
-	}
-
-	// #L1
-	for id, node := range r.nodes {
-		entries := []*gorums.Entry{}
-
-		nextIndex := r.nextIndex[id] - 1
-
-		if len(r.log) > nextIndex {
-			entries = r.log[nextIndex : nextIndex+1]
+		if n > 90 {
+			debug.Debugln(r.id, ":: APPENDENTRIES, with log entry")
+			r.log = append(r.log, &gorums.Entry{Term: r.currentTerm, Data: []byte(fmt.Sprintf("%d", r.currentTerm))})
 		}
 
-		req := &gorums.AppendEntriesRequest{
-			LeaderID:     r.id,
-			Term:         r.currentTerm,
-			PrevLogIndex: uint64(nextIndex),
-			PrevLogTerm:  r.logTerm(nextIndex),
-			Entries:      entries,
-		}
+		// #L1
+		for id, node := range r.nodes {
+			entries := []*gorums.Entry{}
 
-		go func(node *gorums.Node, req *gorums.AppendEntriesRequest) {
-			// TOOD: It's unclear at the moment which context I should use.
-			// I'm assuming I need some form of timeout?
-			resp, err := node.RaftClient.AppendEntries(context.TODO(), req)
+			nextIndex := r.nextIndex[id] - 1
 
-			if err != nil {
-				log.Println(err)
-			} else {
-				r.handleAppendEntriesResponse(resp)
+			if len(r.log) > nextIndex {
+				entries = r.log[nextIndex : nextIndex+1]
 			}
-		}(node, req)
-	}
 
-	r.heartbeat.Reset(r.heartbeatTimeout)
+			req := &gorums.AppendEntriesRequest{
+				LeaderID:     r.id,
+				Term:         r.currentTerm,
+				PrevLogIndex: uint64(nextIndex),
+				PrevLogTerm:  r.logTerm(nextIndex),
+				Entries:      entries,
+			}
+
+			go func(node *gorums.Node, req *gorums.AppendEntriesRequest) {
+				// TOOD: It's unclear at the moment which context I should use.
+				// I'm assuming I need some form of timeout?
+				resp, err := node.RaftClient.AppendEntries(context.TODO(), req)
+
+				if err != nil {
+					log.Println(err)
+				} else {
+					r.handleAppendEntriesResponse(resp)
+				}
+			}(node, req)
+		}
+
+		r.heartbeat.Reset(r.heartbeatTimeout)
+	}
 }
 
 func (r *Replica) handleAppendEntriesResponse(response *gorums.AppendEntriesResponse) {
-	r.Lock()
-	defer r.Unlock()
-
-	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if response.Term > r.currentTerm {
-		r.becomeFollower(response.Term)
-
-		return
-	}
-
-	// Ignore late response
-	if response.Term < r.currentTerm {
-		return
-	}
-
-	if r.state == LEADER {
-		if response.Success {
-			r.matchIndex[response.FollowerID] = int(response.MatchIndex)
-			r.nextIndex[response.FollowerID] = r.matchIndex[response.FollowerID] + 1
+	r.ops <- func(*Replica) {
+		// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
+		if response.Term > r.currentTerm {
+			r.becomeFollower(response.Term)
 
 			return
 		}
 
-		r.nextIndex[response.FollowerID] = int(max(0, uint64(r.nextIndex[response.FollowerID]-1)))
+		// Ignore late response
+		if response.Term < r.currentTerm {
+			return
+		}
+
+		if r.state == LEADER {
+			if response.Success {
+				r.matchIndex[response.FollowerID] = int(response.MatchIndex)
+				r.nextIndex[response.FollowerID] = r.matchIndex[response.FollowerID] + 1
+
+				return
+			}
+
+			r.nextIndex[response.FollowerID] = int(max(0, uint64(r.nextIndex[response.FollowerID]-1)))
+		}
 	}
 }
 

@@ -38,7 +38,6 @@ func main() {
 	debug.SetVerbosity(*verbosity)
 
 	rs := &raft.Replica{}
-	rs.Lock()
 
 	s := grpc.NewServer()
 	gorums.RegisterRaftServer(s, rs)
