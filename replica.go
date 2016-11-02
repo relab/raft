@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 
 	"github.com/relab/gorums/idutil"
 	"github.com/relab/raft/debug"
@@ -187,7 +188,8 @@ type requestVoteResult struct {
 // See Raft paper § 5.2.
 func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRequest) (*gorums.RequestVoteResponse, error) {
 	result := make(chan requestVoteResult, 1)
-	r.ops <- func(r *Replica) {
+	select {
+	case r.ops <- func(r *Replica) {
 		debug.Debugln(r.id, ":: VOTE REQUESTED, from", request.CandidateID, "for term", request.Term)
 
 		// #RV1 Reply false if term < currentTerm.
@@ -226,6 +228,12 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 			&gorums.RequestVoteResponse{Term: r.currentTerm, RequestTerm: request.Term},
 			nil,
 		}
+	}:
+	default:
+		// Example of handling backpressue.
+		// Send blocked, replica ops-channel is full.
+		// Drop request and report this to the client.
+		return nil, grpc.Errorf(codes.Unavailable, "replica work queue full")
 	}
 
 	select {
@@ -245,7 +253,8 @@ type appendEntriesResult struct {
 // See Raft paper § 5.3 and § 5.2.
 func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntriesRequest) (*gorums.AppendEntriesResponse, error) {
 	result := make(chan appendEntriesResult, 1)
-	r.ops <- func(r *Replica) {
+	select {
+	case r.ops <- func(r *Replica) {
 		debug.Traceln(r.id, "::APPENDENTRIES,", request)
 
 		// #AE1 Reply false if term < currentTerm.
@@ -296,6 +305,12 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 			&gorums.AppendEntriesResponse{FollowerID: r.id, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success},
 			nil,
 		}
+	}:
+	default:
+		// Example of handling backpressue.
+		// Send blocked, replica ops-channel is full.
+		// Drop request and report this to the client.
+		return nil, grpc.Errorf(codes.Unavailable, "replica work queue full")
 	}
 
 	select {
