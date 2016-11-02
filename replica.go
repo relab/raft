@@ -227,8 +227,13 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 			nil,
 		}
 	}
-	res := <-result
-	return res.val, res.err
+
+	select {
+	case res := <-result:
+		return res.val, res.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 type appendEntriesResult struct {
@@ -293,8 +298,12 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 		}
 	}
 
-	res := <-result
-	return res.val, res.err
+	select {
+	case res := <-result:
+		return res.val, res.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (r *Replica) startElection() {
