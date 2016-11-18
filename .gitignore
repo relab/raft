@@ -26,4 +26,3 @@ _testmain.go
 cmd/replica/replica
 vendor/**
 !vendor/manifest
-*.pb.go
