@@ -381,7 +381,7 @@ func (r *Replica) sendAppendEntries() {
 		}
 
 		go func(node *gorums.Node, req *gorums.AppendEntriesRequest) {
-			ctx, cancel := context.WithTimeout(context.Background(), APPENDENTRIES)
+			ctx, cancel := context.WithTimeout(context.Background(), APPENDENTRIES*time.Millisecond)
 			defer cancel()
 			resp, err := node.RaftClient.AppendEntries(ctx, req)
 
