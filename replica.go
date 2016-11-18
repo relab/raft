@@ -290,12 +290,11 @@ func (r *Replica) startElection() {
 
 	go func() {
 		reply, err := req.Get()
-
-		if reply.Reply != nil {
-			r.handleRequestVoteResponse(reply.Reply)
-		} else {
-			log.Println("Got no replies:", err)
+		if err != nil {
+			log.Println("startElection: RequestVote error:", err)
+			return
 		}
+		r.handleRequestVoteResponse(reply.Reply)
 	}()
 
 	// Election is now started. Election will be continued in handleRequestVote when a response from Gorums is received.
@@ -386,10 +385,10 @@ func (r *Replica) sendAppendEntries() {
 			resp, err := node.RaftClient.AppendEntries(context.TODO(), req)
 
 			if err != nil {
-				log.Println(err)
-			} else {
-				r.handleAppendEntriesResponse(resp)
+				log.Printf("node %d: AppendEntries error: %v", node.ID(), err)
+				return
 			}
+			r.handleAppendEntriesResponse(resp)
 		}(node, req)
 	}
 
