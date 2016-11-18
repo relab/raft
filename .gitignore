@@ -24,5 +24,4 @@ _testmain.go
 *.prof
 
 cmd/replica/replica
-vendor/**
 !vendor/manifest
