@@ -28,8 +28,9 @@ const (
 
 // Timeouts in milliseconds.
 const (
-	HEARTBEAT = 50
-	ELECTION  = 150
+	HEARTBEAT     = 50
+	ELECTION      = 150
+	APPENDENTRIES = 100
 )
 
 // NONE represents no server.
@@ -380,9 +381,9 @@ func (r *Replica) sendAppendEntries() {
 		}
 
 		go func(node *gorums.Node, req *gorums.AppendEntriesRequest) {
-			// TOOD: It's unclear at the moment which context I should use.
-			// I'm assuming I need some form of timeout?
-			resp, err := node.RaftClient.AppendEntries(context.TODO(), req)
+			ctx, cancel := context.WithTimeout(context.Background(), APPENDENTRIES)
+			defer cancel()
+			resp, err := node.RaftClient.AppendEntries(ctx, req)
 
 			if err != nil {
 				log.Printf("node %d: AppendEntries error: %v", node.ID(), err)
