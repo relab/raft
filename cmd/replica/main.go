@@ -16,7 +16,7 @@ import (
 
 var verbosity = flag.Int("verbosity", 0, "verbosity level")
 var this = flag.String("this", "", "local server address")
-var nodes Nodes
+var nodes raft.Nodes
 
 func init() {
 	flag.Var(&nodes, "node", "server address")
