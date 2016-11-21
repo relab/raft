@@ -11,6 +11,9 @@ service Raft {
   }
 
   rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+
+  rpc RegisterClient(RegisterClientRequest) returns (RegisterClientResponse);
+  rpc ClientRequest(ClientRequestRequest) returns (ClientRequestResponse);
 }
 
 message Entry {
@@ -52,4 +55,35 @@ message AppendEntriesResponse {
   uint64 matchIndex = 3;
 
   bool success = 4;
+}
+
+enum Status {
+  OK = 0;
+  NOT_LEADER = -1;
+  SESSION_EXPIRED = -2;
+}
+
+message RegisterClientRequest {}
+
+message RegisterClientResponse {
+  Status status = 1;
+
+  uint32 clientID = 2;
+  uint32 leaderHint = 3;
+}
+
+message ClientRequestRequest {
+  uint32 clientID = 1;
+
+  uint64 sequenceNumber = 2;
+
+  bytes command = 3;
+}
+
+message ClientRequestResponse {
+  Status status = 1;
+
+  bytes response = 2;
+
+  uint32 leaderHint = 3;
 }
