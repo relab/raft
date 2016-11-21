@@ -66,6 +66,8 @@ type Replica struct {
 	leader   uint32
 	votedFor uint32
 
+	seenLeader bool
+
 	state State
 
 	conf *gorums.Configuration
@@ -241,6 +243,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 		debug.Debugln(r.id, ":: OK", r.currentTerm)
 
 		r.leader = request.LeaderID
+		r.seenLeader = true
 
 		index := int(request.PrevLogIndex)
 
@@ -265,6 +268,31 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 	}
 
 	return &gorums.AppendEntriesResponse{FollowerID: r.id, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success}, nil
+}
+
+func (r *Replica) RegisterClient(ctx context.Context, request *gorums.RegisterClientRequest) (*gorums.RegisterClientResponse, error) {
+	if r.state == LEADER {
+		id := rand.Uint32()
+
+		// Append to log, replicate, commit
+		// Apply in log order
+		// Reply
+
+		return &gorums.RegisterClientResponse{ClientID: id, Status: gorums.OK}, nil
+	}
+
+	var hint uint32
+
+	if r.seenLeader {
+		hint = r.leader
+	}
+
+	// If client receives hint = 0, it should try another random server.
+	return &gorums.RegisterClientResponse{Status: gorums.NOT_LEADER, LeaderHint: hint}, nil
+}
+
+func (r *Replica) ClientRequest(ctx context.Context, request *gorums.ClientRequestRequest) (*gorums.ClientRequestResponse, error) {
+	return &gorums.ClientRequestResponse{}, nil
 }
 
 func (r *Replica) startElection() {
@@ -330,6 +358,7 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 
 		r.state = LEADER
 		r.leader = r.id
+		r.seenLeader = true
 
 		for id := range r.nextIndex {
 			r.nextIndex[id] = len(r.log) + 1
