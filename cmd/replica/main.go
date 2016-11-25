@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
@@ -12,10 +13,12 @@ import (
 	"github.com/relab/raft/proto/gorums"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/grpclog"
 )
 
 var verbosity = flag.Int("verbosity", 0, "verbosity level")
 var this = flag.String("this", "", "local server address")
+var bench = flag.Bool("bench", false, "Silence output for benchmarking")
 var nodes raft.Nodes
 
 func init() {
@@ -36,6 +39,15 @@ func main() {
 	}
 
 	debug.SetVerbosity(*verbosity)
+
+	if *bench {
+		debug.SetVerbosity(0)
+		log.SetOutput(ioutil.Discard)
+		silentLogger := log.New(ioutil.Discard, "", log.LstdFlags)
+		grpclog.SetLogger(silentLogger)
+		grpc.EnableTracing = false
+		rand.Seed(42)
+	}
 
 	rs := &raft.Replica{}
 	rs.Lock()

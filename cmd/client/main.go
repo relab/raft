@@ -2,18 +2,16 @@ package main
 
 import (
 	"errors"
-	"flag"
+	"fmt"
 	"log"
-	"math/rand"
-	"sync"
+	"strings"
 	"time"
 
+	"github.com/tylertreat/bench"
 	"golang.org/x/net/context"
 
 	"google.golang.org/grpc"
 
-	"github.com/relab/raft"
-	"github.com/relab/raft/debug"
 	"github.com/relab/raft/proto/gorums"
 )
 
@@ -28,16 +26,7 @@ var (
 const MaxAttempts = 1
 const timeout = 2 * time.Second
 
-var verbosity = flag.Int("verbosity", 0, "verbosity level")
-var nodes raft.Nodes
-
-func init() {
-	flag.Var(&nodes, "node", "server address")
-}
-
 type ManagerWithLeader struct {
-	sync.Mutex
-
 	*gorums.Manager
 
 	leader *gorums.Node
@@ -63,9 +52,6 @@ func (mgr *ManagerWithLeader) next(leaderHint uint32) {
 }
 
 func (mgr *ManagerWithLeader) ClientCommand(command []byte) ([]byte, error) {
-	mgr.Lock()
-	defer mgr.Unlock()
-
 	mgr.sequenceNumber++
 
 	errs := 0
@@ -99,39 +85,79 @@ func (mgr *ManagerWithLeader) ClientCommand(command []byte) ([]byte, error) {
 	}
 }
 
-func main() {
-	rand.Seed(time.Now().UnixNano())
+type ClientRequesterFactory struct {
+	Addrs       []string
+	PayloadSize int
+}
 
-	flag.Parse()
-
-	if len(nodes) == 0 {
-		log.Fatal("Missing server addresses.")
+func (r *ClientRequesterFactory) GetRequester(uint64) bench.Requester {
+	return &clientRequester{
+		addrs:   r.Addrs,
+		payload: []byte(strings.Repeat("x", r.PayloadSize)),
+		dialOpts: []grpc.DialOption{
+			grpc.WithInsecure(),
+			grpc.WithBlock(),
+			grpc.WithTimeout(time.Second),
+		},
 	}
+}
 
-	debug.SetVerbosity(*verbosity)
+type clientRequester struct {
+	addrs   []string
+	payload []byte
 
-	mgr, err := gorums.NewManager(nodes,
+	dialOpts []grpc.DialOption
+
+	mgr *ManagerWithLeader
+}
+
+func (cr *clientRequester) Setup() error {
+	mgr, err := gorums.NewManager(cr.addrs,
 		gorums.WithGrpcDialOptions(
 			grpc.WithBlock(),
 			grpc.WithInsecure(),
 			grpc.WithTimeout(time.Second*10)))
 
 	if err != nil {
-		log.Fatal("Error creating manager:", err)
+		return nil
 	}
 
-	mwl := ManagerWithLeader{
+	mwl := &ManagerWithLeader{
 		Manager: mgr,
 		leader:  mgr.Nodes(false)[0],
 		nodes:   len(mgr.NodeIDs()),
 	}
 
-	response, err := mwl.ClientCommand([]byte("SOMETHING"))
+	cr.mgr = mwl
 
-	if err != nil {
-		log.Fatal(err)
+	return nil
+}
 
+func (cr *clientRequester) Request() error {
+	_, err := cr.mgr.ClientCommand(cr.payload)
+
+	return err
+}
+
+func (cr *clientRequester) Teardown() error {
+	cr.mgr.Close()
+	cr.mgr = nil
+	return nil
+}
+
+func main() {
+	r := &ClientRequesterFactory{
+		Addrs:       []string{":9201", ":9202", ":9203"},
+		PayloadSize: 16,
 	}
 
-	log.Println(string(response))
+	benchmark := bench.NewBenchmark(r, 0, 1, 30*time.Second)
+	summary, err := benchmark.Run()
+
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(summary)
+	summary.GenerateLatencyDistribution(bench.Logarithmic, "client.txt")
 }
