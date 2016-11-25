@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"log"
 	"math/rand"
+	"sync"
 	"time"
 
 	"golang.org/x/net/context"
@@ -15,11 +17,86 @@ import (
 	"github.com/relab/raft/proto/gorums"
 )
 
+// Errors
+var (
+	ErrRegisterClient = errors.New("Could not register client with leader")
+	ErrClientCommand  = errors.New("Could not send command to leader")
+	ErrSessionExpired = errors.New("Client session has expired")
+)
+
+// MaxAttempts sets the maximum number of errors tolerated to MaxAttempts*len(nodes)
+const MaxAttempts = 1
+const timeout = 2 * time.Second
+
 var verbosity = flag.Int("verbosity", 0, "verbosity level")
 var nodes raft.Nodes
 
 func init() {
 	flag.Var(&nodes, "node", "server address")
+}
+
+type ManagerWithLeader struct {
+	sync.Mutex
+
+	*gorums.Manager
+
+	leader *gorums.Node
+
+	nodes   int
+	current int
+
+	sequenceNumber uint64
+}
+
+func (mgr *ManagerWithLeader) next(leaderHint uint32) {
+	if leaderHint != 0 {
+		var found bool
+		mgr.leader, found = mgr.Node(leaderHint)
+
+		if found {
+			return
+		}
+	}
+
+	mgr.current = (mgr.current + 1) % len(mgr.NodeIDs())
+	mgr.leader, _ = mgr.Node(mgr.NodeIDs()[mgr.current])
+}
+
+func (mgr *ManagerWithLeader) ClientCommand(command []byte) ([]byte, error) {
+	mgr.Lock()
+	defer mgr.Unlock()
+
+	mgr.sequenceNumber++
+
+	errs := 0
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	for {
+		reply, err := mgr.leader.RaftClient.ClientCommand(ctx, &gorums.ClientRequest{Command: command, SequenceNumber: mgr.sequenceNumber})
+
+		if err != nil {
+			log.Printf("Error sending ClientCommand to %v: %v", mgr.leader.ID(), err)
+			errs++
+
+			if errs >= MaxAttempts*mgr.nodes {
+				return nil, ErrClientCommand
+			}
+
+			mgr.next(0)
+
+			continue
+		}
+
+		switch reply.Status {
+		case gorums.OK:
+			return reply.Response, nil
+		case gorums.SESSION_EXPIRED:
+			return nil, ErrSessionExpired
+		}
+
+		mgr.next(reply.LeaderHint)
+	}
 }
 
 func main() {
@@ -43,14 +120,18 @@ func main() {
 		log.Fatal("Error creating manager:", err)
 	}
 
-	replicas := mgr.Nodes(false)
+	mwl := ManagerWithLeader{
+		Manager: mgr,
+		leader:  mgr.Nodes(false)[0],
+		nodes:   len(mgr.NodeIDs()),
+	}
 
-	r := rand.Intn(len(replicas))
+	response, err := mwl.ClientCommand([]byte("SOMETHING"))
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+	if err != nil {
+		log.Fatal(err)
 
-	reply, err := replicas[r].RaftClient.RegisterClient(ctx, &gorums.RegisterClientRequest{})
+	}
 
-	log.Println(reply, err)
+	log.Println(string(response))
 }
