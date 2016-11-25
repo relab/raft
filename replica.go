@@ -223,7 +223,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 	r.Lock()
 	defer r.Unlock()
 
-	debug.Traceln(r.id, "::APPENDENTRIES,", request)
+	debug.Traceln(r.id, ":: APPENDENTRIES,", request)
 
 	// #AE1 Reply false if term < currentTerm.
 	if request.Term < r.currentTerm {
