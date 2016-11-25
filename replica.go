@@ -1,7 +1,6 @@
 package raft
 
 import (
-	"fmt"
 	"log"
 	"math/rand"
 	"sync"
@@ -270,15 +269,16 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 	return &gorums.AppendEntriesResponse{FollowerID: r.id, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success}, nil
 }
 
-func (r *Replica) RegisterClient(ctx context.Context, request *gorums.RegisterClientRequest) (*gorums.RegisterClientResponse, error) {
+func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientRequest) (*gorums.ClientResponse, error) {
 	if r.state == LEADER {
-		id := rand.Uint32()
-
 		// Append to log, replicate, commit
 		// Apply in log order
 		// Reply
 
-		return &gorums.RegisterClientResponse{ClientID: id, Status: gorums.OK}, nil
+		debug.Debugln(r.id, ":: CLIENTREQUEST:", string(request.Command))
+		r.log = append(r.log, &gorums.Entry{Term: r.currentTerm, Data: request.Command})
+
+		return &gorums.ClientResponse{Status: gorums.OK, Response: request.Command}, nil
 	}
 
 	var hint uint32
@@ -288,11 +288,7 @@ func (r *Replica) RegisterClient(ctx context.Context, request *gorums.RegisterCl
 	}
 
 	// If client receives hint = 0, it should try another random server.
-	return &gorums.RegisterClientResponse{Status: gorums.NOT_LEADER, LeaderHint: hint}, nil
-}
-
-func (r *Replica) ClientRequest(ctx context.Context, request *gorums.ClientRequestRequest) (*gorums.ClientRequestResponse, error) {
-	return &gorums.ClientRequestResponse{}, nil
+	return &gorums.ClientResponse{Status: gorums.NOT_LEADER, LeaderHint: hint}, nil
 }
 
 func (r *Replica) startElection() {
@@ -383,13 +379,6 @@ func (r *Replica) sendAppendEntries() {
 	defer r.Unlock()
 
 	debug.Debugln(r.id, ":: APPENDENTRIES, for term", r.currentTerm)
-
-	n := rand.Intn(100)
-
-	if n > 90 {
-		debug.Debugln(r.id, ":: APPENDENTRIES, with log entry")
-		r.log = append(r.log, &gorums.Entry{Term: r.currentTerm, Data: []byte(fmt.Sprintf("%d", r.currentTerm))})
-	}
 
 	// #L1
 	for id, node := range r.nodes {
