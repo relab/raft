@@ -168,7 +168,6 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 	}
 
 	recoverFile := fmt.Sprintf("%d", r.id) + ".storage"
-	log.Println(recoverFile)
 
 	if _, err := os.Stat(recoverFile); !os.IsNotExist(err) && recover {
 		file, err := os.Open(recoverFile)
