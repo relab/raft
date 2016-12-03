@@ -225,10 +225,13 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 		if err := scanner.Err(); err != nil {
 			return err
 		}
-	}
 
-	// TODO Close?
-	r.recoverFile, err = os.Create(recoverFile)
+		// TODO Close?
+		r.recoverFile, err = os.OpenFile(recoverFile, os.O_APPEND|os.O_WRONLY, 0666)
+	} else {
+		// TODO Close?
+		r.recoverFile, err = os.Create(recoverFile)
+	}
 
 	if err != nil {
 		return err
