@@ -51,7 +51,7 @@ func (mgr *ManagerWithLeader) next(leaderHint uint32) {
 	mgr.leader, _ = mgr.Node(mgr.NodeIDs()[mgr.current])
 }
 
-func (mgr *ManagerWithLeader) ClientCommand(command []byte) ([]byte, error) {
+func (mgr *ManagerWithLeader) ClientCommand(command string) (string, error) {
 	mgr.sequenceNumber++
 
 	errs := 0
@@ -66,7 +66,7 @@ func (mgr *ManagerWithLeader) ClientCommand(command []byte) ([]byte, error) {
 			errs++
 
 			if errs >= MaxAttempts*mgr.nodes {
-				return nil, ErrClientCommand
+				return "", ErrClientCommand
 			}
 
 			mgr.next(0)
@@ -78,7 +78,7 @@ func (mgr *ManagerWithLeader) ClientCommand(command []byte) ([]byte, error) {
 		case gorums.OK:
 			return reply.Response, nil
 		case gorums.SESSION_EXPIRED:
-			return nil, ErrSessionExpired
+			return "", ErrSessionExpired
 		}
 
 		mgr.next(reply.LeaderHint)
@@ -93,7 +93,7 @@ type ClientRequesterFactory struct {
 func (r *ClientRequesterFactory) GetRequester(uint64) bench.Requester {
 	return &clientRequester{
 		addrs:   r.Addrs,
-		payload: []byte(strings.Repeat("x", r.PayloadSize)),
+		payload: strings.Repeat("x", r.PayloadSize),
 		dialOpts: []grpc.DialOption{
 			grpc.WithInsecure(),
 			grpc.WithBlock(),
@@ -104,7 +104,7 @@ func (r *ClientRequesterFactory) GetRequester(uint64) bench.Requester {
 
 type clientRequester struct {
 	addrs   []string
-	payload []byte
+	payload string
 
 	dialOpts []grpc.DialOption
 

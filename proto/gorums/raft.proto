@@ -18,7 +18,7 @@ service Raft {
 message Entry {
   uint64 term = 1;
 
-  bytes data = 2;
+  string data = 2;
 }
 
 message RequestVoteRequest {
@@ -65,13 +65,13 @@ enum Status {
 message ClientRequest {
   uint64 sequenceNumber = 1;
 
-  bytes command = 2;
+  string command = 2;
 }
 
 message ClientResponse {
   Status status = 1;
 
-  bytes response = 2;
+  string response = 2;
 
   uint32 leaderHint = 3;
 }
