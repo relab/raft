@@ -108,6 +108,8 @@ func (r *Replica) logTerm(index int) uint64 {
 // Init initializes a Replica.
 // This must always be run before Run.
 func (r *Replica) Init(this string, nodes []string, recover bool) error {
+	defer r.Unlock()
+
 	mgr, err := gorums.NewManager(nodes,
 		gorums.WithGrpcDialOptions(
 			grpc.WithBlock(),
@@ -231,8 +233,6 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 	if err != nil {
 		return err
 	}
-
-	r.Unlock()
 
 	return nil
 }
