@@ -1,8 +1,14 @@
 package raft
 
 import (
+	"bufio"
+	"errors"
+	"fmt"
 	"log"
 	"math/rand"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -87,6 +93,8 @@ type Replica struct {
 
 	election  Timer
 	heartbeat Timer
+
+	recoverFile *os.File
 }
 
 func (r *Replica) logTerm(index int) uint64 {
@@ -99,7 +107,7 @@ func (r *Replica) logTerm(index int) uint64 {
 
 // Init initializes a Replica.
 // This must always be run before Run.
-func (r *Replica) Init(this string, nodes []string) error {
+func (r *Replica) Init(this string, nodes []string, recover bool) error {
 	mgr, err := gorums.NewManager(nodes,
 		gorums.WithGrpcDialOptions(
 			grpc.WithBlock(),
@@ -157,6 +165,73 @@ func (r *Replica) Init(this string, nodes []string) error {
 		r.matchIndex[id] = 0
 	}
 
+	recoverFile := fmt.Sprintf("%d", r.id) + ".storage"
+	log.Println(recoverFile)
+
+	if _, err := os.Stat(recoverFile); !os.IsNotExist(err) && recover {
+		file, err := os.Open(recoverFile)
+
+		if err != nil {
+			return err
+		}
+
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+
+		for scanner.Scan() {
+			text := scanner.Text()
+			split := strings.Split(text, ",")
+
+			switch split[0] {
+			case "TERM":
+				term, err := strconv.Atoi(split[1])
+
+				if err != nil {
+					return err
+				}
+
+				r.currentTerm = uint64(term)
+			case "VOTED":
+				votedFor, err := strconv.Atoi(split[1])
+
+				if err != nil {
+					return err
+				}
+
+				r.votedFor = uint32(votedFor)
+			default:
+				var entry gorums.Entry
+
+				if len(split) > 2 {
+					return errors.New("Err: Comma in command")
+				}
+
+				term, err := strconv.Atoi(split[0])
+
+				if err != nil {
+					return err
+				}
+
+				entry.Term = uint64(term)
+				entry.Data = split[1]
+
+				r.log = append(r.log, &entry)
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			return err
+		}
+	}
+
+	// TODO Close?
+	r.recoverFile, err = os.Create(recoverFile)
+
+	if err != nil {
+		return err
+	}
+
 	r.Unlock()
 
 	return nil
@@ -185,7 +260,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 	r.Lock()
 	defer r.Unlock()
 
-	debug.Debugln(r.id, ":: VOTE REQUESTED, from", request.CandidateID, "for term", request.Term)
+	debug.Debugln(r.id, ":: VOTE REQUESTED, from", request.CandidateID, "for term", request.Term, ", my term is", r.currentTerm)
 
 	// #RV1 Reply false if term < currentTerm.
 	if request.Term < r.currentTerm {
@@ -204,6 +279,10 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 		debug.Debugln(r.id, ":: VOTE GRANTED, to", request.CandidateID, "for term", request.Term)
 
 		r.votedFor = request.CandidateID
+
+		// Write to stable storage
+		// TODO Assumes successful
+		r.recoverFile.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
 
 		// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
 		// Here we are granting a vote to a candidate so we reset the election timeout.
@@ -253,13 +332,17 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 				r.log = r.log[:index-1] // Remove excessive log entries.
 				r.log = append(r.log, entry)
 
-				log := ""
+				// Write to stable storage
+				// TODO Assumes successful
+				r.recoverFile.WriteString(fmt.Sprintf("%d,%s\n", entry.Term, entry.Data))
+
+				var log []string
 
 				for _, entry := range r.log {
-					log += string(entry.Data) + " "
+					log = append(log, fmt.Sprintf("%d:%s", entry.Term, entry.Data))
 				}
 
-				debug.Debugln(r.id, ":: LOG, len:", len(r.log), "data:", log)
+				debug.Debugln(r.id, ":: LOG, len:", len(r.log), "data:", strings.Join(log, ", "))
 			}
 
 			r.commitIndex = int(min(request.CommitIndex, uint64(index)))
@@ -277,6 +360,10 @@ func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientReque
 
 		debug.Debugln(r.id, ":: CLIENTREQUEST:", string(request.Command))
 		r.log = append(r.log, &gorums.Entry{Term: r.currentTerm, Data: request.Command})
+
+		// Write to stable storage
+		// TODO Assumes successful
+		r.recoverFile.WriteString(fmt.Sprintf("%d,%s\n", r.currentTerm, request.Command))
 
 		return &gorums.ClientResponse{Status: gorums.OK, Response: request.Command}, nil
 	}
@@ -302,8 +389,16 @@ func (r *Replica) startElection() {
 	// #C1 Increment currentTerm.
 	r.currentTerm++
 
+	// Write to stable storage
+	// TODO Assumes successful
+	r.recoverFile.WriteString(fmt.Sprintf("TERM,%d\n", r.currentTerm))
+
 	// #C2 Vote for self.
 	r.votedFor = r.id
+
+	// Write to stable storage
+	// TODO Assumes successful
+	r.recoverFile.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
 
 	debug.Debugln(r.id, ":: ELECTION STARTED, for term", r.currentTerm)
 
@@ -443,11 +538,25 @@ func (r *Replica) handleAppendEntriesResponse(response *gorums.AppendEntriesResp
 }
 
 func (r *Replica) becomeFollower(term uint64) {
-	debug.Debugln(r.id, ":: STEPDOWN,", r.currentTerm, "->", term)
-
 	r.state = FOLLOWER
-	r.currentTerm = term
-	r.votedFor = NONE
+
+	if r.currentTerm != term {
+		debug.Debugln(r.id, ":: STEPDOWN,", r.currentTerm, "->", term)
+
+		r.currentTerm = term
+
+		// Write to stable storage
+		// TODO Assumes successful
+		r.recoverFile.WriteString(fmt.Sprintf("TERM,%d\n", r.currentTerm))
+
+		if r.votedFor != NONE {
+			r.votedFor = NONE
+
+			// Write to stable storage
+			// TODO Assumes successful
+			r.recoverFile.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
+		}
+	}
 
 	r.election.Reset(r.electionTimeout)
 	r.heartbeat.Stop()

@@ -19,6 +19,7 @@ import (
 var verbosity = flag.Int("verbosity", 0, "verbosity level")
 var this = flag.String("this", "", "local server address")
 var bench = flag.Bool("bench", false, "Silence output for benchmarking")
+var recover = flag.Bool("recover", false, "Recover from stable storage")
 var nodes raft.Nodes
 
 func init() {
@@ -72,7 +73,7 @@ func main() {
 	// Wait for the server to start
 	<-time.After(500 * time.Millisecond)
 
-	if err := rs.Init(*this, nodes); err != nil {
+	if err := rs.Init(*this, nodes, *recover); err != nil {
 		log.Fatal(err)
 	}
 
