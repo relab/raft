@@ -355,6 +355,9 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 }
 
 func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientRequest) (*gorums.ClientResponse, error) {
+	r.Lock()
+	defer r.Unlock()
+
 	if r.state == LEADER {
 		// Append to log, replicate, commit
 		// Apply in log order
