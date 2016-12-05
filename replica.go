@@ -538,7 +538,7 @@ func (r *Replica) handleAppendEntriesResponse(response *gorums.AppendEntriesResp
 			return
 		}
 
-		r.nextIndex[response.FollowerID] = int(max(0, uint64(r.nextIndex[response.FollowerID]-1)))
+		r.nextIndex[response.FollowerID] = int(max(1, uint64(r.nextIndex[response.FollowerID]-1)))
 	}
 }
 
