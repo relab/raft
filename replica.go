@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -83,7 +84,7 @@ type Replica struct {
 
 	log []*gorums.Entry
 
-	commitIndex int
+	commitIndex uint64
 
 	nextIndex  map[uint32]int
 	matchIndex map[uint32]int
@@ -95,6 +96,8 @@ type Replica struct {
 	heartbeat Timer
 
 	recoverFile *os.File
+
+	toClient chan *gorums.Entry
 }
 
 func (r *Replica) logTerm(index int) uint64 {
@@ -236,6 +239,8 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 		return err
 	}
 
+	r.toClient = make(chan *gorums.Entry)
+
 	return nil
 }
 
@@ -347,30 +352,34 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 				debug.Debugln(r.id, ":: LOG, len:", len(r.log), "data:", strings.Join(log, ", "))
 			}
 
-			r.commitIndex = int(min(request.CommitIndex, uint64(index)))
+			r.commitIndex = min(request.CommitIndex, uint64(index))
 		}
 	}
 
 	return &gorums.AppendEntriesResponse{FollowerID: r.id, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success}, nil
 }
 
+// TODO Dirty hack. It might be better to not use Gorums for client interaction.
 func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientRequest) (*gorums.ClientResponse, error) {
 	r.Lock()
-	defer r.Unlock()
 
 	if r.state == LEADER {
-		// Append to log, replicate, commit
-		// Apply in log order
-		// Reply
-
-		debug.Debugln(r.id, ":: CLIENTREQUEST:", string(request.Command))
+		debug.Debugln(r.id, ":: CLIENTREQUEST:", request.Command)
 		r.log = append(r.log, &gorums.Entry{Term: r.currentTerm, Data: request.Command})
 
 		// Write to stable storage
 		// TODO Assumes successful
 		r.recoverFile.WriteString(fmt.Sprintf("%d,%s\n", r.currentTerm, request.Command))
 
-		return &gorums.ClientResponse{Status: gorums.OK, Response: request.Command}, nil
+		r.Unlock()
+		r.sendAppendEntries()
+
+		select {
+		case entry := <-r.toClient:
+			return &gorums.ClientResponse{Status: gorums.OK, Response: entry.Data}, nil
+		case <-time.After(time.Second):
+			return nil, errors.New("Late response")
+		}
 	}
 
 	var hint uint32
@@ -379,8 +388,35 @@ func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientReque
 		hint = r.leader
 	}
 
+	r.Unlock()
+
 	// If client receives hint = 0, it should try another random server.
 	return &gorums.ClientResponse{Status: gorums.NOT_LEADER, LeaderHint: hint}, nil
+}
+
+func (r *Replica) advanceCommitIndex() {
+	r.Lock()
+	defer r.Unlock()
+
+	matchIndexes := []int{len(r.log)}
+
+	for _, i := range r.matchIndex {
+		matchIndexes = append(matchIndexes, i)
+	}
+
+	sort.Ints(matchIndexes)
+
+	atleast := matchIndexes[(len(r.matchIndex)+1)/2]
+
+	old := r.commitIndex
+
+	if r.state == LEADER && r.logTerm(atleast) == r.currentTerm {
+		r.commitIndex = max(r.commitIndex, uint64(atleast))
+	}
+
+	if r.commitIndex > old {
+		r.toClient <- r.log[r.commitIndex-1]
+	}
 }
 
 func (r *Replica) startElection() {
@@ -495,6 +531,7 @@ func (r *Replica) sendAppendEntries() {
 			Term:         r.currentTerm,
 			PrevLogIndex: uint64(nextIndex),
 			PrevLogTerm:  r.logTerm(nextIndex),
+			CommitIndex:  r.commitIndex,
 			Entries:      entries,
 		}
 
@@ -516,7 +553,10 @@ func (r *Replica) sendAppendEntries() {
 
 func (r *Replica) handleAppendEntriesResponse(response *gorums.AppendEntriesResponse) {
 	r.Lock()
-	defer r.Unlock()
+	defer func() {
+		r.Unlock()
+		r.advanceCommitIndex()
+	}()
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	if response.Term > r.currentTerm {
