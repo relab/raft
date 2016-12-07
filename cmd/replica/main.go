@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
+	"os"
+	"runtime/pprof"
 	"time"
 
 	"github.com/relab/raft"
@@ -20,6 +23,7 @@ var verbosity = flag.Int("verbosity", 0, "verbosity level")
 var this = flag.String("this", "", "local server address")
 var bench = flag.Bool("bench", false, "Silence output for benchmarking")
 var recover = flag.Bool("recover", false, "Recover from stable storage")
+var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 var nodes raft.Nodes
 
 func init() {
@@ -30,6 +34,14 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	flag.Parse()
+
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+	}
 
 	if len(*this) == 0 {
 		log.Fatal("Missing local server address.")
@@ -77,5 +89,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	rs.Run()
+	if *cpuprofile != "" {
+		go rs.Run()
+
+		reader := bufio.NewReader(os.Stdin)
+		reader.ReadLine()
+
+		pprof.StopCPUProfile()
+	} else {
+		rs.Run()
+	}
 }

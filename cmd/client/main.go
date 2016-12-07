@@ -17,14 +17,15 @@ import (
 
 // Errors
 var (
-	ErrRegisterClient = errors.New("Could not register client with leader")
-	ErrClientCommand  = errors.New("Could not send command to leader")
-	ErrSessionExpired = errors.New("Client session has expired")
+	ErrRegisterClient = errors.New("Could not register client with leader.")
+	ErrClientCommand  = errors.New("Could not send command to leader.")
+	ErrSessionExpired = errors.New("Client session has expired.")
+	ErrNotLeader      = errors.New("Replica was not leader.")
 )
 
 // MaxAttempts sets the maximum number of errors tolerated to MaxAttempts*len(nodes)
 const MaxAttempts = 1
-const timeout = 2 * time.Second
+const timeout = 10 * time.Second
 
 type ManagerWithLeader struct {
 	*gorums.Manager
@@ -34,6 +35,7 @@ type ManagerWithLeader struct {
 	nodes   int
 	current int
 
+	clientID       uint32
 	sequenceNumber uint64
 }
 
@@ -51,38 +53,30 @@ func (mgr *ManagerWithLeader) next(leaderHint uint32) {
 	mgr.leader, _ = mgr.Node(mgr.NodeIDs()[mgr.current])
 }
 
-func (mgr *ManagerWithLeader) ClientCommand(command string) (string, error) {
+func (mgr *ManagerWithLeader) ClientCommand(command string) error {
 	mgr.sequenceNumber++
 
-	errs := 0
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	for {
-		reply, err := mgr.leader.RaftClient.ClientCommand(ctx, &gorums.ClientRequest{Command: command, SequenceNumber: mgr.sequenceNumber})
+	reply, err := mgr.leader.RaftClient.ClientCommand(ctx, &gorums.ClientCommandRequest{Command: command, ClientID: mgr.clientID, SequenceNumber: mgr.sequenceNumber})
 
-		if err != nil {
-			log.Printf("Error sending ClientCommand to %v: %v", mgr.leader.ID(), err)
-			errs++
+	if err != nil {
+		mgr.next(0)
 
-			if errs >= MaxAttempts*mgr.nodes {
-				return "", ErrClientCommand
-			}
-
-			mgr.next(0)
-
-			continue
-		}
-
-		switch reply.Status {
-		case gorums.OK:
-			return reply.Response, nil
-		case gorums.SESSION_EXPIRED:
-			return "", ErrSessionExpired
-		}
-
-		mgr.next(reply.LeaderHint)
+		return ErrNotLeader
 	}
+
+	switch reply.Status {
+	case gorums.OK:
+		return nil
+	case gorums.SESSION_EXPIRED:
+		return ErrSessionExpired
+	}
+
+	mgr.next(reply.LeaderHint)
+
+	return ErrNotLeader
 }
 
 type ClientRequesterFactory struct {
@@ -119,7 +113,7 @@ func (cr *clientRequester) Setup() error {
 			grpc.WithTimeout(time.Second*10)))
 
 	if err != nil {
-		return nil
+		return err
 	}
 
 	mwl := &ManagerWithLeader{
@@ -130,13 +124,40 @@ func (cr *clientRequester) Setup() error {
 
 	cr.mgr = mwl
 
-	return nil
+	errs := 0
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	for {
+		reply, err := mwl.leader.RaftClient.ClientCommand(ctx, &gorums.ClientCommandRequest{Command: "REGISTER", SequenceNumber: 0})
+
+		if err != nil {
+			log.Printf("Error sending ClientCommand to %v: %v", mwl.leader.ID(), err)
+			errs++
+
+			if errs >= MaxAttempts*mwl.nodes {
+				return ErrClientCommand
+			}
+
+			mwl.next(0)
+
+			continue
+		}
+
+		switch reply.Status {
+		case gorums.OK:
+			mwl.clientID = reply.ClientID
+			return nil
+		case gorums.SESSION_EXPIRED:
+			return ErrSessionExpired
+		}
+
+		mwl.next(reply.LeaderHint)
+	}
 }
 
 func (cr *clientRequester) Request() error {
-	_, err := cr.mgr.ClientCommand(cr.payload)
-
-	return err
+	return cr.mgr.ClientCommand(cr.payload)
 }
 
 func (cr *clientRequester) Teardown() error {
@@ -151,7 +172,9 @@ func main() {
 		PayloadSize: 16,
 	}
 
-	benchmark := bench.NewBenchmark(r, 0, 1, 30*time.Second)
+	n := uint64(100)
+
+	benchmark := bench.NewBenchmark(r, 20*n, n, 10*time.Second)
 	summary, err := benchmark.Run()
 
 	if err != nil {

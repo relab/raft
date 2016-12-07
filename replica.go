@@ -34,9 +34,8 @@ const (
 
 // Timeouts in milliseconds.
 const (
-	HEARTBEAT     = 50
-	ELECTION      = 150
-	APPENDENTRIES = 100
+	HEARTBEAT = 50
+	ELECTION  = 150
 )
 
 // NONE represents no server.
@@ -104,7 +103,13 @@ type Replica struct {
 
 	recoverFile *os.File
 
-	toClient chan *gorums.Entry
+	pending  map[uniqueCommand]chan<- *gorums.ClientCommandRequest
+	commands map[uniqueCommand]*gorums.ClientCommandRequest
+}
+
+type uniqueCommand struct {
+	clientID       uint32
+	sequenceNumber uint64
 }
 
 func (r *Replica) logTerm(index int) uint64 {
@@ -179,6 +184,9 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 
 	recoverFile := fmt.Sprintf("%d", r.id) + ".storage"
 
+	r.pending = make(map[uniqueCommand]chan<- *gorums.ClientCommandRequest)
+	r.commands = make(map[uniqueCommand]*gorums.ClientCommandRequest)
+
 	if _, err := os.Stat(recoverFile); !os.IsNotExist(err) && recover {
 		file, err := os.Open(recoverFile)
 
@@ -214,7 +222,7 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 			default:
 				var entry gorums.Entry
 
-				if len(split) > 2 {
+				if len(split) != 4 {
 					return errCommaInCommand
 				}
 
@@ -224,10 +232,25 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 					return err
 				}
 
+				clientID, err := strconv.Atoi(split[1])
+
+				if err != nil {
+					return err
+				}
+
+				sequenceNumber, err := strconv.Atoi(split[2])
+
+				if err != nil {
+					return err
+				}
+
+				command := split[3]
+
 				entry.Term = uint64(term)
-				entry.Data = split[1]
+				entry.Data = &gorums.ClientCommandRequest{ClientID: uint32(clientID), SequenceNumber: uint64(sequenceNumber), Command: command}
 
 				r.log = append(r.log, &entry)
+				r.commands[uniqueCommand{entry.Data.ClientID, entry.Data.SequenceNumber}] = entry.Data
 			}
 		}
 
@@ -245,8 +268,6 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 	if err != nil {
 		return err
 	}
-
-	r.toClient = make(chan *gorums.Entry)
 
 	return nil
 }
@@ -296,7 +317,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 
 		// Write to stable storage
 		// TODO Assumes successful
-		r.recoverFile.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
+		r.save(fmt.Sprintf("VOTED,%d\n", r.votedFor))
 
 		// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
 		// Here we are granting a vote to a candidate so we reset the election timeout.
@@ -348,62 +369,84 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 
 				// Write to stable storage
 				// TODO Assumes successful
-				r.recoverFile.WriteString(fmt.Sprintf("%d,%s\n", entry.Term, entry.Data))
+				r.save(fmt.Sprintf("%d,%d,%d,%s\n", entry.Term, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
 
-				var log []string
-
-				for _, entry := range r.log {
-					log = append(log, fmt.Sprintf("%d:%s", entry.Term, entry.Data))
-				}
-
-				debug.Debugln(r.id, ":: LOG, len:", len(r.log), "data:", strings.Join(log, ", "))
+				debug.Debugln(r.id, ":: LOG, len:", len(r.log))
 			}
 
+			old := r.commitIndex
+
 			r.commitIndex = min(request.CommitIndex, uint64(index))
+
+			if r.commitIndex > old {
+				r.newCommit(old)
+			}
 		}
 	}
 
 	return &gorums.AppendEntriesResponse{FollowerID: r.id, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success}, nil
 }
 
-func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientRequest) (*gorums.ClientResponse, error) {
-	if isLeader := r.logCommand(request); isLeader {
+func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientCommandRequest) (*gorums.ClientCommandResponse, error) {
+	if response, isLeader := r.logCommand(request); isLeader {
 		select {
 		// Wait on committed entry.
-		case entry := <-r.toClient:
-			return &gorums.ClientResponse{Status: gorums.OK, Response: entry.Data}, nil
+		case entry := <-response:
+			return &gorums.ClientCommandResponse{Status: gorums.OK, Response: entry.Command, ClientID: entry.ClientID}, nil
 
 		// Return if responding takes too much time.
 		// The client will retry.
-		case <-time.After(time.Second):
+		case <-time.After(10 * time.Second):
 			return nil, ErrLateCommit
 		}
 	}
 
 	hint := r.getHint()
 
-	return hint, nil
+	return &gorums.ClientCommandResponse{Status: gorums.NOT_LEADER, LeaderHint: hint}, nil
 }
 
-func (r *Replica) logCommand(request *gorums.ClientRequest) bool {
+func (r *Replica) logCommand(request *gorums.ClientCommandRequest) (<-chan *gorums.ClientCommandRequest, bool) {
 	r.Lock()
 	defer r.Unlock()
 
 	if r.state == LEADER {
-		debug.Debugln(r.id, ":: CLIENTREQUEST:", request.Command)
-		r.log = append(r.log, &gorums.Entry{Term: r.currentTerm, Data: request.Command})
+		if request.SequenceNumber == 0 {
+			debug.Debugln(r.id, ":: REGISTERCLIENT")
+
+			request.ClientID = rand.Uint32()
+		} else {
+			debug.Debugln(r.id, ":: CLIENTREQUEST:", request.Command)
+		}
+
+		if old, ok := r.commands[uniqueCommand{clientID: request.ClientID, sequenceNumber: request.SequenceNumber}]; ok {
+			response := make(chan *gorums.ClientCommandRequest, 1)
+			response <- old
+
+			return response, true
+		}
+
+		r.log = append(r.log, &gorums.Entry{Term: r.currentTerm, Data: request})
 
 		// Write to stable storage
 		// TODO Assumes successful
-		r.recoverFile.WriteString(fmt.Sprintf("%d,%s\n", r.currentTerm, request.Command))
+		r.save(fmt.Sprintf("%d,%d,%d,%s\n", r.currentTerm, request.ClientID, request.SequenceNumber, request.Command))
 
-		return true
+		response := make(chan *gorums.ClientCommandRequest)
+
+		commandID := uniqueCommand{clientID: request.ClientID, sequenceNumber: request.SequenceNumber}
+
+		debug.Debugf("Setting pending: %v", commandID)
+
+		r.pending[commandID] = response
+
+		return response, true
 	}
 
-	return false
+	return nil, false
 }
 
-func (r *Replica) getHint() *gorums.ClientResponse {
+func (r *Replica) getHint() uint32 {
 	r.Lock()
 	defer r.Unlock()
 
@@ -414,7 +457,7 @@ func (r *Replica) getHint() *gorums.ClientResponse {
 	}
 
 	// If client receives hint = 0, it should try another random server.
-	return &gorums.ClientResponse{Status: gorums.NOT_LEADER, LeaderHint: hint}
+	return hint
 }
 
 func (r *Replica) advanceCommitIndex() {
@@ -438,8 +481,40 @@ func (r *Replica) advanceCommitIndex() {
 	}
 
 	if r.commitIndex > old {
-		r.toClient <- r.log[r.commitIndex-1]
+		r.newCommit(old)
 	}
+}
+
+// TODO Assumes caller already holds lock on Replica
+func (r *Replica) newCommit(old uint64) {
+	for i := old; i < r.commitIndex; i++ {
+		committed := r.log[i]
+		sequenceNumber := committed.Data.SequenceNumber
+		clientID := committed.Data.ClientID
+		commandID := uniqueCommand{clientID: clientID, sequenceNumber: sequenceNumber}
+
+		debug.Debugf("Looking for pending: %v", commandID)
+		if response, ok := r.pending[commandID]; ok {
+			debug.Debugf("Found pending: %v", commandID)
+			// If entry is not committed fast enough, the client
+			// will retry.
+			select {
+			case response <- committed.Data:
+				debug.Debugf("Answered pending: %v", commandID)
+			default:
+			}
+		} else {
+			debug.Debugf("No pending: %v", commandID)
+		}
+
+		r.commands[commandID] = committed.Data
+	}
+}
+
+// TODO Assumes caller already holds lock on Replica
+func (r *Replica) save(line string) {
+	r.recoverFile.WriteString(line)
+	r.recoverFile.Sync()
 }
 
 func (r *Replica) startElection() {
@@ -455,14 +530,14 @@ func (r *Replica) startElection() {
 
 	// Write to stable storage
 	// TODO Assumes successful
-	r.recoverFile.WriteString(fmt.Sprintf("TERM,%d\n", r.currentTerm))
+	r.save(fmt.Sprintf("TERM,%d\n", r.currentTerm))
 
 	// #C2 Vote for self.
 	r.votedFor = r.id
 
 	// Write to stable storage
 	// TODO Assumes successful
-	r.recoverFile.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
+	r.save(fmt.Sprintf("VOTED,%d\n", r.votedFor))
 
 	debug.Debugln(r.id, ":: ELECTION STARTED, for term", r.currentTerm)
 
@@ -546,8 +621,10 @@ func (r *Replica) sendAppendEntries() {
 		nextIndex := r.nextIndex[id] - 1
 
 		if len(r.log) > nextIndex {
-			entries = r.log[nextIndex : nextIndex+1]
+			entries = r.log[nextIndex:len(r.log)]
 		}
+
+		debug.Debugln("SENDING:", len(entries))
 
 		req := &gorums.AppendEntriesRequest{
 			LeaderID:     r.id,
@@ -559,7 +636,7 @@ func (r *Replica) sendAppendEntries() {
 		}
 
 		go func(node *gorums.Node, req *gorums.AppendEntriesRequest) {
-			ctx, cancel := context.WithTimeout(context.Background(), APPENDENTRIES*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), HEARTBEAT*time.Millisecond)
 			defer cancel()
 			resp, err := node.RaftClient.AppendEntries(ctx, req)
 
@@ -615,14 +692,14 @@ func (r *Replica) becomeFollower(term uint64) {
 
 		// Write to stable storage
 		// TODO Assumes successful
-		r.recoverFile.WriteString(fmt.Sprintf("TERM,%d\n", r.currentTerm))
+		r.save(fmt.Sprintf("TERM,%d\n", r.currentTerm))
 
 		if r.votedFor != NONE {
 			r.votedFor = NONE
 
 			// Write to stable storage
 			// TODO Assumes successful
-			r.recoverFile.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
+			r.save(fmt.Sprintf("VOTED,%d\n", r.votedFor))
 		}
 	}
 
