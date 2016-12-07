@@ -43,6 +43,13 @@ const (
 // This must be a value which cannot be returned from idutil.IDFromAddress(address).
 const NONE = 0
 
+var (
+	// ErrLateCommit indicates an entry taking too long to commit.
+	ErrLateCommit = errors.New("Entry not committed in time.")
+
+	errCommaInCommand = errors.New("Comma in command.")
+)
+
 func min(a, b uint64) uint64 {
 	if a < b {
 		return a
@@ -208,7 +215,7 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 				var entry gorums.Entry
 
 				if len(split) > 2 {
-					return errors.New("Err: Comma in command")
+					return errCommaInCommand
 				}
 
 				term, err := strconv.Atoi(split[0])
@@ -359,9 +366,28 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 	return &gorums.AppendEntriesResponse{FollowerID: r.id, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success}, nil
 }
 
-// TODO Dirty hack. It might be better to not use Gorums for client interaction.
 func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientRequest) (*gorums.ClientResponse, error) {
+	if isLeader := r.logCommand(request); isLeader {
+		select {
+		// Wait on committed entry.
+		case entry := <-r.toClient:
+			return &gorums.ClientResponse{Status: gorums.OK, Response: entry.Data}, nil
+
+		// Return if responding takes too much time.
+		// The client will retry.
+		case <-time.After(time.Second):
+			return nil, ErrLateCommit
+		}
+	}
+
+	hint := r.getHint()
+
+	return hint, nil
+}
+
+func (r *Replica) logCommand(request *gorums.ClientRequest) bool {
 	r.Lock()
+	defer r.Unlock()
 
 	if r.state == LEADER {
 		debug.Debugln(r.id, ":: CLIENTREQUEST:", request.Command)
@@ -371,16 +397,15 @@ func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientReque
 		// TODO Assumes successful
 		r.recoverFile.WriteString(fmt.Sprintf("%d,%s\n", r.currentTerm, request.Command))
 
-		r.Unlock()
-		r.sendAppendEntries()
-
-		select {
-		case entry := <-r.toClient:
-			return &gorums.ClientResponse{Status: gorums.OK, Response: entry.Data}, nil
-		case <-time.After(time.Second):
-			return nil, errors.New("Late response")
-		}
+		return true
 	}
+
+	return false
+}
+
+func (r *Replica) getHint() *gorums.ClientResponse {
+	r.Lock()
+	defer r.Unlock()
 
 	var hint uint32
 
@@ -388,10 +413,8 @@ func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientReque
 		hint = r.leader
 	}
 
-	r.Unlock()
-
 	// If client receives hint = 0, it should try another random server.
-	return &gorums.ClientResponse{Status: gorums.NOT_LEADER, LeaderHint: hint}, nil
+	return &gorums.ClientResponse{Status: gorums.NOT_LEADER, LeaderHint: hint}
 }
 
 func (r *Replica) advanceCommitIndex() {
