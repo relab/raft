@@ -12,13 +12,13 @@ service Raft {
 
   rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
 
-  rpc ClientCommand(ClientRequest) returns (ClientResponse);
+  rpc ClientCommand(ClientCommandRequest) returns (ClientCommandResponse);
 }
 
 message Entry {
   uint64 term = 1;
 
-  string data = 2;
+  ClientCommandRequest data = 2;
 }
 
 message RequestVoteRequest {
@@ -62,16 +62,20 @@ enum Status {
   SESSION_EXPIRED = -2;
 }
 
-message ClientRequest {
-  uint64 sequenceNumber = 1;
+message ClientCommandRequest {
+  uint32 clientID = 1;
 
-  string command = 2;
+  uint64 sequenceNumber = 2;
+
+  string command = 3;
 }
 
-message ClientResponse {
+message ClientCommandResponse {
   Status status = 1;
 
   string response = 2;
 
   uint32 leaderHint = 3;
+
+  uint32 clientID = 4;
 }
