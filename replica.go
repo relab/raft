@@ -16,8 +16,8 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
-	"github.com/relab/gorums/idutil"
 	"github.com/relab/raft/debug"
+	"github.com/relab/raft/idutil"
 	"github.com/relab/raft/proto/gorums"
 )
 
