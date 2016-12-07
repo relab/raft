@@ -14,8 +14,8 @@
 		RequestVoteResponse
 		AppendEntriesRequest
 		AppendEntriesResponse
-		ClientRequest
-		ClientResponse
+		ClientCommandRequest
+		ClientCommandResponse
 */
 package gorums
 
@@ -81,13 +81,20 @@ var Status_value = map[string]int32{
 func (Status) EnumDescriptor() ([]byte, []int) { return fileDescriptorRaft, []int{0} }
 
 type Entry struct {
-	Term uint64 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
-	Data string `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	Term uint64                `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
+	Data *ClientCommandRequest `protobuf:"bytes,2,opt,name=data" json:"data,omitempty"`
 }
 
 func (m *Entry) Reset()                    { *m = Entry{} }
 func (*Entry) ProtoMessage()               {}
 func (*Entry) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{0} }
+
+func (m *Entry) GetData() *ClientCommandRequest {
+	if m != nil {
+		return m.Data
+	}
+	return nil
+}
 
 type RequestVoteRequest struct {
 	CandidateID  uint32 `protobuf:"varint,1,opt,name=candidateID,proto3" json:"candidateID,omitempty"`
@@ -141,24 +148,26 @@ func (m *AppendEntriesResponse) Reset()                    { *m = AppendEntriesR
 func (*AppendEntriesResponse) ProtoMessage()               {}
 func (*AppendEntriesResponse) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{4} }
 
-type ClientRequest struct {
-	SequenceNumber uint64 `protobuf:"varint,1,opt,name=sequenceNumber,proto3" json:"sequenceNumber,omitempty"`
-	Command        string `protobuf:"bytes,2,opt,name=command,proto3" json:"command,omitempty"`
+type ClientCommandRequest struct {
+	ClientID       uint32 `protobuf:"varint,1,opt,name=clientID,proto3" json:"clientID,omitempty"`
+	SequenceNumber uint64 `protobuf:"varint,2,opt,name=sequenceNumber,proto3" json:"sequenceNumber,omitempty"`
+	Command        string `protobuf:"bytes,3,opt,name=command,proto3" json:"command,omitempty"`
 }
 
-func (m *ClientRequest) Reset()                    { *m = ClientRequest{} }
-func (*ClientRequest) ProtoMessage()               {}
-func (*ClientRequest) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{5} }
+func (m *ClientCommandRequest) Reset()                    { *m = ClientCommandRequest{} }
+func (*ClientCommandRequest) ProtoMessage()               {}
+func (*ClientCommandRequest) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{5} }
 
-type ClientResponse struct {
+type ClientCommandResponse struct {
 	Status     Status `protobuf:"varint,1,opt,name=status,proto3,enum=gorums.Status" json:"status,omitempty"`
 	Response   string `protobuf:"bytes,2,opt,name=response,proto3" json:"response,omitempty"`
 	LeaderHint uint32 `protobuf:"varint,3,opt,name=leaderHint,proto3" json:"leaderHint,omitempty"`
+	ClientID   uint32 `protobuf:"varint,4,opt,name=clientID,proto3" json:"clientID,omitempty"`
 }
 
-func (m *ClientResponse) Reset()                    { *m = ClientResponse{} }
-func (*ClientResponse) ProtoMessage()               {}
-func (*ClientResponse) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{6} }
+func (m *ClientCommandResponse) Reset()                    { *m = ClientCommandResponse{} }
+func (*ClientCommandResponse) ProtoMessage()               {}
+func (*ClientCommandResponse) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{6} }
 
 func init() {
 	proto.RegisterType((*Entry)(nil), "gorums.Entry")
@@ -166,8 +175,8 @@ func init() {
 	proto.RegisterType((*RequestVoteResponse)(nil), "gorums.RequestVoteResponse")
 	proto.RegisterType((*AppendEntriesRequest)(nil), "gorums.AppendEntriesRequest")
 	proto.RegisterType((*AppendEntriesResponse)(nil), "gorums.AppendEntriesResponse")
-	proto.RegisterType((*ClientRequest)(nil), "gorums.ClientRequest")
-	proto.RegisterType((*ClientResponse)(nil), "gorums.ClientResponse")
+	proto.RegisterType((*ClientCommandRequest)(nil), "gorums.ClientCommandRequest")
+	proto.RegisterType((*ClientCommandResponse)(nil), "gorums.ClientCommandResponse")
 	proto.RegisterEnum("gorums.Status", Status_name, Status_value)
 }
 func (x Status) String() string {
@@ -205,7 +214,7 @@ func (this *Entry) VerboseEqual(that interface{}) error {
 	if this.Term != that1.Term {
 		return fmt.Errorf("Term this(%v) Not Equal that(%v)", this.Term, that1.Term)
 	}
-	if this.Data != that1.Data {
+	if !this.Data.Equal(that1.Data) {
 		return fmt.Errorf("Data this(%v) Not Equal that(%v)", this.Data, that1.Data)
 	}
 	return nil
@@ -238,7 +247,7 @@ func (this *Entry) Equal(that interface{}) bool {
 	if this.Term != that1.Term {
 		return false
 	}
-	if this.Data != that1.Data {
+	if !this.Data.Equal(that1.Data) {
 		return false
 	}
 	return true
@@ -571,7 +580,7 @@ func (this *AppendEntriesResponse) Equal(that interface{}) bool {
 	}
 	return true
 }
-func (this *ClientRequest) VerboseEqual(that interface{}) error {
+func (this *ClientCommandRequest) VerboseEqual(that interface{}) error {
 	if that == nil {
 		if this == nil {
 			return nil
@@ -579,22 +588,25 @@ func (this *ClientRequest) VerboseEqual(that interface{}) error {
 		return fmt.Errorf("that == nil && this != nil")
 	}
 
-	that1, ok := that.(*ClientRequest)
+	that1, ok := that.(*ClientCommandRequest)
 	if !ok {
-		that2, ok := that.(ClientRequest)
+		that2, ok := that.(ClientCommandRequest)
 		if ok {
 			that1 = &that2
 		} else {
-			return fmt.Errorf("that is not of type *ClientRequest")
+			return fmt.Errorf("that is not of type *ClientCommandRequest")
 		}
 	}
 	if that1 == nil {
 		if this == nil {
 			return nil
 		}
-		return fmt.Errorf("that is type *ClientRequest but is nil && this != nil")
+		return fmt.Errorf("that is type *ClientCommandRequest but is nil && this != nil")
 	} else if this == nil {
-		return fmt.Errorf("that is type *ClientRequest but is not nil && this == nil")
+		return fmt.Errorf("that is type *ClientCommandRequest but is not nil && this == nil")
+	}
+	if this.ClientID != that1.ClientID {
+		return fmt.Errorf("ClientID this(%v) Not Equal that(%v)", this.ClientID, that1.ClientID)
 	}
 	if this.SequenceNumber != that1.SequenceNumber {
 		return fmt.Errorf("SequenceNumber this(%v) Not Equal that(%v)", this.SequenceNumber, that1.SequenceNumber)
@@ -604,7 +616,7 @@ func (this *ClientRequest) VerboseEqual(that interface{}) error {
 	}
 	return nil
 }
-func (this *ClientRequest) Equal(that interface{}) bool {
+func (this *ClientCommandRequest) Equal(that interface{}) bool {
 	if that == nil {
 		if this == nil {
 			return true
@@ -612,9 +624,9 @@ func (this *ClientRequest) Equal(that interface{}) bool {
 		return false
 	}
 
-	that1, ok := that.(*ClientRequest)
+	that1, ok := that.(*ClientCommandRequest)
 	if !ok {
-		that2, ok := that.(ClientRequest)
+		that2, ok := that.(ClientCommandRequest)
 		if ok {
 			that1 = &that2
 		} else {
@@ -627,6 +639,9 @@ func (this *ClientRequest) Equal(that interface{}) bool {
 		}
 		return false
 	} else if this == nil {
+		return false
+	}
+	if this.ClientID != that1.ClientID {
 		return false
 	}
 	if this.SequenceNumber != that1.SequenceNumber {
@@ -637,7 +652,7 @@ func (this *ClientRequest) Equal(that interface{}) bool {
 	}
 	return true
 }
-func (this *ClientResponse) VerboseEqual(that interface{}) error {
+func (this *ClientCommandResponse) VerboseEqual(that interface{}) error {
 	if that == nil {
 		if this == nil {
 			return nil
@@ -645,22 +660,22 @@ func (this *ClientResponse) VerboseEqual(that interface{}) error {
 		return fmt.Errorf("that == nil && this != nil")
 	}
 
-	that1, ok := that.(*ClientResponse)
+	that1, ok := that.(*ClientCommandResponse)
 	if !ok {
-		that2, ok := that.(ClientResponse)
+		that2, ok := that.(ClientCommandResponse)
 		if ok {
 			that1 = &that2
 		} else {
-			return fmt.Errorf("that is not of type *ClientResponse")
+			return fmt.Errorf("that is not of type *ClientCommandResponse")
 		}
 	}
 	if that1 == nil {
 		if this == nil {
 			return nil
 		}
-		return fmt.Errorf("that is type *ClientResponse but is nil && this != nil")
+		return fmt.Errorf("that is type *ClientCommandResponse but is nil && this != nil")
 	} else if this == nil {
-		return fmt.Errorf("that is type *ClientResponse but is not nil && this == nil")
+		return fmt.Errorf("that is type *ClientCommandResponse but is not nil && this == nil")
 	}
 	if this.Status != that1.Status {
 		return fmt.Errorf("Status this(%v) Not Equal that(%v)", this.Status, that1.Status)
@@ -671,9 +686,12 @@ func (this *ClientResponse) VerboseEqual(that interface{}) error {
 	if this.LeaderHint != that1.LeaderHint {
 		return fmt.Errorf("LeaderHint this(%v) Not Equal that(%v)", this.LeaderHint, that1.LeaderHint)
 	}
+	if this.ClientID != that1.ClientID {
+		return fmt.Errorf("ClientID this(%v) Not Equal that(%v)", this.ClientID, that1.ClientID)
+	}
 	return nil
 }
-func (this *ClientResponse) Equal(that interface{}) bool {
+func (this *ClientCommandResponse) Equal(that interface{}) bool {
 	if that == nil {
 		if this == nil {
 			return true
@@ -681,9 +699,9 @@ func (this *ClientResponse) Equal(that interface{}) bool {
 		return false
 	}
 
-	that1, ok := that.(*ClientResponse)
+	that1, ok := that.(*ClientCommandResponse)
 	if !ok {
-		that2, ok := that.(ClientResponse)
+		that2, ok := that.(ClientCommandResponse)
 		if ok {
 			that1 = &that2
 		} else {
@@ -705,6 +723,9 @@ func (this *ClientResponse) Equal(that interface{}) bool {
 		return false
 	}
 	if this.LeaderHint != that1.LeaderHint {
+		return false
+	}
+	if this.ClientID != that1.ClientID {
 		return false
 	}
 	return true
@@ -1505,7 +1526,7 @@ const _ = grpc.SupportPackageIsVersion3
 type RaftClient interface {
 	RequestVote(ctx context.Context, in *RequestVoteRequest, opts ...grpc.CallOption) (*RequestVoteResponse, error)
 	AppendEntries(ctx context.Context, in *AppendEntriesRequest, opts ...grpc.CallOption) (*AppendEntriesResponse, error)
-	ClientCommand(ctx context.Context, in *ClientRequest, opts ...grpc.CallOption) (*ClientResponse, error)
+	ClientCommand(ctx context.Context, in *ClientCommandRequest, opts ...grpc.CallOption) (*ClientCommandResponse, error)
 }
 
 type raftClient struct {
@@ -1534,8 +1555,8 @@ func (c *raftClient) AppendEntries(ctx context.Context, in *AppendEntriesRequest
 	return out, nil
 }
 
-func (c *raftClient) ClientCommand(ctx context.Context, in *ClientRequest, opts ...grpc.CallOption) (*ClientResponse, error) {
-	out := new(ClientResponse)
+func (c *raftClient) ClientCommand(ctx context.Context, in *ClientCommandRequest, opts ...grpc.CallOption) (*ClientCommandResponse, error) {
+	out := new(ClientCommandResponse)
 	err := grpc.Invoke(ctx, "/gorums.Raft/ClientCommand", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
@@ -1548,7 +1569,7 @@ func (c *raftClient) ClientCommand(ctx context.Context, in *ClientRequest, opts 
 type RaftServer interface {
 	RequestVote(context.Context, *RequestVoteRequest) (*RequestVoteResponse, error)
 	AppendEntries(context.Context, *AppendEntriesRequest) (*AppendEntriesResponse, error)
-	ClientCommand(context.Context, *ClientRequest) (*ClientResponse, error)
+	ClientCommand(context.Context, *ClientCommandRequest) (*ClientCommandResponse, error)
 }
 
 func RegisterRaftServer(s *grpc.Server, srv RaftServer) {
@@ -1592,7 +1613,7 @@ func _Raft_AppendEntries_Handler(srv interface{}, ctx context.Context, dec func(
 }
 
 func _Raft_ClientCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ClientRequest)
+	in := new(ClientCommandRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1604,7 +1625,7 @@ func _Raft_ClientCommand_Handler(srv interface{}, ctx context.Context, dec func(
 		FullMethod: "/gorums.Raft/ClientCommand",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RaftServer).ClientCommand(ctx, req.(*ClientRequest))
+		return srv.(RaftServer).ClientCommand(ctx, req.(*ClientCommandRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1650,11 +1671,15 @@ func (m *Entry) MarshalTo(data []byte) (int, error) {
 		i++
 		i = encodeVarintRaft(data, i, uint64(m.Term))
 	}
-	if len(m.Data) > 0 {
+	if m.Data != nil {
 		data[i] = 0x12
 		i++
-		i = encodeVarintRaft(data, i, uint64(len(m.Data)))
-		i += copy(data[i:], m.Data)
+		i = encodeVarintRaft(data, i, uint64(m.Data.Size()))
+		n1, err := m.Data.MarshalTo(data[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n1
 	}
 	return i, nil
 }
@@ -1833,7 +1858,7 @@ func (m *AppendEntriesResponse) MarshalTo(data []byte) (int, error) {
 	return i, nil
 }
 
-func (m *ClientRequest) Marshal() (data []byte, err error) {
+func (m *ClientCommandRequest) Marshal() (data []byte, err error) {
 	size := m.Size()
 	data = make([]byte, size)
 	n, err := m.MarshalTo(data)
@@ -1843,18 +1868,23 @@ func (m *ClientRequest) Marshal() (data []byte, err error) {
 	return data[:n], nil
 }
 
-func (m *ClientRequest) MarshalTo(data []byte) (int, error) {
+func (m *ClientCommandRequest) MarshalTo(data []byte) (int, error) {
 	var i int
 	_ = i
 	var l int
 	_ = l
-	if m.SequenceNumber != 0 {
+	if m.ClientID != 0 {
 		data[i] = 0x8
+		i++
+		i = encodeVarintRaft(data, i, uint64(m.ClientID))
+	}
+	if m.SequenceNumber != 0 {
+		data[i] = 0x10
 		i++
 		i = encodeVarintRaft(data, i, uint64(m.SequenceNumber))
 	}
 	if len(m.Command) > 0 {
-		data[i] = 0x12
+		data[i] = 0x1a
 		i++
 		i = encodeVarintRaft(data, i, uint64(len(m.Command)))
 		i += copy(data[i:], m.Command)
@@ -1862,7 +1892,7 @@ func (m *ClientRequest) MarshalTo(data []byte) (int, error) {
 	return i, nil
 }
 
-func (m *ClientResponse) Marshal() (data []byte, err error) {
+func (m *ClientCommandResponse) Marshal() (data []byte, err error) {
 	size := m.Size()
 	data = make([]byte, size)
 	n, err := m.MarshalTo(data)
@@ -1872,7 +1902,7 @@ func (m *ClientResponse) Marshal() (data []byte, err error) {
 	return data[:n], nil
 }
 
-func (m *ClientResponse) MarshalTo(data []byte) (int, error) {
+func (m *ClientCommandResponse) MarshalTo(data []byte) (int, error) {
 	var i int
 	_ = i
 	var l int
@@ -1892,6 +1922,11 @@ func (m *ClientResponse) MarshalTo(data []byte) (int, error) {
 		data[i] = 0x18
 		i++
 		i = encodeVarintRaft(data, i, uint64(m.LeaderHint))
+	}
+	if m.ClientID != 0 {
+		data[i] = 0x20
+		i++
+		i = encodeVarintRaft(data, i, uint64(m.ClientID))
 	}
 	return i, nil
 }
@@ -1929,8 +1964,8 @@ func (m *Entry) Size() (n int) {
 	if m.Term != 0 {
 		n += 1 + sovRaft(uint64(m.Term))
 	}
-	l = len(m.Data)
-	if l > 0 {
+	if m.Data != nil {
+		l = m.Data.Size()
 		n += 1 + l + sovRaft(uint64(l))
 	}
 	return n
@@ -2014,9 +2049,12 @@ func (m *AppendEntriesResponse) Size() (n int) {
 	return n
 }
 
-func (m *ClientRequest) Size() (n int) {
+func (m *ClientCommandRequest) Size() (n int) {
 	var l int
 	_ = l
+	if m.ClientID != 0 {
+		n += 1 + sovRaft(uint64(m.ClientID))
+	}
 	if m.SequenceNumber != 0 {
 		n += 1 + sovRaft(uint64(m.SequenceNumber))
 	}
@@ -2027,7 +2065,7 @@ func (m *ClientRequest) Size() (n int) {
 	return n
 }
 
-func (m *ClientResponse) Size() (n int) {
+func (m *ClientCommandResponse) Size() (n int) {
 	var l int
 	_ = l
 	if m.Status != 0 {
@@ -2039,6 +2077,9 @@ func (m *ClientResponse) Size() (n int) {
 	}
 	if m.LeaderHint != 0 {
 		n += 1 + sovRaft(uint64(m.LeaderHint))
+	}
+	if m.ClientID != 0 {
+		n += 1 + sovRaft(uint64(m.ClientID))
 	}
 	return n
 }
@@ -2062,7 +2103,7 @@ func (this *Entry) String() string {
 	}
 	s := strings.Join([]string{`&Entry{`,
 		`Term:` + fmt.Sprintf("%v", this.Term) + `,`,
-		`Data:` + fmt.Sprintf("%v", this.Data) + `,`,
+		`Data:` + strings.Replace(fmt.Sprintf("%v", this.Data), "ClientCommandRequest", "ClientCommandRequest", 1) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -2120,25 +2161,27 @@ func (this *AppendEntriesResponse) String() string {
 	}, "")
 	return s
 }
-func (this *ClientRequest) String() string {
+func (this *ClientCommandRequest) String() string {
 	if this == nil {
 		return "nil"
 	}
-	s := strings.Join([]string{`&ClientRequest{`,
+	s := strings.Join([]string{`&ClientCommandRequest{`,
+		`ClientID:` + fmt.Sprintf("%v", this.ClientID) + `,`,
 		`SequenceNumber:` + fmt.Sprintf("%v", this.SequenceNumber) + `,`,
 		`Command:` + fmt.Sprintf("%v", this.Command) + `,`,
 		`}`,
 	}, "")
 	return s
 }
-func (this *ClientResponse) String() string {
+func (this *ClientCommandResponse) String() string {
 	if this == nil {
 		return "nil"
 	}
-	s := strings.Join([]string{`&ClientResponse{`,
+	s := strings.Join([]string{`&ClientCommandResponse{`,
 		`Status:` + fmt.Sprintf("%v", this.Status) + `,`,
 		`Response:` + fmt.Sprintf("%v", this.Response) + `,`,
 		`LeaderHint:` + fmt.Sprintf("%v", this.LeaderHint) + `,`,
+		`ClientID:` + fmt.Sprintf("%v", this.ClientID) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -2203,7 +2246,7 @@ func (m *Entry) Unmarshal(data []byte) error {
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Data", wireType)
 			}
-			var stringLen uint64
+			var msglen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowRaft
@@ -2213,20 +2256,24 @@ func (m *Entry) Unmarshal(data []byte) error {
 				}
 				b := data[iNdEx]
 				iNdEx++
-				stringLen |= (uint64(b) & 0x7F) << shift
+				msglen |= (int(b) & 0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
+			if msglen < 0 {
 				return ErrInvalidLengthRaft
 			}
-			postIndex := iNdEx + intStringLen
+			postIndex := iNdEx + msglen
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Data = string(data[iNdEx:postIndex])
+			if m.Data == nil {
+				m.Data = &ClientCommandRequest{}
+			}
+			if err := m.Data.Unmarshal(data[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -2786,7 +2833,7 @@ func (m *AppendEntriesResponse) Unmarshal(data []byte) error {
 	}
 	return nil
 }
-func (m *ClientRequest) Unmarshal(data []byte) error {
+func (m *ClientCommandRequest) Unmarshal(data []byte) error {
 	l := len(data)
 	iNdEx := 0
 	for iNdEx < l {
@@ -2809,13 +2856,32 @@ func (m *ClientRequest) Unmarshal(data []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: ClientRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: ClientCommandRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ClientRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: ClientCommandRequest: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ClientID", wireType)
+			}
+			m.ClientID = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowRaft
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := data[iNdEx]
+				iNdEx++
+				m.ClientID |= (uint32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SequenceNumber", wireType)
 			}
@@ -2834,7 +2900,7 @@ func (m *ClientRequest) Unmarshal(data []byte) error {
 					break
 				}
 			}
-		case 2:
+		case 3:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Command", wireType)
 			}
@@ -2884,7 +2950,7 @@ func (m *ClientRequest) Unmarshal(data []byte) error {
 	}
 	return nil
 }
-func (m *ClientResponse) Unmarshal(data []byte) error {
+func (m *ClientCommandResponse) Unmarshal(data []byte) error {
 	l := len(data)
 	iNdEx := 0
 	for iNdEx < l {
@@ -2907,10 +2973,10 @@ func (m *ClientResponse) Unmarshal(data []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: ClientResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: ClientCommandResponse: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ClientResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: ClientCommandResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -2976,6 +3042,25 @@ func (m *ClientResponse) Unmarshal(data []byte) error {
 				b := data[iNdEx]
 				iNdEx++
 				m.LeaderHint |= (uint32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ClientID", wireType)
+			}
+			m.ClientID = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowRaft
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := data[iNdEx]
+				iNdEx++
+				m.ClientID |= (uint32(b) & 0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -3109,45 +3194,46 @@ var (
 func init() { proto.RegisterFile("proto/gorums/raft.proto", fileDescriptorRaft) }
 
 var fileDescriptorRaft = []byte{
-	// 625 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0x74, 0x94, 0xcf, 0x4f, 0x13, 0x41,
-	0x14, 0xc7, 0x3b, 0x50, 0x4a, 0x7d, 0xb5, 0x95, 0x8c, 0x22, 0x9b, 0x8a, 0x93, 0x66, 0x63, 0x90,
-	0x18, 0x43, 0x13, 0xbc, 0x9b, 0x20, 0x34, 0xd8, 0x48, 0x00, 0xb7, 0xc4, 0x78, 0x23, 0xd3, 0xee,
-	0x00, 0x4d, 0xba, 0xbb, 0x75, 0x66, 0x16, 0xf5, 0xc6, 0xc5, 0x3b, 0x7f, 0x86, 0xff, 0x00, 0xff,
-	0x83, 0x47, 0x6e, 0x7a, 0x84, 0x35, 0x31, 0x1e, 0xfd, 0x0b, 0xd4, 0xec, 0xfc, 0xa8, 0xd3, 0x5a,
-	0x7a, 0xe9, 0xbc, 0xcf, 0x7b, 0xf3, 0xe6, 0x7d, 0xdf, 0x7b, 0x2d, 0x2c, 0x0d, 0x79, 0x22, 0x93,
-	0xe6, 0x71, 0xc2, 0xd3, 0x48, 0x34, 0x39, 0x3d, 0x92, 0x6b, 0x8a, 0xe0, 0x92, 0x46, 0xf5, 0x47,
-	0xc7, 0x7d, 0x79, 0x92, 0x76, 0xd7, 0x7a, 0x49, 0xd4, 0xe4, 0x6c, 0x40, 0xbb, 0x36, 0x56, 0x7f,
-	0xe9, 0x68, 0xbf, 0x09, 0x73, 0xad, 0x58, 0xf2, 0x8f, 0x18, 0x43, 0x51, 0x32, 0x1e, 0x79, 0xa8,
-	0x81, 0x56, 0x8b, 0x81, 0x3a, 0xe7, 0x2c, 0xa4, 0x92, 0x7a, 0x33, 0x0d, 0xb4, 0x7a, 0x2b, 0x50,
-	0x67, 0xff, 0x1c, 0x01, 0x0e, 0xd8, 0xbb, 0x94, 0x09, 0xf9, 0x26, 0x91, 0xcc, 0x1c, 0x71, 0x03,
-	0x2a, 0x3d, 0x1a, 0x87, 0xfd, 0x90, 0x4a, 0xd6, 0xde, 0x52, 0x59, 0xaa, 0x81, 0x8b, 0x46, 0x0f,
-	0xcc, 0x38, 0x0f, 0xf8, 0x70, 0x7b, 0x40, 0x85, 0xdc, 0x49, 0x8e, 0xdb, 0x71, 0xc8, 0x3e, 0x78,
-	0xb3, 0xca, 0x37, 0xc6, 0xf2, 0xcc, 0xc6, 0x3e, 0xc8, 0xaf, 0x17, 0x55, 0x88, 0x8b, 0xfc, 0x08,
-	0xee, 0x8e, 0x55, 0x24, 0x86, 0x49, 0x2c, 0xd8, 0x54, 0x45, 0x0d, 0xa8, 0x70, 0x1d, 0x7a, 0xf0,
-	0xaf, 0x16, 0x17, 0xe5, 0x11, 0xa7, 0x89, 0x64, 0xdb, 0x9c, 0xc6, 0x92, 0x85, 0xaa, 0xa2, 0x72,
-	0xe0, 0x22, 0xff, 0x2b, 0x82, 0x7b, 0x1b, 0xc3, 0x21, 0x8b, 0xc3, 0xbc, 0x73, 0x7d, 0x26, 0x6c,
-	0x0f, 0xea, 0x50, 0x1e, 0x30, 0x1a, 0x32, 0x3e, 0x6a, 0xc0, 0xc8, 0xbe, 0x49, 0xfd, 0x90, 0xb3,
-	0xd3, 0x49, 0xf5, 0x2e, 0xcb, 0xcb, 0x31, 0xb6, 0xab, 0xde, 0x41, 0xaa, 0xf3, 0x49, 0x14, 0xf5,
-	0xa5, 0x4e, 0x32, 0xa7, 0x23, 0x1c, 0x84, 0x1f, 0xc3, 0x3c, 0xd3, 0x95, 0x7a, 0xa5, 0xc6, 0xec,
-	0x6a, 0x65, 0xbd, 0xba, 0x66, 0x76, 0x40, 0x8d, 0x3e, 0xb0, 0x5e, 0xff, 0x13, 0x82, 0xc5, 0x09,
-	0x65, 0xa6, 0x97, 0x04, 0xe0, 0x28, 0x19, 0x0c, 0x92, 0xf7, 0x8e, 0x38, 0x87, 0x4c, 0x95, 0x47,
-	0x00, 0x22, 0x2a, 0x7b, 0x27, 0xae, 0x38, 0x87, 0x60, 0x0f, 0xe6, 0x45, 0xda, 0xeb, 0x31, 0x21,
-	0x94, 0xac, 0x72, 0x60, 0x4d, 0xff, 0x35, 0x54, 0x37, 0x07, 0x7d, 0x16, 0x4b, 0xdb, 0xd9, 0x15,
-	0xa8, 0x89, 0xfc, 0x18, 0xf7, 0xd8, 0x6e, 0x1a, 0x75, 0x19, 0x37, 0x43, 0x9d, 0xa0, 0x79, 0xca,
-	0x5c, 0x38, 0x8d, 0x43, 0xb3, 0xb3, 0xd6, 0xf4, 0x25, 0xd4, 0x6c, 0x4a, 0x23, 0x69, 0x05, 0x4a,
-	0x42, 0x52, 0x99, 0x0a, 0x95, 0xab, 0xb6, 0x5e, 0xb3, 0x4d, 0xe9, 0x28, 0x1a, 0x18, 0x6f, 0x3e,
-	0x55, 0x6e, 0xee, 0x98, 0xa4, 0x23, 0x3b, 0x97, 0xa8, 0x27, 0xfc, 0xb2, 0x1f, 0x4b, 0x25, 0xb1,
-	0x1a, 0x38, 0xe4, 0xc9, 0x36, 0x94, 0x74, 0x36, 0x5c, 0x82, 0x99, 0xbd, 0x57, 0x0b, 0x05, 0xbc,
-	0x04, 0xb0, 0xbb, 0x77, 0x70, 0xb8, 0xd3, 0xda, 0xd8, 0x6a, 0x05, 0x0b, 0x7f, 0xec, 0x07, 0xe1,
-	0x65, 0xb8, 0xd3, 0x69, 0x75, 0x3a, 0xed, 0xbd, 0xdd, 0xc3, 0xd6, 0xdb, 0xfd, 0x76, 0xd0, 0xda,
-	0x5a, 0xf8, 0x3d, 0xf2, 0xae, 0xff, 0x40, 0x50, 0x0c, 0xe8, 0x91, 0xc4, 0xfb, 0x50, 0x71, 0x76,
-	0x1d, 0xd7, 0x6d, 0xd1, 0xff, 0xff, 0x24, 0xeb, 0x0f, 0xa6, 0xfa, 0x74, 0xe5, 0x7e, 0xf9, 0xec,
-	0xc2, 0x43, 0xe7, 0x17, 0x1e, 0xc2, 0x3b, 0x50, 0x1d, 0x9b, 0x39, 0x5e, 0xb6, 0xf7, 0xa6, 0x2d,
-	0x79, 0xfd, 0xe1, 0x0d, 0x5e, 0xd3, 0x91, 0xe7, 0x76, 0x74, 0x9b, 0xba, 0xf1, 0x78, 0xd1, 0xc6,
-	0x8f, 0x4d, 0xb4, 0x7e, 0x7f, 0x12, 0xeb, 0xfb, 0x2f, 0x9e, 0x5e, 0x5e, 0x93, 0xc2, 0xb7, 0x6b,
-	0x52, 0xb8, 0xba, 0x26, 0xe8, 0x2c, 0x23, 0xe8, 0x73, 0x46, 0xd0, 0x97, 0x8c, 0xa0, 0xcb, 0x8c,
-	0xa0, 0xab, 0x8c, 0xa0, 0x9f, 0x19, 0x29, 0xfc, 0xca, 0x08, 0x3a, 0xff, 0x4e, 0x0a, 0xdd, 0x92,
-	0xfa, 0x13, 0x7b, 0xf6, 0x37, 0x00, 0x00, 0xff, 0xff, 0x01, 0x41, 0x63, 0x52, 0x0d, 0x05, 0x00,
-	0x00,
+	// 651 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0x7c, 0x54, 0x41, 0x4f, 0x13, 0x41,
+	0x14, 0xee, 0x40, 0x29, 0xe5, 0xd5, 0x22, 0x19, 0x21, 0x6c, 0x2a, 0x4e, 0x9a, 0x8d, 0x41, 0x62,
+	0x0c, 0x98, 0xfa, 0x0b, 0x10, 0x1a, 0x6c, 0xac, 0x40, 0xa6, 0xc4, 0x78, 0x23, 0xd3, 0xdd, 0x01,
+	0x9a, 0x74, 0x77, 0xea, 0xcc, 0x14, 0xf5, 0xc6, 0xc5, 0x3b, 0x37, 0xff, 0x82, 0x7f, 0x80, 0xff,
+	0xe0, 0x91, 0x9b, 0x1e, 0x61, 0xbd, 0x78, 0xf4, 0xe0, 0x59, 0xcd, 0xce, 0xee, 0x96, 0x69, 0x5d,
+	0xec, 0xa5, 0xfb, 0xbe, 0xf7, 0x66, 0xbe, 0xf7, 0x7d, 0xf3, 0x66, 0x60, 0x79, 0x20, 0x85, 0x16,
+	0x1b, 0xc7, 0x42, 0x0e, 0x03, 0xb5, 0x21, 0xd9, 0x91, 0x5e, 0x37, 0x08, 0x2e, 0x25, 0x50, 0xed,
+	0xe1, 0x71, 0x4f, 0x9f, 0x0c, 0xbb, 0xeb, 0x9e, 0x08, 0x36, 0x24, 0xef, 0xb3, 0x6e, 0x56, 0x9b,
+	0xfc, 0x25, 0xd5, 0xee, 0x2b, 0x98, 0x69, 0x86, 0x5a, 0x7e, 0xc0, 0x18, 0x8a, 0x9a, 0xcb, 0xc0,
+	0x41, 0x75, 0xb4, 0x56, 0xa4, 0xe6, 0x1b, 0x3f, 0x85, 0xa2, 0xcf, 0x34, 0x73, 0xa6, 0xea, 0x68,
+	0xad, 0xd2, 0x58, 0x59, 0x4f, 0x57, 0x6e, 0xf5, 0x7b, 0x3c, 0xd4, 0x5b, 0x22, 0x08, 0x58, 0xe8,
+	0x53, 0xfe, 0x76, 0xc8, 0x95, 0xa6, 0xa6, 0xd2, 0x3d, 0x47, 0x80, 0x53, 0xe4, 0xb5, 0xd0, 0x3c,
+	0xfd, 0xc4, 0x75, 0xa8, 0x78, 0x2c, 0xf4, 0x7b, 0x3e, 0xd3, 0xbc, 0xb5, 0x6d, 0x38, 0xaa, 0xd4,
+	0x86, 0x46, 0xf4, 0x53, 0x16, 0xbd, 0x0b, 0x77, 0xfa, 0x4c, 0xe9, 0xb6, 0x38, 0x6e, 0x85, 0x3e,
+	0x7f, 0xef, 0x4c, 0x9b, 0xdc, 0x18, 0x16, 0xef, 0x9c, 0xc6, 0x07, 0xf1, 0xf2, 0xa2, 0x29, 0xb1,
+	0x21, 0x37, 0x80, 0x7b, 0x63, 0x1d, 0xa9, 0x81, 0x08, 0x15, 0xcf, 0xd5, 0x5b, 0x87, 0x8a, 0x4c,
+	0x4a, 0x0f, 0x6e, 0x7a, 0xb1, 0xa1, 0xb8, 0xe2, 0x54, 0x68, 0xbe, 0x23, 0x59, 0xa8, 0xb9, 0x6f,
+	0x3a, 0x2a, 0x53, 0x1b, 0x72, 0xbf, 0x22, 0x58, 0xdc, 0x1c, 0x0c, 0x78, 0xe8, 0xc7, 0xbe, 0xf6,
+	0xb8, 0xca, 0x3c, 0xa8, 0x41, 0xb9, 0xcf, 0x99, 0xcf, 0xe5, 0xc8, 0x80, 0x51, 0x7c, 0x9b, 0xfa,
+	0x81, 0xe4, 0xa7, 0x93, 0xea, 0x6d, 0x2c, 0x6e, 0x27, 0x8d, 0x6d, 0xf5, 0x16, 0x64, 0x9c, 0x17,
+	0x41, 0xd0, 0xd3, 0xc9, 0x26, 0x33, 0x49, 0x85, 0x05, 0xe1, 0x47, 0x30, 0xcb, 0x93, 0x4e, 0x9d,
+	0x52, 0x7d, 0x7a, 0xad, 0xd2, 0xa8, 0x66, 0xe7, 0x6c, 0x06, 0x83, 0x66, 0x59, 0xf7, 0x23, 0x82,
+	0xa5, 0x09, 0x65, 0xa9, 0x97, 0x04, 0xe0, 0x48, 0xf4, 0xfb, 0xe2, 0x9d, 0x25, 0xce, 0x42, 0x72,
+	0xe5, 0x11, 0x80, 0x80, 0x69, 0xef, 0xc4, 0x16, 0x67, 0x21, 0xd8, 0x81, 0x59, 0x35, 0xf4, 0x3c,
+	0xae, 0x94, 0x91, 0x55, 0xa6, 0x59, 0xe8, 0x6a, 0x58, 0xcc, 0x9b, 0xc0, 0xd8, 0x60, 0xcf, 0xe0,
+	0x37, 0x06, 0x67, 0x31, 0x5e, 0x85, 0x79, 0x15, 0x97, 0x85, 0x1e, 0xdf, 0x1d, 0x06, 0x5d, 0x2e,
+	0xd3, 0x5e, 0x26, 0xd0, 0x98, 0xd5, 0x4b, 0x76, 0x35, 0x2d, 0xcd, 0xd1, 0x2c, 0x74, 0x3f, 0x21,
+	0x58, 0x9a, 0xa0, 0x4d, 0xd5, 0xaf, 0x42, 0x49, 0x69, 0xa6, 0x87, 0xca, 0xb0, 0xce, 0x37, 0xe6,
+	0x33, 0xff, 0x3a, 0x06, 0xa5, 0x69, 0x36, 0xee, 0x4f, 0xa6, 0x6b, 0x0c, 0xfb, 0x1c, 0x1d, 0xc5,
+	0xb1, 0x1b, 0xc9, 0x30, 0xbc, 0xe8, 0x85, 0xda, 0x50, 0x57, 0xa9, 0x85, 0x8c, 0x69, 0x2b, 0x8e,
+	0x6b, 0x7b, 0xbc, 0x03, 0xa5, 0x84, 0x09, 0x97, 0x60, 0x6a, 0xef, 0xe5, 0x42, 0x01, 0x2f, 0x03,
+	0xec, 0xee, 0x1d, 0x1c, 0xb6, 0x9b, 0x9b, 0xdb, 0x4d, 0xba, 0xf0, 0x27, 0xfb, 0x21, 0xbc, 0x02,
+	0x77, 0x3b, 0xcd, 0x4e, 0xa7, 0xb5, 0xb7, 0x7b, 0xd8, 0x7c, 0xb3, 0xdf, 0xa2, 0xcd, 0xed, 0x85,
+	0xdf, 0xa3, 0x6c, 0xe3, 0x17, 0x82, 0x22, 0x65, 0x47, 0x1a, 0xef, 0x43, 0xc5, 0xba, 0x32, 0xb8,
+	0x96, 0x09, 0xfa, 0xf7, 0x66, 0xd7, 0xee, 0xe7, 0xe6, 0x12, 0x55, 0x6e, 0xf9, 0xec, 0xc2, 0x41,
+	0xe7, 0x17, 0x0e, 0xc2, 0x6d, 0xa8, 0x8e, 0x8d, 0x0e, 0x1e, 0x3d, 0x26, 0x79, 0x77, 0xa5, 0xf6,
+	0xe0, 0x96, 0x6c, 0xea, 0x56, 0x1b, 0xaa, 0x63, 0x47, 0x81, 0xff, 0xfb, 0x34, 0xdd, 0xec, 0x96,
+	0x7b, 0x7e, 0xcf, 0x9f, 0x5c, 0x5e, 0x93, 0xc2, 0xb7, 0x6b, 0x52, 0xb8, 0xba, 0x26, 0xe8, 0x2c,
+	0x22, 0xe8, 0x73, 0x44, 0xd0, 0x97, 0x88, 0xa0, 0xcb, 0x88, 0xa0, 0xab, 0x88, 0xa0, 0x1f, 0x11,
+	0x29, 0xfc, 0x8c, 0x08, 0x3a, 0xff, 0x4e, 0x0a, 0xdd, 0x92, 0x79, 0x37, 0x9f, 0xfd, 0x0d, 0x00,
+	0x00, 0xff, 0xff, 0xc5, 0x4a, 0x21, 0x85, 0x80, 0x05, 0x00, 0x00,
 }
