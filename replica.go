@@ -373,14 +373,14 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 
 				debug.Debugln(r.id, ":: LOG, len:", len(r.log))
 			}
+		}
 
-			old := r.commitIndex
+		old := r.commitIndex
 
-			r.commitIndex = min(request.CommitIndex, uint64(index))
+		r.commitIndex = min(request.CommitIndex, uint64(index))
 
-			if r.commitIndex > old {
-				r.newCommit(old)
-			}
+		if r.commitIndex > old {
+			r.newCommit(old)
 		}
 	}
 
