@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tylertreat/bench"
@@ -30,6 +31,7 @@ const timeout = 10 * time.Second
 type ManagerWithLeader struct {
 	*gorums.Manager
 
+	this   sync.Mutex
 	leader *gorums.Node
 
 	nodes   int
@@ -54,6 +56,9 @@ func (mgr *ManagerWithLeader) next(leaderHint uint32) {
 }
 
 func (mgr *ManagerWithLeader) ClientCommand(command string) error {
+	mgr.this.Lock()
+	defer mgr.this.Unlock()
+
 	mgr.sequenceNumber++
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -64,7 +69,7 @@ func (mgr *ManagerWithLeader) ClientCommand(command string) error {
 	if err != nil {
 		mgr.next(0)
 
-		return ErrNotLeader
+		return err
 	}
 
 	switch reply.Status {
@@ -74,6 +79,8 @@ func (mgr *ManagerWithLeader) ClientCommand(command string) error {
 		return ErrSessionExpired
 	}
 
+	log.Println(reply.LeaderHint)
+
 	mgr.next(reply.LeaderHint)
 
 	return ErrNotLeader
@@ -82,6 +89,9 @@ func (mgr *ManagerWithLeader) ClientCommand(command string) error {
 type ClientRequesterFactory struct {
 	Addrs       []string
 	PayloadSize int
+
+	responses chan error
+	done      chan int
 }
 
 func (r *ClientRequesterFactory) GetRequester(uint64) bench.Requester {
@@ -93,6 +103,8 @@ func (r *ClientRequesterFactory) GetRequester(uint64) bench.Requester {
 			grpc.WithBlock(),
 			grpc.WithTimeout(time.Second),
 		},
+		responses: r.responses,
+		done:      r.done,
 	}
 }
 
@@ -103,14 +115,14 @@ type clientRequester struct {
 	dialOpts []grpc.DialOption
 
 	mgr *ManagerWithLeader
+
+	responses chan error
+	done      chan int
 }
 
 func (cr *clientRequester) Setup() error {
 	mgr, err := gorums.NewManager(cr.addrs,
-		gorums.WithGrpcDialOptions(
-			grpc.WithBlock(),
-			grpc.WithInsecure(),
-			grpc.WithTimeout(time.Second*10)))
+		gorums.WithGrpcDialOptions(cr.dialOpts...))
 
 	if err != nil {
 		return err
@@ -157,24 +169,67 @@ func (cr *clientRequester) Setup() error {
 }
 
 func (cr *clientRequester) Request() error {
-	return cr.mgr.ClientCommand(cr.payload)
+	go func() {
+		err := cr.mgr.ClientCommand(cr.payload)
+
+		select {
+		case <-cr.done:
+			return
+		default:
+		}
+
+		select {
+		case cr.responses <- err:
+		}
+	}()
+
+	return nil
 }
 
 func (cr *clientRequester) Teardown() error {
+	select {
+	case <-cr.done:
+	default:
+		close(cr.done)
+	}
+
 	cr.mgr.Close()
 	cr.mgr = nil
 	return nil
 }
 
 func main() {
+	var count uint64
+	responses := make(chan error)
+	done := make(chan int)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
 	r := &ClientRequesterFactory{
 		Addrs:       []string{":9201", ":9202", ":9203"},
 		PayloadSize: 16,
+		responses:   responses,
+		done:        done,
 	}
 
-	n := uint64(100)
+	go func() {
+		for {
+			select {
+			case resp := <-responses:
+				if resp == nil {
+					count++
+				} else {
+					log.Println(resp)
+				}
+			case <-done:
+				wg.Done()
+				return
+			}
+		}
+	}()
 
-	benchmark := bench.NewBenchmark(r, 20*n, n, 10*time.Second)
+	benchmark := bench.NewBenchmark(r, 300, 50, 5*time.Second)
 	summary, err := benchmark.Run()
 
 	if err != nil {
@@ -183,4 +238,7 @@ func main() {
 
 	fmt.Println(summary)
 	summary.GenerateLatencyDistribution(bench.Logarithmic, "client.txt")
+
+	wg.Wait()
+	log.Println(count, summary.TimeElapsed.Seconds(), float64(count)/summary.TimeElapsed.Seconds())
 }
