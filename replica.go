@@ -119,6 +119,8 @@ type Replica struct {
 
 	pending  map[uniqueCommand]chan<- *gorums.ClientCommandRequest
 	commands map[uniqueCommand]*gorums.ClientCommandRequest
+
+	pendingCount uint64
 }
 
 type uniqueCommand struct {
@@ -410,6 +412,12 @@ func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientComma
 	defer un(trace("ClientCommand"))
 
 	if response, isLeader := r.logCommand(request); isLeader {
+		r.Lock()
+		if r.pendingCount >= 50 {
+			go r.sendAppendEntries()
+		}
+		r.Unlock()
+
 		select {
 		// Wait on committed entry.
 		case entry := <-response:
@@ -448,6 +456,7 @@ func (r *Replica) logCommand(request *gorums.ClientCommandRequest) (<-chan *goru
 		}
 
 		r.log = append(r.log, &gorums.Entry{Term: r.currentTerm, Data: request})
+		r.pendingCount++
 
 		// Write to stable storage
 		// TODO Assumes successful
@@ -633,6 +642,8 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 func (r *Replica) sendAppendEntries() {
 	r.Lock()
 	defer r.Unlock()
+
+	r.pendingCount = 0
 
 	debug.Debugln(r.id, ":: APPENDENTRIES, for term", r.currentTerm)
 
