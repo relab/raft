@@ -34,8 +34,13 @@ const (
 
 // Timeouts in milliseconds.
 const (
-	HEARTBEAT = 50
-	ELECTION  = 150
+	// How long we wait for an answer.
+	TCPCONNECT   = 5000
+	TCPHEARTBEAT = 500
+
+	// Raft RPC timeouts.
+	HEARTBEAT = 250
+	ELECTION  = 500
 )
 
 // NONE represents no server.
@@ -129,7 +134,7 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 		gorums.WithGrpcDialOptions(
 			grpc.WithBlock(),
 			grpc.WithInsecure(),
-			grpc.WithTimeout(time.Second*10)))
+			grpc.WithTimeout(TCPCONNECT*time.Millisecond)))
 
 	if err != nil {
 		return err
@@ -142,7 +147,7 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 		Q: n / 2,
 	}
 
-	conf, err := mgr.NewConfiguration(mgr.NodeIDs(), qspec, time.Second)
+	conf, err := mgr.NewConfiguration(mgr.NodeIDs(), qspec, TCPHEARTBEAT*time.Millisecond)
 
 	if err != nil {
 		return err
@@ -370,10 +375,10 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 				// Write to stable storage
 				// TODO Assumes successful
 				r.save(fmt.Sprintf("%d,%d,%d,%s\n", entry.Term, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
-
-				debug.Debugln(r.id, ":: LOG, len:", len(r.log))
 			}
 		}
+
+		debug.Debugln(r.id, ":: LOG, len:", len(r.log))
 
 		old := r.commitIndex
 
@@ -396,7 +401,7 @@ func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientComma
 
 		// Return if responding takes too much time.
 		// The client will retry.
-		case <-time.After(10 * time.Second):
+		case <-time.After(TCPHEARTBEAT * time.Millisecond):
 			return nil, ErrLateCommit
 		}
 	}
@@ -435,8 +440,6 @@ func (r *Replica) logCommand(request *gorums.ClientCommandRequest) (<-chan *goru
 		response := make(chan *gorums.ClientCommandRequest)
 
 		commandID := uniqueCommand{clientID: request.ClientID, sequenceNumber: request.SequenceNumber}
-
-		debug.Debugf("Setting pending: %v", commandID)
 
 		r.pending[commandID] = response
 
@@ -493,18 +496,15 @@ func (r *Replica) newCommit(old uint64) {
 		clientID := committed.Data.ClientID
 		commandID := uniqueCommand{clientID: clientID, sequenceNumber: sequenceNumber}
 
-		debug.Debugf("Looking for pending: %v", commandID)
 		if response, ok := r.pending[commandID]; ok {
-			debug.Debugf("Found pending: %v", commandID)
 			// If entry is not committed fast enough, the client
 			// will retry.
-			select {
-			case response <- committed.Data:
-				debug.Debugf("Answered pending: %v", commandID)
-			default:
-			}
-		} else {
-			debug.Debugf("No pending: %v", commandID)
+			go func(response chan<- *gorums.ClientCommandRequest) {
+				select {
+				case response <- committed.Data:
+				case <-time.After(TCPHEARTBEAT * time.Millisecond):
+				}
+			}(response)
 		}
 
 		r.commands[commandID] = committed.Data
@@ -513,8 +513,9 @@ func (r *Replica) newCommit(old uint64) {
 
 // TODO Assumes caller already holds lock on Replica
 func (r *Replica) save(line string) {
-	r.recoverFile.WriteString(line)
-	r.recoverFile.Sync()
+	// TODO benchmark writing to file
+	//	r.recoverFile.WriteString(line)
+	//	r.recoverFile.Sync()
 }
 
 func (r *Replica) startElection() {
@@ -636,7 +637,7 @@ func (r *Replica) sendAppendEntries() {
 		}
 
 		go func(node *gorums.Node, req *gorums.AppendEntriesRequest) {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), TCPHEARTBEAT*time.Millisecond)
 			defer cancel()
 			resp, err := node.RaftClient.AppendEntries(ctx, req)
 
