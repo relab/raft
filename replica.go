@@ -526,10 +526,12 @@ func (r *Replica) newCommit(old uint64) {
 		if response, ok := r.pending[commandID]; ok {
 			// If entry is not committed fast enough, the client
 			// will retry.
-			select {
-			case response <- committed.Data:
-			default:
-			}
+			go func(response chan<- *gorums.ClientCommandRequest) {
+				select {
+				case response <- committed.Data:
+				default:
+				}
+			}(response)
 		}
 
 		r.commands[commandID] = committed.Data
