@@ -108,6 +108,11 @@ func main() {
 	<-stop
 	<-time.After(50 * time.Millisecond)
 
+	select {
+	case <-counter:
+	default:
+	}
+
 	log.Println(count, float64(count)/(t.Seconds()))
 }
 
