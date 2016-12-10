@@ -121,6 +121,8 @@ type Replica struct {
 	commands map[uniqueCommand]*gorums.ClientCommandRequest
 
 	pendingCount uint64
+
+	lastHeartbeat time.Time
 }
 
 type uniqueCommand struct {
@@ -292,7 +294,7 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 // Always call Init before this method.
 // All RPCs are handled by Gorums.
 func (r *Replica) Run() {
-	last := time.Now()
+	r.lastHeartbeat = time.Now()
 
 	for {
 		select {
@@ -303,8 +305,6 @@ func (r *Replica) Run() {
 
 		case <-r.heartbeat.C:
 			r.sendAppendEntries()
-			log.Println("HEARTBEAT ElapsedTime:", time.Now().Sub(last))
-			last = time.Now()
 		}
 	}
 }
@@ -677,6 +677,9 @@ func (r *Replica) sendAppendEntries() {
 	}
 
 	r.heartbeat.Reset(r.heartbeatTimeout)
+
+	log.Println("HEARTBEAT ElapsedTime:", time.Now().Sub(r.lastHeartbeat))
+	r.lastHeartbeat = time.Now()
 }
 
 func (r *Replica) handleAppendEntriesResponse(response *gorums.AppendEntriesResponse) {
