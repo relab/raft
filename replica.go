@@ -120,6 +120,8 @@ type Replica struct {
 	pending  map[uniqueCommand]chan<- *gorums.ClientCommandRequest
 	commands map[uniqueCommand]*gorums.ClientCommandRequest
 
+	allowCommand chan interface{}
+
 	pendingCount uint64
 
 	lastHeartbeat time.Time
@@ -305,6 +307,7 @@ func (r *Replica) Run() {
 
 		case <-r.heartbeat.C:
 			r.sendAppendEntries()
+		case r.allowCommand <- struct{}{}:
 		}
 	}
 }
@@ -403,14 +406,6 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 		if r.commitIndex > old {
 			r.newCommit(old)
 		}
-	} else {
-		debug.Debugln("NO SUCCESS")
-		debug.Debugln(request.PrevLogIndex == 0)
-		if request.PrevLogIndex != 0 {
-			debug.Debugln(request.PrevLogIndex-1 < uint64(len(r.log)))
-			debug.Debugln(r.log[request.PrevLogIndex-1].Term == request.PrevLogTerm)
-		}
-		debug.Debugln("NO SUCCESS")
 	}
 
 	return &gorums.AppendEntriesResponse{FollowerID: r.id, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success}, nil
@@ -418,6 +413,8 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 
 func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientCommandRequest) (*gorums.ClientCommandResponse, error) {
 	defer un(trace("ClientCommand"))
+
+	<-r.allowCommand
 
 	if response, isLeader := r.logCommand(request); isLeader {
 		r.Lock()
@@ -537,7 +534,7 @@ func (r *Replica) newCommit(old uint64) {
 			go func(response chan<- *gorums.ClientCommandRequest) {
 				select {
 				case response <- committed.Data:
-				default:
+				case <-time.After(TCPHEARTBEAT * time.Millisecond):
 				}
 			}(response)
 		}
