@@ -120,8 +120,6 @@ type Replica struct {
 	pending  map[uniqueCommand]chan<- *gorums.ClientCommandRequest
 	commands map[uniqueCommand]*gorums.ClientCommandRequest
 
-	allowCommand chan interface{}
-
 	pendingCount uint64
 
 	lastHeartbeat time.Time
@@ -289,8 +287,6 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 		return err
 	}
 
-	r.allowCommand = make(chan interface{})
-
 	return nil
 }
 
@@ -309,7 +305,6 @@ func (r *Replica) Run() {
 
 		case <-r.heartbeat.C:
 			r.sendAppendEntries()
-		case r.allowCommand <- struct{}{}:
 		}
 	}
 }
@@ -416,7 +411,12 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientCommandRequest) (*gorums.ClientCommandResponse, error) {
 	defer un(trace("ClientCommand"))
 
-	<-r.allowCommand
+	// Make sure heartbeat is not delayed.
+	select {
+	case <-r.heartbeat.C:
+		r.sendAppendEntries()
+	default:
+	}
 
 	if response, isLeader := r.logCommand(request); isLeader {
 		r.Lock()
