@@ -416,9 +416,6 @@ func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientComma
 	case <-r.heartbeat.C:
 		r.sendAppendEntries()
 	default:
-	}
-
-	if response, isLeader := r.logCommand(request); isLeader {
 		r.Lock()
 		if r.pendingCount >= 50 {
 			r.Unlock()
@@ -426,7 +423,9 @@ func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientComma
 		} else {
 			r.Unlock()
 		}
+	}
 
+	if response, isLeader := r.logCommand(request); isLeader {
 		select {
 		// Wait on committed entry.
 		case entry := <-response:
