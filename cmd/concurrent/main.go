@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"sync"
 	"time"
@@ -15,7 +16,15 @@ var client gorums.RaftClient
 var counter chan interface{}
 var seq chan uint64
 
+var leader = flag.String("leader", "", "leader server address")
+
 func main() {
+	flag.Parse()
+
+	if *leader == "" {
+		log.Fatal("Leader server address not specified.")
+	}
+
 	counter = make(chan interface{})
 	seq = make(chan uint64)
 	stop := make(chan interface{})
@@ -34,7 +43,7 @@ func main() {
 		}
 	}()
 
-	mgr, err := gorums.NewManager([]string{":9202"},
+	mgr, err := gorums.NewManager([]string{*leader},
 		gorums.WithGrpcDialOptions(
 			grpc.WithInsecure(),
 			grpc.WithBlock(),
