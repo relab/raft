@@ -403,6 +403,12 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 		if r.commitIndex > old {
 			r.newCommit(old)
 		}
+	} else {
+		debug.Debugln("NO SUCCESS")
+		debug.Debugln(request.PrevLogIndex == 0)
+		debug.Debugln(request.PrevLogIndex-1 < uint64(len(r.log)))
+		debug.Debugln(r.log[request.PrevLogIndex-1].Term == request.PrevLogTerm)
+		debug.Debugln("NO SUCCESS")
 	}
 
 	return &gorums.AppendEntriesResponse{FollowerID: r.id, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success}, nil
