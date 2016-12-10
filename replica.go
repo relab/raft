@@ -289,6 +289,8 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 		return err
 	}
 
+	r.allowCommand = make(chan interface{})
+
 	return nil
 }
 
