@@ -120,6 +120,8 @@ type Replica struct {
 	pending  map[uniqueCommand]chan<- *gorums.ClientCommandRequest
 	commands map[uniqueCommand]*gorums.ClientCommandRequest
 
+	allowCommand chan interface{}
+
 	pendingCount uint64
 
 	lastHeartbeat time.Time
@@ -287,6 +289,8 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 		return err
 	}
 
+	r.allowCommand = make(chan interface{}, 50)
+
 	return nil
 }
 
@@ -411,29 +415,25 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientCommandRequest) (*gorums.ClientCommandResponse, error) {
 	defer un(trace("ClientCommand"))
 
-	// Make sure heartbeat is not delayed.
-	select {
-	case <-r.heartbeat.C:
-		r.sendAppendEntries()
-	default:
-		r.Lock()
-		if r.pendingCount >= 50 {
-			r.Unlock()
-			r.sendAppendEntries()
-		} else {
-			r.Unlock()
-		}
-	}
-
 	if response, isLeader := r.logCommand(request); isLeader {
+		// Wait on turn
+		select {
+		case r.allowCommand <- struct{}{}:
+		default:
+			r.sendAppendEntries()
+			r.allowCommand <- struct{}{}
+		}
+
 		select {
 		// Wait on committed entry.
 		case entry := <-response:
+			<-r.allowCommand
 			return &gorums.ClientCommandResponse{Status: gorums.OK, Response: entry.Command, ClientID: entry.ClientID}, nil
 
 		// Return if responding takes too much time.
 		// The client will retry.
 		case <-time.After(TCPHEARTBEAT * time.Millisecond):
+			<-r.allowCommand
 			return nil, ErrLateCommit
 		}
 	}
