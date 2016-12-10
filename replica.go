@@ -353,7 +353,6 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntriesRequest) (*gorums.AppendEntriesResponse, error) {
 	r.Lock()
 	defer r.Unlock()
-	defer un(trace("APPENDENTRIES"))
 
 	debug.Traceln(r.id, ":: APPENDENTRIES,", request)
 
@@ -407,8 +406,6 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 }
 
 func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientCommandRequest) (*gorums.ClientCommandResponse, error) {
-	defer un(trace("ClientCommand"))
-
 	if response, isLeader := r.logCommand(request); isLeader {
 		select {
 		// Wait on committed entry.
