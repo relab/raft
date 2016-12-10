@@ -69,7 +69,7 @@ func main() {
 		}
 	}()
 
-	n := 20
+	n := 1
 
 	var wg sync.WaitGroup
 	wg.Add(n)
@@ -93,12 +93,12 @@ func main() {
 			wg.Wait()
 			for {
 				go sendCommand(clientID)
-				<-time.After(200 * time.Millisecond)
+				<-time.After(50 * time.Microsecond)
 			}
 		}(reply.ClientID)
 	}
 
-	t := 30 * time.Second
+	t := 5 * time.Second
 
 	wg.Wait()
 	time.AfterFunc(t, func() {
