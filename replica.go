@@ -120,8 +120,6 @@ type Replica struct {
 	pending  map[uniqueCommand]chan<- *gorums.ClientCommandRequest
 	commands map[uniqueCommand]*gorums.ClientCommandRequest
 
-	pendingCount uint64
-
 	lastHeartbeat time.Time
 }
 
@@ -391,10 +389,10 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 				// Write to stable storage
 				// TODO Assumes successful
 				r.save(fmt.Sprintf("%d,%d,%d,%s\n", entry.Term, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
-
-				debug.Debugln(r.id, ":: LOG, len:", len(r.log))
 			}
 		}
+
+		debug.Debugln(r.id, ":: LOG, len:", len(r.log))
 
 		old := r.commitIndex
 
@@ -450,7 +448,6 @@ func (r *Replica) logCommand(request *gorums.ClientCommandRequest) (<-chan *goru
 		}
 
 		r.log = append(r.log, &gorums.Entry{Term: r.currentTerm, Data: request})
-		r.pendingCount++
 
 		// Write to stable storage
 		// TODO Assumes successful
@@ -631,8 +628,6 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 func (r *Replica) sendAppendEntries() {
 	r.Lock()
 	defer r.Unlock()
-
-	r.pendingCount = 0
 
 	debug.Debugln(r.id, ":: APPENDENTRIES, for term", r.currentTerm)
 
