@@ -414,9 +414,11 @@ func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientComma
 	if response, isLeader := r.logCommand(request); isLeader {
 		r.Lock()
 		if r.pendingCount >= 50 {
-			go r.sendAppendEntries()
+			r.Unlock()
+			r.sendAppendEntries()
+		} else {
+			r.Unlock()
 		}
-		r.Unlock()
 
 		select {
 		// Wait on committed entry.
