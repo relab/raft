@@ -290,6 +290,8 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 // Always call Init before this method.
 // All RPCs are handled by Gorums.
 func (r *Replica) Run() {
+	last := time.Now()
+
 	for {
 		select {
 		case <-r.election.C:
@@ -299,6 +301,8 @@ func (r *Replica) Run() {
 
 		case <-r.heartbeat.C:
 			r.sendAppendEntries()
+			log.Println("HEARTBEAT ElapsedTime in milliseconds:", time.Now().Sub(last)/1e3)
+			last = time.Now()
 		}
 	}
 }
