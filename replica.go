@@ -518,8 +518,9 @@ func (r *Replica) newCommit(old uint64) {
 
 // TODO Assumes caller already holds lock on Replica
 func (r *Replica) save(line string) {
-	r.recoverFile.WriteString(line)
-	r.recoverFile.Sync()
+	// TODO benchmark writing to file
+	//	r.recoverFile.WriteString(line)
+	//	r.recoverFile.Sync()
 }
 
 func (r *Replica) startElection() {
