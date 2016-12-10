@@ -466,8 +466,6 @@ func (r *Replica) logCommand(request *gorums.ClientCommandRequest) (<-chan *goru
 
 		commandID := uniqueCommand{clientID: request.ClientID, sequenceNumber: request.SequenceNumber}
 
-		debug.Debugf("Setting pending: %v", commandID)
-
 		r.pending[commandID] = response
 
 		return response, true
@@ -523,18 +521,13 @@ func (r *Replica) newCommit(old uint64) {
 		clientID := committed.Data.ClientID
 		commandID := uniqueCommand{clientID: clientID, sequenceNumber: sequenceNumber}
 
-		debug.Debugf("Looking for pending: %v", commandID)
 		if response, ok := r.pending[commandID]; ok {
-			debug.Debugf("Found pending: %v", commandID)
 			// If entry is not committed fast enough, the client
 			// will retry.
 			select {
 			case response <- committed.Data:
-				debug.Debugf("Answered pending: %v", commandID)
 			default:
 			}
-		} else {
-			debug.Debugf("No pending: %v", commandID)
 		}
 
 		r.commands[commandID] = committed.Data
