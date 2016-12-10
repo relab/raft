@@ -27,7 +27,7 @@ func trace(s string) (string, time.Time) {
 
 func un(s string, startTime time.Time) {
 	endTime := time.Now()
-	log.Println("END:", s, "ElapsedTime in milliseconds:", endTime.Sub(startTime)/1e3)
+	log.Println("END:", s, "ElapsedTime:", endTime.Sub(startTime))
 }
 
 // State represents one of the Raft server states.
@@ -303,7 +303,7 @@ func (r *Replica) Run() {
 
 		case <-r.heartbeat.C:
 			r.sendAppendEntries()
-			log.Println("HEARTBEAT ElapsedTime in milliseconds:", time.Now().Sub(last)/1e3)
+			log.Println("HEARTBEAT ElapsedTime:", time.Now().Sub(last))
 			last = time.Now()
 		}
 	}
