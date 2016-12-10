@@ -34,8 +34,13 @@ const (
 
 // Timeouts in milliseconds.
 const (
-	HEARTBEAT = 50
-	ELECTION  = 150
+	// How long we wait for an answer.
+	TCPCONNECT   = 5000
+	TCPHEARTBEAT = 500
+
+	// Raft RPC timeouts.
+	HEARTBEAT = 250
+	ELECTION  = 500
 )
 
 // NONE represents no server.
@@ -129,7 +134,7 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 		gorums.WithGrpcDialOptions(
 			grpc.WithBlock(),
 			grpc.WithInsecure(),
-			grpc.WithTimeout(time.Second*10)))
+			grpc.WithTimeout(TCPCONNECT*time.Millisecond)))
 
 	if err != nil {
 		return err
@@ -142,7 +147,7 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 		Q: n / 2,
 	}
 
-	conf, err := mgr.NewConfiguration(mgr.NodeIDs(), qspec, time.Second)
+	conf, err := mgr.NewConfiguration(mgr.NodeIDs(), qspec, TCPHEARTBEAT*time.Millisecond)
 
 	if err != nil {
 		return err
@@ -396,7 +401,7 @@ func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientComma
 
 		// Return if responding takes too much time.
 		// The client will retry.
-		case <-time.After(10 * time.Second):
+		case <-time.After(TCPHEARTBEAT * time.Millisecond):
 			return nil, ErrLateCommit
 		}
 	}
@@ -636,7 +641,7 @@ func (r *Replica) sendAppendEntries() {
 		}
 
 		go func(node *gorums.Node, req *gorums.AppendEntriesRequest) {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), TCPHEARTBEAT*time.Millisecond)
 			defer cancel()
 			resp, err := node.RaftClient.AppendEntries(ctx, req)
 
