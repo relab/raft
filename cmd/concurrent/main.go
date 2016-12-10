@@ -69,7 +69,7 @@ func main() {
 		}
 	}()
 
-	n := 1
+	n := 2
 
 	var wg sync.WaitGroup
 	wg.Add(n)
@@ -93,7 +93,7 @@ func main() {
 			wg.Wait()
 			for {
 				go sendCommand(clientID)
-				<-time.After(50 * time.Microsecond)
+				<-time.After(250 * time.Microsecond)
 			}
 		}(reply.ClientID)
 	}
@@ -117,7 +117,7 @@ func main() {
 }
 
 func sendCommand(clientID uint32) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	reply, err := client.ClientCommand(ctx, &gorums.ClientCommandRequest{Command: "xxxxxxxxxxxxxxxx", SequenceNumber: <-seq, ClientID: clientID})

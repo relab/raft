@@ -643,7 +643,7 @@ func (r *Replica) sendAppendEntries() {
 		nextIndex := r.nextIndex[id] - 1
 
 		if len(r.log) > nextIndex {
-			entries = r.log[nextIndex:min(uint64(nextIndex+1000), uint64(len(r.log)))]
+			entries = r.log[nextIndex:len(r.log)]
 		}
 
 		debug.Debugln("SENDING:", len(entries))
