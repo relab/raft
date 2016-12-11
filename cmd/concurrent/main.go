@@ -25,9 +25,12 @@ func main() {
 		log.Fatal("Leader server address not specified.")
 	}
 
+	const t = 30 * time.Second
+
 	counter = make(chan interface{})
 	seq = make(chan uint64)
 	stop := make(chan interface{})
+	reset := make(chan interface{})
 
 	go func() {
 		i := uint64(1)
@@ -61,6 +64,9 @@ func main() {
 	go func() {
 		for {
 			select {
+			case <-reset:
+				log.Println("Beginning count after:", t/2)
+				count = 0
 			case <-counter:
 				count++
 			case <-stop:
@@ -69,10 +75,20 @@ func main() {
 		}
 	}()
 
-	n := 1
+	n := 15
 
 	var wg sync.WaitGroup
 	wg.Add(n)
+
+	go func() {
+		wg.Wait()
+
+		log.Println("Waiting:", t/2)
+		<-time.After(t / 2)
+
+		reset <- struct{}{}
+		reset <- struct{}{}
+	}()
 
 	for i := 0; i < n; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -91,29 +107,33 @@ func main() {
 		go func(clientID uint32) {
 			wg.Done()
 			wg.Wait()
+
 			for {
 				go sendCommand(clientID)
-				<-time.After(50 * time.Microsecond)
+
+				select {
+				case <-time.After(40 * time.Microsecond):
+				case <-stop:
+					return
+				}
 			}
 		}(reply.ClientID)
 	}
 
-	t := 5 * time.Second
-
 	wg.Wait()
+
+	<-reset
+
 	time.AfterFunc(t, func() {
+		log.Println("Throughput over:", t)
+		log.Println(count, float64(count)/(t.Seconds()))
+
 		close(stop)
 	})
 
 	<-stop
-	<-time.After(50 * time.Millisecond)
-
-	select {
-	case <-counter:
-	default:
-	}
-
-	log.Println(count, float64(count)/(t.Seconds()))
+	log.Println("Waiting:", t/2)
+	<-time.After(t / 2)
 }
 
 func sendCommand(clientID uint32) {
