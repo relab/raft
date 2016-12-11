@@ -471,7 +471,9 @@ func (r *Replica) logCommand(request *gorums.ClientCommandRequest) (<-chan *goru
 			return response, true
 		}
 
+		r.Unlock()
 		r.queue <- &gorums.Entry{Term: r.currentTerm, Data: request}
+		r.Lock()
 
 		response := make(chan *gorums.ClientCommandRequest)
 		r.pending[commandID] = response
