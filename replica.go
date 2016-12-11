@@ -462,7 +462,9 @@ func (r *Replica) logCommand(request *gorums.ClientCommandRequest) (<-chan *goru
 			}
 		}
 
-		if old, ok := r.commands[uniqueCommand{clientID: request.ClientID, sequenceNumber: request.SequenceNumber}]; ok {
+		commandID := uniqueCommand{clientID: request.ClientID, sequenceNumber: request.SequenceNumber}
+
+		if old, ok := r.commands[commandID]; ok {
 			response := make(chan *gorums.ClientCommandRequest, 1)
 			response <- old
 
@@ -472,9 +474,6 @@ func (r *Replica) logCommand(request *gorums.ClientCommandRequest) (<-chan *goru
 		r.queue <- &gorums.Entry{Term: r.currentTerm, Data: request}
 
 		response := make(chan *gorums.ClientCommandRequest)
-
-		commandID := uniqueCommand{clientID: request.ClientID, sequenceNumber: request.SequenceNumber}
-
 		r.pending[commandID] = response
 
 		return response, true
