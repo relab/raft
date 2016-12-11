@@ -26,7 +26,6 @@ import (
 type State int
 
 // Server states.
-// TODO: Generator?
 const (
 	FOLLOWER State = iota
 	CANDIDATE
@@ -266,10 +265,10 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 			return err
 		}
 
-		// TODO Close?
+		// TODO Close if we were to implement graceful shutdown.
 		r.recoverFile, err = os.OpenFile(recoverFile, os.O_APPEND|os.O_WRONLY, 0666)
 	} else {
-		// TODO Close?
+		// TODO Close if we were to implement graceful shutdown.
 		r.recoverFile, err = os.Create(recoverFile)
 	}
 
