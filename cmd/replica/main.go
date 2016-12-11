@@ -12,14 +12,12 @@ import (
 	"time"
 
 	"github.com/relab/raft"
-	"github.com/relab/raft/debug"
 	"github.com/relab/raft/proto/gorums"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
 )
 
-var verbosity = flag.Int("verbosity", 0, "verbosity level")
 var this = flag.String("this", "", "local server address")
 var bench = flag.Bool("bench", false, "Silence output for benchmarking")
 var recover = flag.Bool("recover", false, "Recover from stable storage")
@@ -51,10 +49,7 @@ func main() {
 		log.Fatal("Missing server addresses.")
 	}
 
-	debug.SetVerbosity(*verbosity)
-
 	if *bench {
-		debug.SetVerbosity(0)
 		log.SetOutput(ioutil.Discard)
 		silentLogger := log.New(ioutil.Discard, "", log.LstdFlags)
 		grpclog.SetLogger(silentLogger)
