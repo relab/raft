@@ -605,8 +605,6 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 		return
 	}
 
-	// TODO: We didn't win the election. We should continue sending AppendEntries RPCs until the election runs out.
-
 	// #C7 If election timeout elapses: start new election.
 	// This will happened if we don't receive enough replies in time. Or we lose the election but don't see a higher term number.
 }
