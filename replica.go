@@ -376,12 +376,12 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 				r.log = r.log[:index-1] // Remove excessive log entries.
 				r.log = append(r.log, entry)
 
-				// Write to stable storage
-				// TODO Assumes successful
 				buffer.WriteString(fmt.Sprintf("%d,%d,%d,%s\n", entry.Term, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
 			}
 		}
 
+		// Write to stable storage
+		// TODO Assumes successful
 		r.recoverFile.WriteString(buffer.String())
 		r.recoverFile.Sync()
 
@@ -531,18 +531,15 @@ func (r *Replica) startElection() {
 	r.currentTerm++
 
 	var buffer bytes.Buffer
-
-	// Write to stable storage
-	// TODO Assumes successful
 	buffer.WriteString(fmt.Sprintf("TERM,%d\n", r.currentTerm))
 
 	// #C2 Vote for self.
 	r.votedFor = r.id
 
-	// Write to stable storage
-	// TODO Assumes successful
 	buffer.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
 
+	// Write to stable storage
+	// TODO Assumes successful
 	r.recoverFile.WriteString(buffer.String())
 	r.recoverFile.Sync()
 
@@ -698,16 +695,11 @@ func (r *Replica) becomeFollower(term uint64) {
 		r.currentTerm = term
 
 		var buffer bytes.Buffer
-
-		// Write to stable storage
-		// TODO Assumes successful
 		buffer.WriteString(fmt.Sprintf("TERM,%d\n", r.currentTerm))
 
 		if r.votedFor != NONE {
 			r.votedFor = NONE
 
-			// Write to stable storage
-			// TODO Assumes successful
 			buffer.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
 		}
 
