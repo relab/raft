@@ -111,6 +111,8 @@ type Replica struct {
 
 	pending  map[uniqueCommand]chan<- *gorums.ClientCommandRequest
 	commands map[uniqueCommand]*gorums.ClientCommandRequest
+
+	queue chan *gorums.Entry
 }
 
 type uniqueCommand struct {
@@ -275,6 +277,8 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 		return err
 	}
 
+	r.queue = make(chan *gorums.Entry, 10000)
+
 	return nil
 }
 
@@ -438,12 +442,7 @@ func (r *Replica) logCommand(request *gorums.ClientCommandRequest) (<-chan *goru
 			return response, true
 		}
 
-		r.log = append(r.log, &gorums.Entry{Term: r.currentTerm, Data: request})
-
-		// Write to stable storage
-		// TODO Assumes successful
-		r.recoverFile.WriteString(fmt.Sprintf("%d,%d,%d,%s\n", r.currentTerm, request.ClientID, request.SequenceNumber, request.Command))
-		r.recoverFile.Sync()
+		r.queue <- &gorums.Entry{Term: r.currentTerm, Data: request}
 
 		response := make(chan *gorums.ClientCommandRequest)
 
@@ -618,6 +617,25 @@ func (r *Replica) sendAppendEntries() {
 
 	debug.Debugln(r.id, ":: APPENDENTRIES, for term", r.currentTerm)
 
+	var buffer bytes.Buffer
+
+LOOP:
+	for {
+		select {
+		case entry := <-r.queue:
+			r.log = append(r.log, entry)
+
+			buffer.WriteString(fmt.Sprintf("%d,%d,%d,%s\n", r.currentTerm, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
+		default:
+			break LOOP
+		}
+	}
+
+	// Write to stable storage
+	// TODO Assumes successful
+	r.recoverFile.WriteString(buffer.String())
+	r.recoverFile.Sync()
+
 	// #L1
 	for id, node := range r.nodes {
 		entries := []*gorums.Entry{}
@@ -703,6 +721,8 @@ func (r *Replica) becomeFollower(term uint64) {
 			buffer.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
 		}
 
+		// Write to stable storage
+		// TODO Assumes successful
 		r.recoverFile.WriteString(buffer.String())
 		r.recoverFile.Sync()
 	}
