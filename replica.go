@@ -2,6 +2,7 @@ package raft
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"log"
@@ -322,7 +323,8 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 
 		// Write to stable storage
 		// TODO Assumes successful
-		r.save(fmt.Sprintf("VOTED,%d\n", r.votedFor))
+		r.recoverFile.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
+		r.recoverFile.Sync()
 
 		// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
 		// Here we are granting a vote to a candidate so we reset the election timeout.
@@ -365,6 +367,8 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 
 		index := int(request.PrevLogIndex)
 
+		var buffer bytes.Buffer
+
 		for _, entry := range request.Entries {
 			index++
 
@@ -374,9 +378,12 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 
 				// Write to stable storage
 				// TODO Assumes successful
-				r.save(fmt.Sprintf("%d,%d,%d,%s\n", entry.Term, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
+				buffer.WriteString(fmt.Sprintf("%d,%d,%d,%s\n", entry.Term, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
 			}
 		}
+
+		r.recoverFile.WriteString(buffer.String())
+		r.recoverFile.Sync()
 
 		debug.Debugln(r.id, ":: LOG, len:", len(r.log))
 
@@ -435,7 +442,8 @@ func (r *Replica) logCommand(request *gorums.ClientCommandRequest) (<-chan *goru
 
 		// Write to stable storage
 		// TODO Assumes successful
-		r.save(fmt.Sprintf("%d,%d,%d,%s\n", r.currentTerm, request.ClientID, request.SequenceNumber, request.Command))
+		r.recoverFile.WriteString(fmt.Sprintf("%d,%d,%d,%s\n", r.currentTerm, request.ClientID, request.SequenceNumber, request.Command))
+		r.recoverFile.Sync()
 
 		response := make(chan *gorums.ClientCommandRequest)
 
@@ -511,13 +519,6 @@ func (r *Replica) newCommit(old uint64) {
 	}
 }
 
-// TODO Assumes caller already holds lock on Replica
-func (r *Replica) save(line string) {
-	// TODO benchmark writing to file
-	//	r.recoverFile.WriteString(line)
-	//	r.recoverFile.Sync()
-}
-
 func (r *Replica) startElection() {
 	r.Lock()
 	defer r.Unlock()
@@ -529,16 +530,21 @@ func (r *Replica) startElection() {
 	// #C1 Increment currentTerm.
 	r.currentTerm++
 
+	var buffer bytes.Buffer
+
 	// Write to stable storage
 	// TODO Assumes successful
-	r.save(fmt.Sprintf("TERM,%d\n", r.currentTerm))
+	buffer.WriteString(fmt.Sprintf("TERM,%d\n", r.currentTerm))
 
 	// #C2 Vote for self.
 	r.votedFor = r.id
 
 	// Write to stable storage
 	// TODO Assumes successful
-	r.save(fmt.Sprintf("VOTED,%d\n", r.votedFor))
+	buffer.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
+
+	r.recoverFile.WriteString(buffer.String())
+	r.recoverFile.Sync()
 
 	debug.Debugln(r.id, ":: ELECTION STARTED, for term", r.currentTerm)
 
@@ -691,17 +697,22 @@ func (r *Replica) becomeFollower(term uint64) {
 
 		r.currentTerm = term
 
+		var buffer bytes.Buffer
+
 		// Write to stable storage
 		// TODO Assumes successful
-		r.save(fmt.Sprintf("TERM,%d\n", r.currentTerm))
+		buffer.WriteString(fmt.Sprintf("TERM,%d\n", r.currentTerm))
 
 		if r.votedFor != NONE {
 			r.votedFor = NONE
 
 			// Write to stable storage
 			// TODO Assumes successful
-			r.save(fmt.Sprintf("VOTED,%d\n", r.votedFor))
+			buffer.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
 		}
+
+		r.recoverFile.WriteString(buffer.String())
+		r.recoverFile.Sync()
 	}
 
 	r.election.Reset(r.electionTimeout)
