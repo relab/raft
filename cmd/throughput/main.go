@@ -2,7 +2,9 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -16,16 +18,21 @@ var client gorums.RaftClient
 var counter chan interface{}
 var seq chan uint64
 
-var leader = flag.String("leader", "", "leader server address")
+var leader = flag.String("leader", "", "Leader server address")
+var clients = flag.Int("clients", 1, "Number of clients")
+var rate = flag.Int("rate", 40, "How often each client sends a request in microseconds")
+var timeout = flag.Int("time", 30, "How long to measure in seconds\n\ttime/2 seconds will be spent to saturate the cluster")
 
 func main() {
 	flag.Parse()
 
 	if *leader == "" {
-		log.Fatal("Leader server address not specified.")
+		fmt.Print("-leader argument is required\n\n")
+		flag.Usage()
+		os.Exit(1)
 	}
 
-	const t = 30 * time.Second
+	t := time.Duration(*timeout) * time.Second
 
 	counter = make(chan interface{})
 	seq = make(chan uint64)
@@ -75,7 +82,8 @@ func main() {
 		}
 	}()
 
-	n := 15
+	n := *clients
+	wait := time.Duration(*rate) * time.Microsecond
 
 	var wg sync.WaitGroup
 	wg.Add(n)
@@ -112,7 +120,7 @@ func main() {
 				go sendCommand(clientID)
 
 				select {
-				case <-time.After(40 * time.Microsecond):
+				case <-time.After(wait):
 				case <-stop:
 					return
 				}

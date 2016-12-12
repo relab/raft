@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -18,19 +19,16 @@ import (
 	"google.golang.org/grpc/grpclog"
 )
 
-var this = flag.String("this", "", "local server address")
-var bench = flag.Bool("bench", false, "Silence output for benchmarking")
+var this = flag.String("listen", "", "Local server address")
+var bench = flag.Bool("quiet", false, "Silence log output")
 var recover = flag.Bool("recover", false, "Recover from stable storage")
-var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+var cpuprofile = flag.String("cpuprofile", "", "Write cpu profile to file")
 var nodes raft.Nodes
-
-func init() {
-	flag.Var(&nodes, "node", "server address")
-}
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
+	flag.Var(&nodes, "add", "Remote server address, repeat argument for each server in the cluster")
 	flag.Parse()
 
 	if *cpuprofile != "" {
@@ -42,11 +40,15 @@ func main() {
 	}
 
 	if len(*this) == 0 {
-		log.Fatal("Missing local server address.")
+		fmt.Print("-listen argument is required\n\n")
+		flag.Usage()
+		os.Exit(1)
 	}
 
 	if len(nodes) == 0 {
-		log.Fatal("Missing server addresses.")
+		fmt.Print("-add argument is required\n\n")
+		flag.Usage()
+		os.Exit(1)
 	}
 
 	if *bench {

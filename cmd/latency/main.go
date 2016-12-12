@@ -2,8 +2,10 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +15,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/relab/raft"
 	"github.com/relab/raft/proto/gorums"
 )
 
@@ -26,7 +29,14 @@ var (
 
 // MaxAttempts sets the maximum number of errors tolerated to MaxAttempts*len(nodes)
 const MaxAttempts = 1
-const timeout = 10 * time.Second
+
+const t = 10 * time.Second
+
+var output = flag.String("output", "client.txt", "What to use as the base for the output filenames")
+var clients = flag.Int("clients", 15, "Number of clients")
+var rate = flag.Int("rate", 15, "How many requests each client sends per second")
+var timeout = flag.Int("time", 30, "How long to measure in seconds")
+var nodes raft.Nodes
 
 // ManagerWithLeader is a *gorums.Manager containing information about which replica is currently the leader.
 type ManagerWithLeader struct {
@@ -63,7 +73,7 @@ func (mgr *ManagerWithLeader) ClientCommand(command string) error {
 
 	mgr.sequenceNumber++
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), t)
 	defer cancel()
 
 	reply, err := mgr.leader.RaftClient.ClientCommand(ctx, &gorums.ClientCommandRequest{Command: command, ClientID: mgr.clientID, SequenceNumber: mgr.sequenceNumber})
@@ -138,7 +148,7 @@ func (cr *clientRequester) Setup() error {
 	cr.mgr = mwl
 
 	errs := 0
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), t)
 	defer cancel()
 
 	for {
@@ -186,15 +196,24 @@ func (cr *clientRequester) Teardown() error {
 }
 
 func main() {
+	flag.Var(&nodes, "add", "Remote server address, repeat argument for each server in the cluster")
+	flag.Parse()
+
+	if len(nodes) == 0 {
+		fmt.Print("-add argument is required\n\n")
+		flag.Usage()
+		os.Exit(1)
+	}
+
 	done := make(chan int)
 
 	r := &ClientRequesterFactory{
-		Addrs:       []string{":9201", ":9202", ":9203"},
+		Addrs:       nodes,
 		PayloadSize: 16,
 		done:        done,
 	}
 
-	benchmark := bench.NewBenchmark(r, 15*15, 15, 30*time.Second)
+	benchmark := bench.NewBenchmark(r, uint64(*rate)*uint64(*clients), uint64(*clients), time.Duration(*timeout)*time.Second)
 	summary, err := benchmark.Run()
 
 	if err != nil {
@@ -202,5 +221,5 @@ func main() {
 	}
 
 	fmt.Println(summary)
-	summary.GenerateLatencyDistribution(bench.Logarithmic, "client.txt")
+	summary.GenerateLatencyDistribution(bench.Logarithmic, *output)
 }
