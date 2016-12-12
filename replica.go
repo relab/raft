@@ -95,6 +95,10 @@ func max(a, b uint64) uint64 {
 	return b
 }
 
+var logLocal func(string)
+var logFrom func(uint32, string)
+var logTo func(uint32, string)
+
 func randomTimeout() time.Duration {
 	return time.Duration(ELECTION+rand.Intn(ELECTION*2-ELECTION)) * time.Millisecond
 }
@@ -188,6 +192,8 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 		return err
 	}
 
+	r.setupLogging()
+
 	r.nodes = make(map[uint32]*gorums.Node, n-1)
 
 	for _, node := range mgr.Nodes(false) {
@@ -198,7 +204,7 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 	r.heartbeatTimeout = HEARTBEAT * time.Millisecond
 
 	if logLevel >= INFO {
-		log.Println(r.id, ":: TIMEOUT SET,", r.electionTimeout)
+		logLocal(fmt.Sprintf("Timeout set to %v", r.electionTimeout))
 	}
 
 	r.election = NewTimer(r.electionTimeout)
@@ -228,6 +234,20 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 	r.queue = make(chan *gorums.Entry, 10000)
 
 	return nil
+}
+
+func (r *Replica) setupLogging() {
+	logLocal = func(message string) {
+		log.Printf("%d: %s", r.id, message)
+	}
+
+	logFrom = func(from uint32, message string) {
+		log.Printf("%d <- %d: %s", r.id, from, message)
+	}
+
+	logTo = func(to uint32, message string) {
+		log.Printf("%d -> %d: %s", r.id, to, message)
+	}
 }
 
 func (r *Replica) recoverFromStable(recover bool) error {
@@ -341,7 +361,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 	defer r.Unlock()
 
 	if logLevel >= INFO {
-		log.Println(r.id, ":: VOTE REQUESTED, from", request.CandidateID, "for term", request.Term, ", my term is", r.currentTerm)
+		logFrom(request.CandidateID, fmt.Sprintf("Vote requested in term %d for term %d", r.currentTerm, request.Term))
 	}
 
 	// #RV1 Reply false if term < currentTerm.
@@ -359,7 +379,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 		(request.LastLogTerm > r.logTerm(len(r.log)) ||
 			(request.LastLogTerm == r.logTerm(len(r.log)) && request.LastLogIndex >= uint64(len(r.log)))) {
 		if logLevel >= INFO {
-			log.Println(r.id, ":: VOTE GRANTED, to", request.CandidateID, "for term", request.Term)
+			logTo(request.CandidateID, fmt.Sprintf("Vote granted for term %d", request.Term))
 		}
 
 		r.votedFor = request.CandidateID
@@ -387,7 +407,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 	defer r.Unlock()
 
 	if logLevel >= TRACE {
-		log.Println(r.id, ":: APPENDENTRIES,", request)
+		logFrom(request.LeaderID, fmt.Sprintf("AppendEntries = %+v", request))
 	}
 
 	// #AE1 Reply false if term < currentTerm.
@@ -405,10 +425,6 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 	}
 
 	if success {
-		if logLevel >= DEBUG {
-			log.Println(r.id, ":: OK", r.currentTerm)
-		}
-
 		r.leader = request.LeaderID
 		r.seenLeader = true
 
@@ -433,7 +449,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 		r.recoverFile.Sync()
 
 		if logLevel >= DEBUG {
-			log.Println(r.id, ":: LOG, len:", len(r.log))
+			logTo(request.LeaderID, fmt.Sprintf("AppendEntries persisted %d entries to stable storage", len(request.Entries)))
 		}
 
 		old := r.commitIndex
@@ -475,15 +491,13 @@ func (r *Replica) logCommand(request *gorums.ClientCommandRequest) (<-chan *goru
 
 	if r.state == LEADER {
 		if request.SequenceNumber == 0 {
-			if logLevel >= INFO {
-				log.Println(r.id, ":: REGISTERCLIENT")
-			}
-
 			request.ClientID = rand.Uint32()
-		} else {
-			if logLevel >= TRACE {
-				log.Println(r.id, ":: CLIENTREQUEST:", request.Command)
+
+			if logLevel >= INFO {
+				logFrom(request.ClientID, fmt.Sprintf("Client request = %s", request.Command))
 			}
+		} else if logLevel >= TRACE {
+			logFrom(request.ClientID, fmt.Sprintf("Client request = %s", request.Command))
 		}
 
 		commandID := uniqueCommand{clientID: request.ClientID, sequenceNumber: request.SequenceNumber}
@@ -595,7 +609,7 @@ func (r *Replica) startElection() {
 	r.recoverFile.Sync()
 
 	if logLevel >= INFO {
-		log.Println(r.id, ":: ELECTION STARTED, for term", r.currentTerm)
+		logLocal(fmt.Sprintf("Starting election for term %d", r.currentTerm))
 	}
 
 	// #C3 Reset election timer.
@@ -606,11 +620,13 @@ func (r *Replica) startElection() {
 
 	go func() {
 		reply, err := req.Get()
+
 		if err != nil {
-			log.Println("startElection: RequestVote error:", err)
+			logLocal(fmt.Sprintf("RequestVote failed = %v", err))
 
 			return
 		}
+
 		r.handleRequestVoteResponse(reply.Reply)
 	}()
 
@@ -642,7 +658,7 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 		// We have received at least a quorum of votes.
 		// We are the leader for this term. See Raft Paper Figure 2 -> Rules for Servers -> Leaders.
 		if logLevel >= INFO {
-			log.Println(r.id, ":: ELECTED LEADER, for term", r.currentTerm)
+			logLocal(fmt.Sprintf("Elected leader for term %d", r.currentTerm))
 		}
 
 		r.state = LEADER
@@ -670,7 +686,7 @@ func (r *Replica) sendAppendEntries() {
 	defer r.Unlock()
 
 	if logLevel >= DEBUG {
-		log.Println(r.id, ":: APPENDENTRIES, for term", r.currentTerm)
+		logLocal(fmt.Sprintf("Sending AppendEntries for term %d", r.currentTerm))
 	}
 
 	var buffer bytes.Buffer
@@ -703,7 +719,7 @@ LOOP:
 		}
 
 		if logLevel >= DEBUG {
-			log.Println("SENDING:", len(entries))
+			logTo(id, fmt.Sprintf("Sending %d entries", len(entries)))
 		}
 
 		req := &gorums.AppendEntriesRequest{
@@ -722,7 +738,7 @@ LOOP:
 			resp, err := node.RaftClient.AppendEntries(ctx, req)
 
 			if err != nil {
-				log.Printf("node %d: AppendEntries error: %v", node.ID(), err)
+				logTo(node.ID(), fmt.Sprintf("AppendEntries failed = %v", err))
 
 				return
 			}
@@ -769,7 +785,7 @@ func (r *Replica) becomeFollower(term uint64) {
 
 	if r.currentTerm != term {
 		if logLevel >= INFO {
-			log.Println(r.id, ":: STEPDOWN,", r.currentTerm, "->", term)
+			logLocal(fmt.Sprintf("Become follower as we transition from term %d to %d", r.currentTerm, term))
 		}
 
 		r.currentTerm = term
