@@ -47,7 +47,9 @@ replica -listen :9201 -add :9202 -add :9203 &
 replica -listen :9202 -add :9201 -add :9203 &
 replica -listen :9203 -add :9202 -add :9201 &
 
-## Do something, i.e, run latency/throughput.
+## Do something (preferably in another shell, unless you add -quiet), i.e, run latency/throughput.
+## Stop cluster when you are done.
+killall replica
 #+END_SRC
 
 *** For client interaction:
