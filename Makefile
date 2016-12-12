@@ -1,5 +1,5 @@
-.PHONY: build
-build:
+.PHONY: autocomplete
+autocomplete:
 	go install .
 	cd proto/gorums; go install .
 	cd debug; go install .
