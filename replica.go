@@ -32,7 +32,7 @@ const (
 	TRACE
 )
 
-const logLevel = INFO
+const logLevel = DEBUG
 
 // State represents one of the Raft server states.
 type State int
