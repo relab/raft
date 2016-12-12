@@ -1,5 +1,7 @@
 * Raft Consensus using Gorums
 
+This repository contains an implementation of the [[https://raft.github.io/raft.pdf][Raft Consensus Algorithm]] using the [[https://github.com/relab/gorums][Gorums framework]].
+
 ** Install
 
 You might not need to execute all the steps but this should work if you are starting from scratch on Ubuntu 16.10.
