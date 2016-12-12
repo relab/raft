@@ -59,7 +59,10 @@ const (
 // This must be a value which cannot be returned from idutil.IDFromAddress(address).
 const NONE = 0
 
-const THROUGHTPUT = 10000 / (1000 / HEARTBEAT)
+// MAXENTRIES is the maximum number of entries a AppendEntries RPC can carry at once.
+// It should be greater than the expected throughput of the system.
+// It is used to stabilize the system, giving greater throughput at the potential cost of latency.
+const MAXENTRIES = 10000 / (1000 / HEARTBEAT)
 
 var (
 	// ErrLateCommit indicates an entry taking too long to commit.
@@ -428,6 +431,8 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 	return &gorums.AppendEntriesResponse{FollowerID: r.id, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success}, nil
 }
 
+// ClientCommand is invoked by a client to commit a command.
+// See Raft paper § 8 and the Raft PhD dissertation chapter 6.
 func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientCommandRequest) (*gorums.ClientCommandResponse, error) {
 	if response, isLeader := r.logCommand(request); isLeader {
 		select {
@@ -654,7 +659,7 @@ func (r *Replica) sendAppendEntries() {
 	var buffer bytes.Buffer
 
 LOOP:
-	for i := THROUGHTPUT; i > 0; i-- {
+	for i := MAXENTRIES; i > 0; i-- {
 		select {
 		case entry := <-r.queue:
 			r.log = append(r.log, entry)

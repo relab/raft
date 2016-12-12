@@ -28,6 +28,7 @@ var (
 const MaxAttempts = 1
 const timeout = 10 * time.Second
 
+// ManagerWithLeader is a *gorums.Manager containing information about which replica is currently the leader.
 type ManagerWithLeader struct {
 	*gorums.Manager
 
@@ -55,6 +56,7 @@ func (mgr *ManagerWithLeader) next(leaderHint uint32) {
 	mgr.leader, _ = mgr.Node(mgr.NodeIDs()[mgr.current])
 }
 
+// ClientCommand invokes the ClientCommand RPC on the cluster's leader.
 func (mgr *ManagerWithLeader) ClientCommand(command string) error {
 	mgr.this.Lock()
 	defer mgr.this.Unlock()
@@ -86,6 +88,7 @@ func (mgr *ManagerWithLeader) ClientCommand(command string) error {
 	return ErrNotLeader
 }
 
+// ClientRequesterFactory is used to create multiple unique clients.
 type ClientRequesterFactory struct {
 	Addrs       []string
 	PayloadSize int
@@ -93,6 +96,7 @@ type ClientRequesterFactory struct {
 	done chan int
 }
 
+// GetRequester gets a new client.
 func (r *ClientRequesterFactory) GetRequester(uint64) bench.Requester {
 	return &clientRequester{
 		addrs:   r.Addrs,
