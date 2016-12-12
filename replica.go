@@ -64,6 +64,14 @@ const NONE = 0
 // It is used to stabilize the system, giving greater throughput at the potential cost of latency.
 const MAXENTRIES = 10000 / (1000 / HEARTBEAT)
 
+// How events are persisted to stable storage.
+const (
+	STOREFILE     = "%d.storage"
+	STORETERM     = "TERM,%d\n"
+	STOREVOTEDFOR = "VOTED,%d\n"
+	STORECOMMAND  = "%d,%d,%d,%s\n"
+)
+
 var (
 	// ErrLateCommit indicates an entry taking too long to commit.
 	ErrLateCommit = errors.New("Entry not committed in time.")
@@ -208,10 +216,22 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 		r.matchIndex[id] = 0
 	}
 
-	recoverFile := fmt.Sprintf("%d", r.id) + ".storage"
-
 	r.pending = make(map[uniqueCommand]chan<- *gorums.ClientCommandRequest)
 	r.commands = make(map[uniqueCommand]*gorums.ClientCommandRequest)
+
+	err = r.recoverFromStable(recover)
+
+	if err != nil {
+		return err
+	}
+
+	r.queue = make(chan *gorums.Entry, 10000)
+
+	return nil
+}
+
+func (r *Replica) recoverFromStable(recover bool) error {
+	recoverFile := fmt.Sprintf(STOREFILE, r.id)
 
 	if _, err := os.Stat(recoverFile); !os.IsNotExist(err) && recover {
 		file, err := os.Open(recoverFile)
@@ -286,18 +306,15 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 
 		// TODO Close if we were to implement graceful shutdown.
 		r.recoverFile, err = os.OpenFile(recoverFile, os.O_APPEND|os.O_WRONLY, 0666)
-	} else {
-		// TODO Close if we were to implement graceful shutdown.
-		r.recoverFile, err = os.Create(recoverFile)
-	}
 
-	if err != nil {
 		return err
 	}
 
-	r.queue = make(chan *gorums.Entry, 10000)
+	// TODO Close if we were to implement graceful shutdown.
+	var err error
+	r.recoverFile, err = os.Create(recoverFile)
 
-	return nil
+	return err
 }
 
 // Run handles timeouts.
@@ -349,7 +366,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 
 		// Write to stable storage
 		// TODO Assumes successful
-		r.recoverFile.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
+		r.recoverFile.WriteString(fmt.Sprintf(STOREVOTEDFOR, r.votedFor))
 		r.recoverFile.Sync()
 
 		// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
@@ -406,7 +423,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 				r.log = r.log[:index-1] // Remove excessive log entries.
 				r.log = append(r.log, entry)
 
-				buffer.WriteString(fmt.Sprintf("%d,%d,%d,%s\n", entry.Term, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
+				buffer.WriteString(fmt.Sprintf(STORECOMMAND, entry.Term, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
 			}
 		}
 
@@ -565,12 +582,12 @@ func (r *Replica) startElection() {
 	r.currentTerm++
 
 	var buffer bytes.Buffer
-	buffer.WriteString(fmt.Sprintf("TERM,%d\n", r.currentTerm))
+	buffer.WriteString(fmt.Sprintf(STORETERM, r.currentTerm))
 
 	// #C2 Vote for self.
 	r.votedFor = r.id
 
-	buffer.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
+	buffer.WriteString(fmt.Sprintf(STOREVOTEDFOR, r.votedFor))
 
 	// Write to stable storage
 	// TODO Assumes successful
@@ -664,7 +681,7 @@ LOOP:
 		case entry := <-r.queue:
 			r.log = append(r.log, entry)
 
-			buffer.WriteString(fmt.Sprintf("%d,%d,%d,%s\n", r.currentTerm, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
+			buffer.WriteString(fmt.Sprintf(STORECOMMAND, r.currentTerm, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
 		default:
 			break LOOP
 		}
@@ -758,12 +775,12 @@ func (r *Replica) becomeFollower(term uint64) {
 		r.currentTerm = term
 
 		var buffer bytes.Buffer
-		buffer.WriteString(fmt.Sprintf("TERM,%d\n", r.currentTerm))
+		buffer.WriteString(fmt.Sprintf(STORETERM, r.currentTerm))
 
 		if r.votedFor != NONE {
 			r.votedFor = NONE
 
-			buffer.WriteString(fmt.Sprintf("VOTED,%d\n", r.votedFor))
+			buffer.WriteString(fmt.Sprintf(STOREVOTEDFOR, r.votedFor))
 		}
 
 		// Write to stable storage
