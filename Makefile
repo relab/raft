@@ -1,5 +1,6 @@
 .PHONY: build
 build:
+	go install .
 	cd proto/gorums; go install .
 	cd debug; go install .
 
