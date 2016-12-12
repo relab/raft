@@ -2,7 +2,6 @@
 autocomplete:
 	go install .
 	cd proto/gorums; go install .
-	cd debug; go install .
 
 .PHONY: protocgorums
 protocgorums:
