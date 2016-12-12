@@ -48,11 +48,11 @@ const (
 const (
 	// How long we wait for an answer.
 	TCPCONNECT   = 5000
-	TCPHEARTBEAT = 500
+	TCPHEARTBEAT = 2000
 
 	// Raft RPC timeouts.
 	HEARTBEAT = 250
-	ELECTION  = 500
+	ELECTION  = 2000
 )
 
 // NONE represents no server.
