@@ -1,0 +1,39 @@
+* Raft Consensus using Gorums
+
+** Install
+
+You might not need to execute all the steps but this should work if you are starting from scratch on Ubuntu 16.10.
+
+#+BEGIN_SRC shell
+# You need at least Go and Git.
+apt install -y golang-go git
+
+# If you have not set up your Go environtment; this is the minimal required.
+cat <<EOF >> ~/.profile
+export GOPATH=~/go
+export PATH=$PATH:$GOPATH/bin
+EOF
+
+# Make sure $GOPATH is set and $GOPATH/bin is in $PATH.
+source ~/.profile
+
+# If the repository is private you need to create an SSH key and add it at github.com/settings/keys.
+# and make sure it's in your ~/.ssh folder.
+git config --global url."git@github.com:".insteadOf "https://github.com/"
+
+# Get the source.
+go get github.com/relab/raft
+
+# Install the binaries.
+## For running a raft replica.
+go install github.com/relab/raft/cmd/replica
+## For testing throughput.
+go install github.com/relab/raft/cmd/throughput
+## For testing latency.
+go install github.com/relab/raft/cmd/latency
+#+END_SRC
+
+*** For details on the specific programs:
+- [[https://github.com/relab/raft/tree/master/cmd/replica][Replica]]
+- [[https://github.com/relab/raft/tree/master/cmd/throughput][Throughput]]
+- [[https://github.com/relab/raft/tree/master/cmd/latency][Latency]]

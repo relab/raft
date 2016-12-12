@@ -1,0 +1,29 @@
+* Raft Consensus using Gorums
+
+** Throughput
+
+  =throughput= measures a clusters throughput using the supplied arguments. The ip of the leader must be supplied with the =-leader= argument.
+Failover in the case of a new leader is not implemented, as this client is only used to measure throughput under a stable leader.
+
+*** Usage
+#+BEGIN_EXAMPLE
+Usage of throughput:
+  -clients int
+    	Number of clients (default 1)
+  -leader string
+    	Leader server address
+  -rate int
+    	How often each client sends a request in microseconds (default 40)
+  -time int
+    	How long to measure in seconds
+	time/2 seconds will be spent to saturate the cluster (default 30)
+#+END_EXAMPLE
+
+*** Example
+After a cluster is started execute the following command and wait =2*time= seconds for the output.
+#+BEGIN_SRC shell
+throughput -leader LEADERIP:9200
+#+END_SRC
+
+*** For starting a cluster to interact with:
+- [[https://github.com/relab/raft/tree/master/cmd/replica][Replica]]

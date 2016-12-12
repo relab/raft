@@ -1,0 +1,55 @@
+* Raft Consensus using Gorums
+
+** Replica
+
+  =replica= starts a raft server listening on the ip:port provided through the =-listen= argument.
+  You need to start more than one raft server to form a operational raft cluster.
+  The other servers in the cluster is given through multiple =-add= arguments, one for each server.
+  If you want a server to recover from stable storage pass the =-recover= argument.
+  The =-quiet= argument will silence all log output.
+
+*** Usage
+#+BEGIN_EXAMPLE
+Usage of replica:
+  -add value
+    	Remote server address, repeat argument for each server in the cluster
+  -cpuprofile string
+    	Write cpu profile to file
+  -listen string
+    	Local server address
+  -quiet
+    	Silence log output
+  -recover
+    	Recover from stable storage
+#+END_EXAMPLE
+
+*** Example
+**** Separate machines
+#+BEGIN_SRC shell
+# Computer with IP1
+replica -listen IP1:9200 -add IP2:9200 -add IP3:9200
+
+# Computer with IP2
+replica -listen IP2:9200 -add IP1:9200 -add IP3:9200
+
+# Computer with IP3
+replica -listen IP3:9200 -add IP2:9200 -add IP1:9200
+
+# Computer(s) with client(s)
+## Do something, i.e, run latency/throughput
+#+END_SRC
+
+**** Same machine (same shell)
+You can omit the ip to listen on localhost.
+
+#+BEGIN_SRC shell
+replica -listen :9201 -add :9202 -add :9203 &
+replica -listen :9202 -add :9201 -add :9203 &
+replica -listen :9203 -add :9202 -add :9201 &
+
+## Do something, i.e, run latency/throughput
+#+END_SRC
+
+*** For client interaction:
+- [[https://github.com/relab/raft/tree/master/cmd/throughput][Throughput]]
+- [[https://github.com/relab/raft/tree/master/cmd/latency][Latency]]
