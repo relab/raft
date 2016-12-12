@@ -26,17 +26,17 @@ Usage of replica:
 *** Example
 **** Separate machines
 #+BEGIN_SRC shell
-# Computer with IP1
+# Computer with IP1.
 replica -listen IP1:9200 -add IP2:9200 -add IP3:9200
 
-# Computer with IP2
+# Computer with IP2.
 replica -listen IP2:9200 -add IP1:9200 -add IP3:9200
 
-# Computer with IP3
+# Computer with IP3.
 replica -listen IP3:9200 -add IP2:9200 -add IP1:9200
 
-# Computer(s) with client(s)
-## Do something, i.e, run latency/throughput
+# Computer(s) with client(s).
+## Do something, i.e, run latency/throughput.
 #+END_SRC
 
 **** Same machine (same shell)
@@ -47,7 +47,7 @@ replica -listen :9201 -add :9202 -add :9203 &
 replica -listen :9202 -add :9201 -add :9203 &
 replica -listen :9203 -add :9202 -add :9201 &
 
-## Do something, i.e, run latency/throughput
+## Do something, i.e, run latency/throughput.
 #+END_SRC
 
 *** For client interaction:

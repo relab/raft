@@ -13,11 +13,15 @@ apt install -y golang-go git
 # If you have not set up your Go environtment; this is the minimal required.
 cat <<EOF >> ~/.profile
 export GOPATH=~/go
-export PATH=$PATH:$GOPATH/bin
+export PATH=\$PATH:\$GOPATH/bin
 EOF
 
-# Make sure $GOPATH is set and $GOPATH/bin is in $PATH.
+## Make sure $GOPATH is set and $GOPATH/bin is in $PATH.
 source ~/.profile
+
+# Alternatively (but won't be permanent).
+## export GOPATH=~/go
+## export PATH=$PATH:$GOPATH/bin
 
 # If the repository is private you need to create an SSH key and add it at github.com/settings/keys.
 # and make sure it's in your ~/.ssh folder.
