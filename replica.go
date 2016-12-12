@@ -59,6 +59,8 @@ const (
 // This must be a value which cannot be returned from idutil.IDFromAddress(address).
 const NONE = 0
 
+const THROUGHTPUT = 10000 / (1000 / HEARTBEAT)
+
 var (
 	// ErrLateCommit indicates an entry taking too long to commit.
 	ErrLateCommit = errors.New("Entry not committed in time.")
@@ -652,7 +654,7 @@ func (r *Replica) sendAppendEntries() {
 	var buffer bytes.Buffer
 
 LOOP:
-	for {
+	for i := THROUGHTPUT; i > 0; i-- {
 		select {
 		case entry := <-r.queue:
 			r.log = append(r.log, entry)
