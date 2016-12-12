@@ -90,8 +90,7 @@ type ClientRequesterFactory struct {
 	Addrs       []string
 	PayloadSize int
 
-	responses chan error
-	done      chan int
+	done chan int
 }
 
 func (r *ClientRequesterFactory) GetRequester(uint64) bench.Requester {
@@ -103,8 +102,7 @@ func (r *ClientRequesterFactory) GetRequester(uint64) bench.Requester {
 			grpc.WithBlock(),
 			grpc.WithTimeout(time.Second),
 		},
-		responses: r.responses,
-		done:      r.done,
+		done: r.done,
 	}
 }
 
@@ -116,8 +114,7 @@ type clientRequester struct {
 
 	mgr *ManagerWithLeader
 
-	responses chan error
-	done      chan int
+	done chan int
 }
 
 func (cr *clientRequester) Setup() error {
@@ -169,21 +166,7 @@ func (cr *clientRequester) Setup() error {
 }
 
 func (cr *clientRequester) Request() error {
-	go func() {
-		err := cr.mgr.ClientCommand(cr.payload)
-
-		select {
-		case <-cr.done:
-			return
-		default:
-		}
-
-		select {
-		case cr.responses <- err:
-		}
-	}()
-
-	return nil
+	return cr.mgr.ClientCommand(cr.payload)
 }
 
 func (cr *clientRequester) Teardown() error {
@@ -199,37 +182,15 @@ func (cr *clientRequester) Teardown() error {
 }
 
 func main() {
-	var count uint64
-	responses := make(chan error)
 	done := make(chan int)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
 
 	r := &ClientRequesterFactory{
 		Addrs:       []string{":9201", ":9202", ":9203"},
 		PayloadSize: 16,
-		responses:   responses,
 		done:        done,
 	}
 
-	go func() {
-		for {
-			select {
-			case resp := <-responses:
-				if resp == nil {
-					count++
-				} else {
-					log.Println(resp)
-				}
-			case <-done:
-				wg.Done()
-				return
-			}
-		}
-	}()
-
-	benchmark := bench.NewBenchmark(r, 300, 50, 5*time.Second)
+	benchmark := bench.NewBenchmark(r, 15*15, 15, 30*time.Second)
 	summary, err := benchmark.Run()
 
 	if err != nil {
@@ -238,7 +199,4 @@ func main() {
 
 	fmt.Println(summary)
 	summary.GenerateLatencyDistribution(bench.Logarithmic, "client.txt")
-
-	wg.Wait()
-	log.Println(count, summary.TimeElapsed.Seconds(), float64(count)/summary.TimeElapsed.Seconds())
 }
