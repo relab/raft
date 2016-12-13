@@ -417,7 +417,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 
 	// #AE1 Reply false if term < currentTerm.
 	if request.Term < r.currentTerm {
-		return &gorums.AppendEntriesResponse{FollowerID: r.id, Success: false, Term: r.currentTerm}, nil
+		return &gorums.AppendEntriesResponse{FollowerID: []uint32{r.id}, Success: false, Term: r.currentTerm}, nil
 	}
 
 	success := request.PrevLogIndex == 0 || (request.PrevLogIndex-1 < uint64(len(r.log)) && r.log[request.PrevLogIndex-1].Term == request.PrevLogTerm)
@@ -465,7 +465,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 		}
 	}
 
-	return &gorums.AppendEntriesResponse{FollowerID: r.id, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success}, nil
+	return &gorums.AppendEntriesResponse{FollowerID: []uint32{r.id}, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success}, nil
 }
 
 // ClientCommand is invoked by a client to commit a command.
@@ -714,42 +714,53 @@ LOOP:
 	r.save(buffer.String())
 
 	// #L1
-	for id, node := range r.nodes {
-		entries := []*gorums.Entry{}
+	entries := []*gorums.Entry{}
 
-		nextIndex := r.nextIndex[id] - 1
+	nextIndex := 0
 
-		if len(r.log) > nextIndex {
-			entries = r.log[nextIndex:int(min(uint64(nextIndex+MAXENTRIES), uint64(len(r.log))))]
+	// Always send entries for the most up-to-date client.
+	for id := range r.nodes {
+		next := r.nextIndex[id] - 1
+
+		if next > nextIndex {
+			nextIndex = next
 		}
+	}
 
-		if logLevel >= DEBUG {
-			logTo(id, fmt.Sprintf("Sending %d entries", len(entries)))
-		}
+	if len(r.log) > nextIndex {
+		entries = r.log[nextIndex:int(min(uint64(nextIndex+MAXENTRIES), uint64(len(r.log))))]
+	}
 
-		req := &gorums.AppendEntriesRequest{
-			LeaderID:     r.id,
-			Term:         r.currentTerm,
-			PrevLogIndex: uint64(nextIndex),
-			PrevLogTerm:  r.logTerm(nextIndex),
-			CommitIndex:  r.commitIndex,
-			Entries:      entries,
-		}
+	if logLevel >= DEBUG {
+		logLocal(fmt.Sprintf("Sending %d entries", len(entries)))
+	}
 
-		go func(node *gorums.Node, req *gorums.AppendEntriesRequest) {
-			ctx, cancel := context.WithTimeout(context.Background(), TCPHEARTBEAT*time.Millisecond)
-			defer cancel()
+	req := &gorums.AppendEntriesRequest{
+		LeaderID:     r.id,
+		Term:         r.currentTerm,
+		PrevLogIndex: uint64(nextIndex),
+		PrevLogTerm:  r.logTerm(nextIndex),
+		CommitIndex:  r.commitIndex,
+		Entries:      entries,
+	}
 
-			resp, err := node.RaftClient.AppendEntries(ctx, req)
+	go func(req *gorums.AppendEntriesRequest) {
+		ctx, cancel := context.WithTimeout(context.Background(), TCPHEARTBEAT*time.Millisecond)
+		defer cancel()
 
-			if err != nil {
-				logTo(node.ID(), fmt.Sprintf("AppendEntries failed = %v", err))
+		resp, err := r.conf.AppendEntries(ctx, req)
 
+		if err != nil {
+			logLocal(fmt.Sprintf("AppendEntries failed = %v", err))
+
+			// We can not return if there is a response, i.e., there is replicas that needs updating.
+			if resp.AppendEntriesResponse == nil {
 				return
 			}
-			r.handleAppendEntriesResponse(resp)
-		}(node, req)
-	}
+		}
+
+		r.handleAppendEntriesResponse(resp.AppendEntriesResponse)
+	}(req)
 
 	r.heartbeat.Reset(r.heartbeatTimeout)
 }
@@ -775,13 +786,18 @@ func (r *Replica) handleAppendEntriesResponse(response *gorums.AppendEntriesResp
 
 	if r.state == LEADER {
 		if response.Success {
-			r.matchIndex[response.FollowerID] = int(response.MatchIndex)
-			r.nextIndex[response.FollowerID] = r.matchIndex[response.FollowerID] + 1
+			for _, id := range response.FollowerID {
+				r.matchIndex[id] = int(response.MatchIndex)
+				r.nextIndex[id] = r.matchIndex[id] + 1
+			}
 
 			return
 		}
 
-		r.nextIndex[response.FollowerID] = int(max(1, response.MatchIndex))
+		// If AppendEntries was not successful reset all.
+		for id := range r.nodes {
+			r.nextIndex[id] = int(response.MatchIndex)
+		}
 	}
 }
 
