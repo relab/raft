@@ -720,7 +720,7 @@ LOOP:
 		nextIndex := r.nextIndex[id] - 1
 
 		if len(r.log) > nextIndex {
-			entries = r.log[nextIndex:len(r.log)]
+			entries = r.log[nextIndex:int(min(uint64(nextIndex+MAXENTRIES), uint64(len(r.log))))]
 		}
 
 		if logLevel >= DEBUG {
