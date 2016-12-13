@@ -9,7 +9,9 @@ service Raft {
       option (gorums.qc_future) = true;
   }
 
-  rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+  rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse) {
+      option (gorums.qc) = true;
+  }
 
   rpc ClientCommand(ClientCommandRequest) returns (ClientCommandResponse);
 }
@@ -47,7 +49,7 @@ message AppendEntriesRequest {
 }
 
 message AppendEntriesResponse {
-  uint32 followerID = 1;
+  repeated uint32 followerID = 1;
 
   uint64 term = 2;
   uint64 matchIndex = 3;
