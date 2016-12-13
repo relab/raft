@@ -169,6 +169,7 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 	mgr, err := gorums.NewManager(nodes,
 		gorums.WithGrpcDialOptions(
 			grpc.WithBlock(),
+			grpc.WithBackoffMaxDelay(time.Second),
 			grpc.WithInsecure(),
 			grpc.WithTimeout(TCPCONNECT*time.Millisecond)))
 
