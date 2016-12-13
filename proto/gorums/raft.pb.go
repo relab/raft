@@ -27,6 +27,7 @@ import _ "github.com/relab/gorums"
 import strconv "strconv"
 
 import (
+	"bytes"
 	"encoding/binary"
 	"hash/fnv"
 	"log"
@@ -34,6 +35,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"golang.org/x/net/trace"
 
 	"google.golang.org/grpc/codes"
 )
@@ -731,42 +734,38 @@ func (this *ClientCommandResponse) Equal(that interface{}) bool {
 	return true
 }
 
-/* 'gorums' plugin for protoc-gen-go - generated from: config_rpc_tmpl */
+//  Reference Gorums specific imports to suppress errors if they are not otherwise used.
+var _ = codes.OK
 
-// RequestVoteReply encapsulates the reply from a RequestVote RPC invocation.
-// It contains the id of each node in the quorum that replied and a single
-// reply.
+/* 'gorums' plugin for protoc-gen-go - generated from: config_qc_tmpl */
+
+// RequestVoteReply encapsulates the reply from a RequestVote quorum call.
+// It contains the id of each node of the quorum that replied and a single reply.
 type RequestVoteReply struct {
 	NodeIDs []uint32
-	Reply   *RequestVoteResponse
+	*RequestVoteResponse
 }
 
 func (r RequestVoteReply) String() string {
-	return fmt.Sprintf("node ids: %v | answer: %v", r.NodeIDs, r.Reply)
+	return fmt.Sprintf("node ids: %v | answer: %v", r.NodeIDs, r.RequestVoteResponse)
 }
 
-// RequestVote invokes a RequestVote RPC on configuration c
-// and returns the result as a RequestVoteReply.
-func (c *Configuration) RequestVote(args *RequestVoteRequest) (*RequestVoteReply, error) {
-	return c.mgr.requestVote(c, args)
-}
-
-// RequestVoteFuture is a reference to an asynchronous RequestVote RPC invocation.
+// RequestVoteFuture is a reference to an asynchronous RequestVote quorum call invocation.
 type RequestVoteFuture struct {
 	reply *RequestVoteReply
 	err   error
 	c     chan struct{}
 }
 
-// RequestVoteFuture asynchronously invokes a RequestVote RPC on configuration c and
-// returns a RequestVoteFuture which can be used to inspect the RPC reply and error
-// when available.
-func (c *Configuration) RequestVoteFuture(args *RequestVoteRequest) *RequestVoteFuture {
+// RequestVoteFuture asynchronously invokes a RequestVote quorum call
+// on configuration c and returns a RequestVoteFuture which can be used to
+// inspect the quorum call reply and error when available.
+func (c *Configuration) RequestVoteFuture(ctx context.Context, args *RequestVoteRequest) *RequestVoteFuture {
 	f := new(RequestVoteFuture)
 	f.c = make(chan struct{}, 1)
 	go func() {
 		defer close(f.c)
-		f.reply, f.err = c.mgr.requestVote(c, args)
+		f.reply, f.err = c.mgr.requestVote(ctx, c, args)
 	}()
 	return f
 }
@@ -778,7 +777,7 @@ func (f *RequestVoteFuture) Get() (*RequestVoteReply, error) {
 	return f.reply, f.err
 }
 
-// Done reports if a reply or error is available for the RequestVoteFuture.
+// Done reports if a reply and/or error is available for the RequestVoteFuture.
 func (f *RequestVoteFuture) Done() bool {
 	select {
 	case <-f.c:
@@ -788,7 +787,7 @@ func (f *RequestVoteFuture) Done() bool {
 	}
 }
 
-/* 'gorums' plugin for protoc-gen-go - generated from: mgr_rpc_tmpl */
+/* 'gorums' plugin for protoc-gen-go - generated from: mgr_qc_tmpl */
 
 type requestVoteReply struct {
 	nid   uint32
@@ -796,12 +795,39 @@ type requestVoteReply struct {
 	err   error
 }
 
-func (m *Manager) requestVote(c *Configuration, args *RequestVoteRequest) (*RequestVoteReply, error) {
+func (m *Manager) requestVote(ctx context.Context, c *Configuration, args *RequestVoteRequest) (r *RequestVoteReply, err error) {
+	var ti traceInfo
+	if m.opts.trace {
+		ti.tr = trace.New("gorums."+c.tstring()+".Sent", "RequestVote")
+		defer ti.tr.Finish()
+
+		ti.firstLine.cid = c.id
+		if deadline, ok := ctx.Deadline(); ok {
+			ti.firstLine.deadline = deadline.Sub(time.Now())
+		}
+		ti.tr.LazyLog(&ti.firstLine, false)
+
+		defer func() {
+			ti.tr.LazyLog(&qcresult{
+				ids:   r.NodeIDs,
+				reply: r.RequestVoteResponse,
+				err:   err,
+			}, false)
+			if err != nil {
+				ti.tr.SetError()
+			}
+		}()
+	}
+
 	replyChan := make(chan requestVoteReply, c.n)
-	ctx, cancel := context.WithCancel(context.Background())
+	newCtx, cancel := context.WithCancel(ctx)
+
+	if m.opts.trace {
+		ti.tr.LazyLog(&payload{sent: true, msg: args}, false)
+	}
 
 	for _, n := range c.nodes {
-		go callGRPCRequestVote(ctx, n, args, replyChan)
+		go callGRPCRequestVote(newCtx, n, args, replyChan)
 	}
 
 	var (
@@ -814,25 +840,26 @@ func (m *Manager) requestVote(c *Configuration, args *RequestVoteRequest) (*Requ
 	for {
 		select {
 		case r := <-replyChan:
+			reply.NodeIDs = append(reply.NodeIDs, r.nid)
 			if r.err != nil {
 				errCount++
-				goto terminationCheck
+				break
+			}
+			if m.opts.trace {
+				ti.tr.LazyLog(&payload{sent: false, id: r.nid, msg: r.reply}, false)
 			}
 			replyValues = append(replyValues, r.reply)
-			reply.NodeIDs = append(reply.NodeIDs, r.nid)
-			if reply.Reply, quorum = c.qspec.RequestVoteQF(replyValues); quorum {
+			if reply.RequestVoteResponse, quorum = c.qspec.RequestVoteQF(replyValues); quorum {
 				cancel()
 				return reply, nil
 			}
-		case <-time.After(c.timeout):
-			cancel()
-			return reply, TimeoutRPCError{c.timeout, errCount, len(replyValues)}
+		case <-newCtx.Done():
+			return reply, QuorumCallError{ctx.Err().Error(), errCount, len(replyValues)}
 		}
 
-	terminationCheck:
 		if errCount+len(replyValues) == c.n {
 			cancel()
-			return reply, IncompleteRPCError{errCount, len(replyValues)}
+			return reply, QuorumCallError{"incomplete call", errCount, len(replyValues)}
 		}
 	}
 }
@@ -901,7 +928,8 @@ func (n *Node) close() error {
 
 // QuorumSpec is the interface that wraps every quorum function.
 type QuorumSpec interface {
-	// RequestVoteQF is the quorum function for the RequestVote RPC method.
+	// RequestVoteQF is the quorum function for the RequestVote
+	// quorum call method.
 	RequestVoteQF(replies []*RequestVoteResponse) (*RequestVoteResponse, bool)
 }
 
@@ -912,12 +940,11 @@ type QuorumSpec interface {
 // A Configuration represents a static set of nodes on which quorum remote
 // procedure calls may be invoked.
 type Configuration struct {
-	id      uint32
-	nodes   []*Node
-	n       int
-	mgr     *Manager
-	timeout time.Duration
-	qspec   QuorumSpec
+	id    uint32
+	nodes []*Node
+	n     int
+	mgr   *Manager
+	qspec QuorumSpec
 }
 
 // ID reports the identifier for the configuration.
@@ -942,6 +969,10 @@ func (c *Configuration) Size() int {
 
 func (c *Configuration) String() string {
 	return fmt.Sprintf("configuration %d", c.id)
+}
+
+func (c *Configuration) tstring() string {
+	return fmt.Sprintf("config-%d", c.id)
 }
 
 // Equal returns a boolean reporting whether a and b represents the same
@@ -974,31 +1005,6 @@ func (e ConfigNotFoundError) Error() string {
 	return fmt.Sprintf("configuration not found: %d", e)
 }
 
-// An IncompleteRPCError reports that a quorum RPC call failed.
-type IncompleteRPCError struct {
-	ErrCount, ReplyCount int
-}
-
-func (e IncompleteRPCError) Error() string {
-	return fmt.Sprintf(
-		"incomplete rpc (errors: %d, replies: %d)",
-		e.ErrCount, e.ReplyCount,
-	)
-}
-
-// An TimeoutRPCError reports that a quorum RPC call timed out.
-type TimeoutRPCError struct {
-	Waited                 time.Duration
-	ErrCount, RepliesCount int
-}
-
-func (e TimeoutRPCError) Error() string {
-	return fmt.Sprintf(
-		"rpc timed out: waited %v (errors: %d, replies: %d)",
-		e.Waited, e.ErrCount, e.RepliesCount,
-	)
-}
-
 // An IllegalConfigError reports that a specified configuration could not be
 // created.
 type IllegalConfigError string
@@ -1013,15 +1019,34 @@ func ManagerCreationError(err error) error {
 	return fmt.Errorf("could not create manager: %s", err.Error())
 }
 
+// A QuorumCallError is used to report that a quorum call failed.
+type QuorumCallError struct {
+	Reason               string
+	ErrCount, ReplyCount int
+}
+
+func (e QuorumCallError) Error() string {
+	return fmt.Sprintf(
+		"quorum call error: %s (errors: %d, replies: %d)",
+		e.Reason, e.ErrCount, e.ReplyCount,
+	)
+}
+
+/* level.go */
+
+// LevelNotSet is the zero value level used to indicate that no level (and
+// thereby no reply) has been set for a correctable quorum call.
+const LevelNotSet = -1
+
 /* mgr.go */
 
 // Manager manages a pool of node configurations on which quorum remote
 // procedure calls can be made.
 type Manager struct {
-	sync.RWMutex
-
-	nodes   map[uint32]*Node
-	configs map[uint32]*Configuration
+	sync.Mutex
+	nodes    map[uint32]*Node
+	configs  map[uint32]*Configuration
+	eventLog trace.EventLog
 
 	closeOnce sync.Once
 	logger    *log.Logger
@@ -1071,6 +1096,11 @@ func NewManager(nodeAddrs []string, opts ...ManagerOption) (*Manager, error) {
 		)
 	}
 
+	if m.opts.trace {
+		title := strings.Join(nodeAddrs, ",")
+		m.eventLog = trace.NewEventLog("gorums.Manager", title)
+	}
+
 	err = m.connectAll()
 	if err != nil {
 		return nil, ManagerCreationError(err)
@@ -1078,6 +1108,10 @@ func NewManager(nodeAddrs []string, opts ...ManagerOption) (*Manager, error) {
 
 	if m.opts.logger != nil {
 		m.logger = m.opts.logger
+	}
+
+	if m.eventLog != nil {
+		m.eventLog.Printf("ready")
 	}
 
 	return m, nil
@@ -1134,12 +1168,20 @@ func (m *Manager) connectAll() error {
 	if m.opts.noConnect {
 		return nil
 	}
+
+	if m.eventLog != nil {
+		m.eventLog.Printf("connecting")
+	}
+
 	for _, node := range m.nodes {
 		if node.self {
 			continue
 		}
 		err := node.connect(m.opts.grpcDialOpts...)
 		if err != nil {
+			if m.eventLog != nil {
+				m.eventLog.Errorf("connect failed, error connecting to node %s, error: %v", node.addr, err)
+			}
 			return fmt.Errorf("connect node %s error: %v", node.addr, err)
 		}
 	}
@@ -1164,14 +1206,17 @@ func (m *Manager) closeNodeConns() {
 // Close closes all node connections and any client streams.
 func (m *Manager) Close() {
 	m.closeOnce.Do(func() {
+		if m.eventLog != nil {
+			m.eventLog.Printf("closing")
+		}
 		m.closeNodeConns()
 	})
 }
 
 // NodeIDs returns the identifier of each available node.
 func (m *Manager) NodeIDs() []uint32 {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	ids := make([]uint32, 0, len(m.nodes))
 	for id := range m.nodes {
 		ids = append(ids, id)
@@ -1182,16 +1227,16 @@ func (m *Manager) NodeIDs() []uint32 {
 
 // Node returns the node with the given identifier if present.
 func (m *Manager) Node(id uint32) (node *Node, found bool) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	node, found = m.nodes[id]
 	return node, found
 }
 
 // Nodes returns a slice of each available node.
 func (m *Manager) Nodes(excludeSelf bool) []*Node {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	var nodes []*Node
 	for _, node := range m.nodes {
 		if excludeSelf && node.self {
@@ -1206,8 +1251,8 @@ func (m *Manager) Nodes(excludeSelf bool) []*Node {
 // ConfigurationIDs returns the identifier of each available
 // configuration.
 func (m *Manager) ConfigurationIDs() []uint32 {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	ids := make([]uint32, 0, len(m.configs))
 	for id := range m.configs {
 		ids = append(ids, id)
@@ -1219,16 +1264,16 @@ func (m *Manager) ConfigurationIDs() []uint32 {
 // Configuration returns the configuration with the given global
 // identifier if present.
 func (m *Manager) Configuration(id uint32) (config *Configuration, found bool) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	config, found = m.configs[id]
 	return config, found
 }
 
 // Configurations returns a slice of each available configuration.
 func (m *Manager) Configurations() []*Configuration {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	configs := make([]*Configuration, 0, len(m.configs))
 	for _, conf := range m.configs {
 		configs = append(configs, conf)
@@ -1238,8 +1283,8 @@ func (m *Manager) Configurations() []*Configuration {
 
 // Size returns the number of nodes and configurations in the Manager.
 func (m *Manager) Size() (nodes, configs int) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	return len(m.nodes), len(m.configs)
 }
 
@@ -1251,15 +1296,12 @@ func (m *Manager) AddNode(addr string) error {
 
 // NewConfiguration returns a new configuration given quorum specification and
 // a timeout.
-func (m *Manager) NewConfiguration(ids []uint32, qspec QuorumSpec, timeout time.Duration) (*Configuration, error) {
+func (m *Manager) NewConfiguration(ids []uint32, qspec QuorumSpec) (*Configuration, error) {
 	m.Lock()
 	defer m.Unlock()
 
 	if len(ids) == 0 {
 		return nil, IllegalConfigError("need at least one node")
-	}
-	if timeout <= 0 {
-		return nil, IllegalConfigError("timeout must be positive")
 	}
 
 	var cnodes []*Node
@@ -1280,7 +1322,6 @@ func (m *Manager) NewConfiguration(ids []uint32, qspec QuorumSpec, timeout time.
 	OrderedBy(ID).Sort(cnodes)
 
 	h := fnv.New32a()
-	binary.Write(h, binary.LittleEndian, timeout)
 	for _, node := range cnodes {
 		binary.Write(h, binary.LittleEndian, node.id)
 	}
@@ -1292,12 +1333,11 @@ func (m *Manager) NewConfiguration(ids []uint32, qspec QuorumSpec, timeout time.
 	}
 
 	c := &Configuration{
-		id:      cid,
-		nodes:   cnodes,
-		n:       len(cnodes),
-		mgr:     m,
-		qspec:   qspec,
-		timeout: timeout,
+		id:    cid,
+		nodes: cnodes,
+		n:     len(cnodes),
+		mgr:   m,
+		qspec: qspec,
 	}
 	m.configs[cid] = c
 
@@ -1452,6 +1492,7 @@ type managerOptions struct {
 	grpcDialOpts []grpc.DialOption
 	logger       *log.Logger
 	noConnect    bool
+	trace        bool
 	selfAddr     string
 	selfID       uint32
 }
@@ -1502,6 +1543,69 @@ func WithSelfID(id uint32) ManagerOption {
 	}
 }
 
+// WithTracing controls whether to trace qourum calls for this Manager instance
+// using the golang.org/x/net/trace package. Tracing is currently only supported
+// for regular quorum calls.
+func WithTracing() ManagerOption {
+	return func(o *managerOptions) {
+		o.trace = true
+	}
+}
+
+/* trace.go */
+
+type traceInfo struct {
+	tr        trace.Trace
+	firstLine firstLine
+}
+
+type firstLine struct {
+	deadline time.Duration
+	cid      uint32
+}
+
+func (f *firstLine) String() string {
+	var line bytes.Buffer
+	io.WriteString(&line, "QC: to config")
+	fmt.Fprintf(&line, "%v deadline:", f.cid)
+	if f.deadline != 0 {
+		fmt.Fprint(&line, f.deadline)
+	} else {
+		io.WriteString(&line, "none")
+	}
+	return line.String()
+}
+
+type payload struct {
+	sent bool
+	id   uint32
+	msg  interface{}
+}
+
+func (p payload) String() string {
+	if p.sent {
+		return fmt.Sprintf("sent: %v", p.msg)
+	}
+	return fmt.Sprintf("recv from %d: %v", p.id, p.msg)
+}
+
+type qcresult struct {
+	ids   []uint32
+	reply interface{}
+	err   error
+}
+
+func (q qcresult) String() string {
+	var out bytes.Buffer
+	io.WriteString(&out, "recv QC reply: ")
+	fmt.Fprintf(&out, "ids: %v, ", q.ids)
+	fmt.Fprintf(&out, "reply: %v ", q.reply)
+	if q.err != nil {
+		fmt.Fprintf(&out, ", error: %v", q.err)
+	}
+	return out.String()
+}
+
 /* util.go */
 
 func contains(addr string, addrs []string) (found bool, index int) {
@@ -1513,13 +1617,22 @@ func contains(addr string, addrs []string) (found bool, index int) {
 	return false, -1
 }
 
+func appendIfNotPresent(set []uint32, x uint32) []uint32 {
+	for _, y := range set {
+		if y == x {
+			return set
+		}
+	}
+	return append(set, x)
+}
+
 // Reference imports to suppress errors if they are not otherwise used.
 var _ context.Context
 var _ grpc.ClientConn
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-const _ = grpc.SupportPackageIsVersion3
+const _ = grpc.SupportPackageIsVersion4
 
 // Client API for Raft service
 
@@ -1648,34 +1761,34 @@ var _Raft_serviceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: fileDescriptorRaft,
+	Metadata: "proto/gorums/raft.proto",
 }
 
-func (m *Entry) Marshal() (data []byte, err error) {
+func (m *Entry) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
-	data = make([]byte, size)
-	n, err := m.MarshalTo(data)
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
 	if err != nil {
 		return nil, err
 	}
-	return data[:n], nil
+	return dAtA[:n], nil
 }
 
-func (m *Entry) MarshalTo(data []byte) (int, error) {
+func (m *Entry) MarshalTo(dAtA []byte) (int, error) {
 	var i int
 	_ = i
 	var l int
 	_ = l
 	if m.Term != 0 {
-		data[i] = 0x8
+		dAtA[i] = 0x8
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.Term))
+		i = encodeVarintRaft(dAtA, i, uint64(m.Term))
 	}
 	if m.Data != nil {
-		data[i] = 0x12
+		dAtA[i] = 0x12
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.Data.Size()))
-		n1, err := m.Data.MarshalTo(data[i:])
+		i = encodeVarintRaft(dAtA, i, uint64(m.Data.Size()))
+		n1, err := m.Data.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
@@ -1684,128 +1797,128 @@ func (m *Entry) MarshalTo(data []byte) (int, error) {
 	return i, nil
 }
 
-func (m *RequestVoteRequest) Marshal() (data []byte, err error) {
+func (m *RequestVoteRequest) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
-	data = make([]byte, size)
-	n, err := m.MarshalTo(data)
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
 	if err != nil {
 		return nil, err
 	}
-	return data[:n], nil
+	return dAtA[:n], nil
 }
 
-func (m *RequestVoteRequest) MarshalTo(data []byte) (int, error) {
+func (m *RequestVoteRequest) MarshalTo(dAtA []byte) (int, error) {
 	var i int
 	_ = i
 	var l int
 	_ = l
 	if m.CandidateID != 0 {
-		data[i] = 0x8
+		dAtA[i] = 0x8
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.CandidateID))
+		i = encodeVarintRaft(dAtA, i, uint64(m.CandidateID))
 	}
 	if m.Term != 0 {
-		data[i] = 0x10
+		dAtA[i] = 0x10
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.Term))
+		i = encodeVarintRaft(dAtA, i, uint64(m.Term))
 	}
 	if m.LastLogIndex != 0 {
-		data[i] = 0x18
+		dAtA[i] = 0x18
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.LastLogIndex))
+		i = encodeVarintRaft(dAtA, i, uint64(m.LastLogIndex))
 	}
 	if m.LastLogTerm != 0 {
-		data[i] = 0x20
+		dAtA[i] = 0x20
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.LastLogTerm))
+		i = encodeVarintRaft(dAtA, i, uint64(m.LastLogTerm))
 	}
 	return i, nil
 }
 
-func (m *RequestVoteResponse) Marshal() (data []byte, err error) {
+func (m *RequestVoteResponse) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
-	data = make([]byte, size)
-	n, err := m.MarshalTo(data)
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
 	if err != nil {
 		return nil, err
 	}
-	return data[:n], nil
+	return dAtA[:n], nil
 }
 
-func (m *RequestVoteResponse) MarshalTo(data []byte) (int, error) {
+func (m *RequestVoteResponse) MarshalTo(dAtA []byte) (int, error) {
 	var i int
 	_ = i
 	var l int
 	_ = l
 	if m.Term != 0 {
-		data[i] = 0x8
+		dAtA[i] = 0x8
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.Term))
+		i = encodeVarintRaft(dAtA, i, uint64(m.Term))
 	}
 	if m.RequestTerm != 0 {
-		data[i] = 0x10
+		dAtA[i] = 0x10
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.RequestTerm))
+		i = encodeVarintRaft(dAtA, i, uint64(m.RequestTerm))
 	}
 	if m.VoteGranted {
-		data[i] = 0x18
+		dAtA[i] = 0x18
 		i++
 		if m.VoteGranted {
-			data[i] = 1
+			dAtA[i] = 1
 		} else {
-			data[i] = 0
+			dAtA[i] = 0
 		}
 		i++
 	}
 	return i, nil
 }
 
-func (m *AppendEntriesRequest) Marshal() (data []byte, err error) {
+func (m *AppendEntriesRequest) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
-	data = make([]byte, size)
-	n, err := m.MarshalTo(data)
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
 	if err != nil {
 		return nil, err
 	}
-	return data[:n], nil
+	return dAtA[:n], nil
 }
 
-func (m *AppendEntriesRequest) MarshalTo(data []byte) (int, error) {
+func (m *AppendEntriesRequest) MarshalTo(dAtA []byte) (int, error) {
 	var i int
 	_ = i
 	var l int
 	_ = l
 	if m.LeaderID != 0 {
-		data[i] = 0x8
+		dAtA[i] = 0x8
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.LeaderID))
+		i = encodeVarintRaft(dAtA, i, uint64(m.LeaderID))
 	}
 	if m.Term != 0 {
-		data[i] = 0x10
+		dAtA[i] = 0x10
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.Term))
+		i = encodeVarintRaft(dAtA, i, uint64(m.Term))
 	}
 	if m.PrevLogIndex != 0 {
-		data[i] = 0x18
+		dAtA[i] = 0x18
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.PrevLogIndex))
+		i = encodeVarintRaft(dAtA, i, uint64(m.PrevLogIndex))
 	}
 	if m.PrevLogTerm != 0 {
-		data[i] = 0x20
+		dAtA[i] = 0x20
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.PrevLogTerm))
+		i = encodeVarintRaft(dAtA, i, uint64(m.PrevLogTerm))
 	}
 	if m.CommitIndex != 0 {
-		data[i] = 0x28
+		dAtA[i] = 0x28
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.CommitIndex))
+		i = encodeVarintRaft(dAtA, i, uint64(m.CommitIndex))
 	}
 	if len(m.Entries) > 0 {
 		for _, msg := range m.Entries {
-			data[i] = 0x32
+			dAtA[i] = 0x32
 			i++
-			i = encodeVarintRaft(data, i, uint64(msg.Size()))
-			n, err := msg.MarshalTo(data[i:])
+			i = encodeVarintRaft(dAtA, i, uint64(msg.Size()))
+			n, err := msg.MarshalTo(dAtA[i:])
 			if err != nil {
 				return 0, err
 			}
@@ -1815,147 +1928,147 @@ func (m *AppendEntriesRequest) MarshalTo(data []byte) (int, error) {
 	return i, nil
 }
 
-func (m *AppendEntriesResponse) Marshal() (data []byte, err error) {
+func (m *AppendEntriesResponse) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
-	data = make([]byte, size)
-	n, err := m.MarshalTo(data)
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
 	if err != nil {
 		return nil, err
 	}
-	return data[:n], nil
+	return dAtA[:n], nil
 }
 
-func (m *AppendEntriesResponse) MarshalTo(data []byte) (int, error) {
+func (m *AppendEntriesResponse) MarshalTo(dAtA []byte) (int, error) {
 	var i int
 	_ = i
 	var l int
 	_ = l
 	if m.FollowerID != 0 {
-		data[i] = 0x8
+		dAtA[i] = 0x8
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.FollowerID))
+		i = encodeVarintRaft(dAtA, i, uint64(m.FollowerID))
 	}
 	if m.Term != 0 {
-		data[i] = 0x10
+		dAtA[i] = 0x10
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.Term))
+		i = encodeVarintRaft(dAtA, i, uint64(m.Term))
 	}
 	if m.MatchIndex != 0 {
-		data[i] = 0x18
+		dAtA[i] = 0x18
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.MatchIndex))
+		i = encodeVarintRaft(dAtA, i, uint64(m.MatchIndex))
 	}
 	if m.Success {
-		data[i] = 0x20
+		dAtA[i] = 0x20
 		i++
 		if m.Success {
-			data[i] = 1
+			dAtA[i] = 1
 		} else {
-			data[i] = 0
+			dAtA[i] = 0
 		}
 		i++
 	}
 	return i, nil
 }
 
-func (m *ClientCommandRequest) Marshal() (data []byte, err error) {
+func (m *ClientCommandRequest) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
-	data = make([]byte, size)
-	n, err := m.MarshalTo(data)
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
 	if err != nil {
 		return nil, err
 	}
-	return data[:n], nil
+	return dAtA[:n], nil
 }
 
-func (m *ClientCommandRequest) MarshalTo(data []byte) (int, error) {
+func (m *ClientCommandRequest) MarshalTo(dAtA []byte) (int, error) {
 	var i int
 	_ = i
 	var l int
 	_ = l
 	if m.ClientID != 0 {
-		data[i] = 0x8
+		dAtA[i] = 0x8
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.ClientID))
+		i = encodeVarintRaft(dAtA, i, uint64(m.ClientID))
 	}
 	if m.SequenceNumber != 0 {
-		data[i] = 0x10
+		dAtA[i] = 0x10
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.SequenceNumber))
+		i = encodeVarintRaft(dAtA, i, uint64(m.SequenceNumber))
 	}
 	if len(m.Command) > 0 {
-		data[i] = 0x1a
+		dAtA[i] = 0x1a
 		i++
-		i = encodeVarintRaft(data, i, uint64(len(m.Command)))
-		i += copy(data[i:], m.Command)
+		i = encodeVarintRaft(dAtA, i, uint64(len(m.Command)))
+		i += copy(dAtA[i:], m.Command)
 	}
 	return i, nil
 }
 
-func (m *ClientCommandResponse) Marshal() (data []byte, err error) {
+func (m *ClientCommandResponse) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
-	data = make([]byte, size)
-	n, err := m.MarshalTo(data)
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
 	if err != nil {
 		return nil, err
 	}
-	return data[:n], nil
+	return dAtA[:n], nil
 }
 
-func (m *ClientCommandResponse) MarshalTo(data []byte) (int, error) {
+func (m *ClientCommandResponse) MarshalTo(dAtA []byte) (int, error) {
 	var i int
 	_ = i
 	var l int
 	_ = l
 	if m.Status != 0 {
-		data[i] = 0x8
+		dAtA[i] = 0x8
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.Status))
+		i = encodeVarintRaft(dAtA, i, uint64(m.Status))
 	}
 	if len(m.Response) > 0 {
-		data[i] = 0x12
+		dAtA[i] = 0x12
 		i++
-		i = encodeVarintRaft(data, i, uint64(len(m.Response)))
-		i += copy(data[i:], m.Response)
+		i = encodeVarintRaft(dAtA, i, uint64(len(m.Response)))
+		i += copy(dAtA[i:], m.Response)
 	}
 	if m.LeaderHint != 0 {
-		data[i] = 0x18
+		dAtA[i] = 0x18
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.LeaderHint))
+		i = encodeVarintRaft(dAtA, i, uint64(m.LeaderHint))
 	}
 	if m.ClientID != 0 {
-		data[i] = 0x20
+		dAtA[i] = 0x20
 		i++
-		i = encodeVarintRaft(data, i, uint64(m.ClientID))
+		i = encodeVarintRaft(dAtA, i, uint64(m.ClientID))
 	}
 	return i, nil
 }
 
-func encodeFixed64Raft(data []byte, offset int, v uint64) int {
-	data[offset] = uint8(v)
-	data[offset+1] = uint8(v >> 8)
-	data[offset+2] = uint8(v >> 16)
-	data[offset+3] = uint8(v >> 24)
-	data[offset+4] = uint8(v >> 32)
-	data[offset+5] = uint8(v >> 40)
-	data[offset+6] = uint8(v >> 48)
-	data[offset+7] = uint8(v >> 56)
+func encodeFixed64Raft(dAtA []byte, offset int, v uint64) int {
+	dAtA[offset] = uint8(v)
+	dAtA[offset+1] = uint8(v >> 8)
+	dAtA[offset+2] = uint8(v >> 16)
+	dAtA[offset+3] = uint8(v >> 24)
+	dAtA[offset+4] = uint8(v >> 32)
+	dAtA[offset+5] = uint8(v >> 40)
+	dAtA[offset+6] = uint8(v >> 48)
+	dAtA[offset+7] = uint8(v >> 56)
 	return offset + 8
 }
-func encodeFixed32Raft(data []byte, offset int, v uint32) int {
-	data[offset] = uint8(v)
-	data[offset+1] = uint8(v >> 8)
-	data[offset+2] = uint8(v >> 16)
-	data[offset+3] = uint8(v >> 24)
+func encodeFixed32Raft(dAtA []byte, offset int, v uint32) int {
+	dAtA[offset] = uint8(v)
+	dAtA[offset+1] = uint8(v >> 8)
+	dAtA[offset+2] = uint8(v >> 16)
+	dAtA[offset+3] = uint8(v >> 24)
 	return offset + 4
 }
-func encodeVarintRaft(data []byte, offset int, v uint64) int {
+func encodeVarintRaft(dAtA []byte, offset int, v uint64) int {
 	for v >= 1<<7 {
-		data[offset] = uint8(v&0x7f | 0x80)
+		dAtA[offset] = uint8(v&0x7f | 0x80)
 		v >>= 7
 		offset++
 	}
-	data[offset] = uint8(v)
+	dAtA[offset] = uint8(v)
 	return offset + 1
 }
 func (m *Entry) Size() (n int) {
@@ -2194,8 +2307,8 @@ func valueToStringRaft(v interface{}) string {
 	pv := reflect.Indirect(rv).Interface()
 	return fmt.Sprintf("*%v", pv)
 }
-func (m *Entry) Unmarshal(data []byte) error {
-	l := len(data)
+func (m *Entry) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
 		preIndex := iNdEx
@@ -2207,7 +2320,7 @@ func (m *Entry) Unmarshal(data []byte) error {
 			if iNdEx >= l {
 				return io.ErrUnexpectedEOF
 			}
-			b := data[iNdEx]
+			b := dAtA[iNdEx]
 			iNdEx++
 			wire |= (uint64(b) & 0x7F) << shift
 			if b < 0x80 {
@@ -2235,7 +2348,7 @@ func (m *Entry) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.Term |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2254,7 +2367,7 @@ func (m *Entry) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				msglen |= (int(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2271,13 +2384,13 @@ func (m *Entry) Unmarshal(data []byte) error {
 			if m.Data == nil {
 				m.Data = &ClientCommandRequest{}
 			}
-			if err := m.Data.Unmarshal(data[iNdEx:postIndex]); err != nil {
+			if err := m.Data.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
-			skippy, err := skipRaft(data[iNdEx:])
+			skippy, err := skipRaft(dAtA[iNdEx:])
 			if err != nil {
 				return err
 			}
@@ -2296,8 +2409,8 @@ func (m *Entry) Unmarshal(data []byte) error {
 	}
 	return nil
 }
-func (m *RequestVoteRequest) Unmarshal(data []byte) error {
-	l := len(data)
+func (m *RequestVoteRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
 		preIndex := iNdEx
@@ -2309,7 +2422,7 @@ func (m *RequestVoteRequest) Unmarshal(data []byte) error {
 			if iNdEx >= l {
 				return io.ErrUnexpectedEOF
 			}
-			b := data[iNdEx]
+			b := dAtA[iNdEx]
 			iNdEx++
 			wire |= (uint64(b) & 0x7F) << shift
 			if b < 0x80 {
@@ -2337,7 +2450,7 @@ func (m *RequestVoteRequest) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.CandidateID |= (uint32(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2356,7 +2469,7 @@ func (m *RequestVoteRequest) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.Term |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2375,7 +2488,7 @@ func (m *RequestVoteRequest) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.LastLogIndex |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2394,7 +2507,7 @@ func (m *RequestVoteRequest) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.LastLogTerm |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2403,7 +2516,7 @@ func (m *RequestVoteRequest) Unmarshal(data []byte) error {
 			}
 		default:
 			iNdEx = preIndex
-			skippy, err := skipRaft(data[iNdEx:])
+			skippy, err := skipRaft(dAtA[iNdEx:])
 			if err != nil {
 				return err
 			}
@@ -2422,8 +2535,8 @@ func (m *RequestVoteRequest) Unmarshal(data []byte) error {
 	}
 	return nil
 }
-func (m *RequestVoteResponse) Unmarshal(data []byte) error {
-	l := len(data)
+func (m *RequestVoteResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
 		preIndex := iNdEx
@@ -2435,7 +2548,7 @@ func (m *RequestVoteResponse) Unmarshal(data []byte) error {
 			if iNdEx >= l {
 				return io.ErrUnexpectedEOF
 			}
-			b := data[iNdEx]
+			b := dAtA[iNdEx]
 			iNdEx++
 			wire |= (uint64(b) & 0x7F) << shift
 			if b < 0x80 {
@@ -2463,7 +2576,7 @@ func (m *RequestVoteResponse) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.Term |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2482,7 +2595,7 @@ func (m *RequestVoteResponse) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.RequestTerm |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2501,7 +2614,7 @@ func (m *RequestVoteResponse) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				v |= (int(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2511,7 +2624,7 @@ func (m *RequestVoteResponse) Unmarshal(data []byte) error {
 			m.VoteGranted = bool(v != 0)
 		default:
 			iNdEx = preIndex
-			skippy, err := skipRaft(data[iNdEx:])
+			skippy, err := skipRaft(dAtA[iNdEx:])
 			if err != nil {
 				return err
 			}
@@ -2530,8 +2643,8 @@ func (m *RequestVoteResponse) Unmarshal(data []byte) error {
 	}
 	return nil
 }
-func (m *AppendEntriesRequest) Unmarshal(data []byte) error {
-	l := len(data)
+func (m *AppendEntriesRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
 		preIndex := iNdEx
@@ -2543,7 +2656,7 @@ func (m *AppendEntriesRequest) Unmarshal(data []byte) error {
 			if iNdEx >= l {
 				return io.ErrUnexpectedEOF
 			}
-			b := data[iNdEx]
+			b := dAtA[iNdEx]
 			iNdEx++
 			wire |= (uint64(b) & 0x7F) << shift
 			if b < 0x80 {
@@ -2571,7 +2684,7 @@ func (m *AppendEntriesRequest) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.LeaderID |= (uint32(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2590,7 +2703,7 @@ func (m *AppendEntriesRequest) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.Term |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2609,7 +2722,7 @@ func (m *AppendEntriesRequest) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.PrevLogIndex |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2628,7 +2741,7 @@ func (m *AppendEntriesRequest) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.PrevLogTerm |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2647,7 +2760,7 @@ func (m *AppendEntriesRequest) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.CommitIndex |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2666,7 +2779,7 @@ func (m *AppendEntriesRequest) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				msglen |= (int(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2681,13 +2794,13 @@ func (m *AppendEntriesRequest) Unmarshal(data []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.Entries = append(m.Entries, &Entry{})
-			if err := m.Entries[len(m.Entries)-1].Unmarshal(data[iNdEx:postIndex]); err != nil {
+			if err := m.Entries[len(m.Entries)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
-			skippy, err := skipRaft(data[iNdEx:])
+			skippy, err := skipRaft(dAtA[iNdEx:])
 			if err != nil {
 				return err
 			}
@@ -2706,8 +2819,8 @@ func (m *AppendEntriesRequest) Unmarshal(data []byte) error {
 	}
 	return nil
 }
-func (m *AppendEntriesResponse) Unmarshal(data []byte) error {
-	l := len(data)
+func (m *AppendEntriesResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
 		preIndex := iNdEx
@@ -2719,7 +2832,7 @@ func (m *AppendEntriesResponse) Unmarshal(data []byte) error {
 			if iNdEx >= l {
 				return io.ErrUnexpectedEOF
 			}
-			b := data[iNdEx]
+			b := dAtA[iNdEx]
 			iNdEx++
 			wire |= (uint64(b) & 0x7F) << shift
 			if b < 0x80 {
@@ -2747,7 +2860,7 @@ func (m *AppendEntriesResponse) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.FollowerID |= (uint32(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2766,7 +2879,7 @@ func (m *AppendEntriesResponse) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.Term |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2785,7 +2898,7 @@ func (m *AppendEntriesResponse) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.MatchIndex |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2804,7 +2917,7 @@ func (m *AppendEntriesResponse) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				v |= (int(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2814,7 +2927,7 @@ func (m *AppendEntriesResponse) Unmarshal(data []byte) error {
 			m.Success = bool(v != 0)
 		default:
 			iNdEx = preIndex
-			skippy, err := skipRaft(data[iNdEx:])
+			skippy, err := skipRaft(dAtA[iNdEx:])
 			if err != nil {
 				return err
 			}
@@ -2833,8 +2946,8 @@ func (m *AppendEntriesResponse) Unmarshal(data []byte) error {
 	}
 	return nil
 }
-func (m *ClientCommandRequest) Unmarshal(data []byte) error {
-	l := len(data)
+func (m *ClientCommandRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
 		preIndex := iNdEx
@@ -2846,7 +2959,7 @@ func (m *ClientCommandRequest) Unmarshal(data []byte) error {
 			if iNdEx >= l {
 				return io.ErrUnexpectedEOF
 			}
-			b := data[iNdEx]
+			b := dAtA[iNdEx]
 			iNdEx++
 			wire |= (uint64(b) & 0x7F) << shift
 			if b < 0x80 {
@@ -2874,7 +2987,7 @@ func (m *ClientCommandRequest) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.ClientID |= (uint32(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2893,7 +3006,7 @@ func (m *ClientCommandRequest) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.SequenceNumber |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2912,7 +3025,7 @@ func (m *ClientCommandRequest) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				stringLen |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -2927,11 +3040,11 @@ func (m *ClientCommandRequest) Unmarshal(data []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Command = string(data[iNdEx:postIndex])
+			m.Command = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
-			skippy, err := skipRaft(data[iNdEx:])
+			skippy, err := skipRaft(dAtA[iNdEx:])
 			if err != nil {
 				return err
 			}
@@ -2950,8 +3063,8 @@ func (m *ClientCommandRequest) Unmarshal(data []byte) error {
 	}
 	return nil
 }
-func (m *ClientCommandResponse) Unmarshal(data []byte) error {
-	l := len(data)
+func (m *ClientCommandResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
 		preIndex := iNdEx
@@ -2963,7 +3076,7 @@ func (m *ClientCommandResponse) Unmarshal(data []byte) error {
 			if iNdEx >= l {
 				return io.ErrUnexpectedEOF
 			}
-			b := data[iNdEx]
+			b := dAtA[iNdEx]
 			iNdEx++
 			wire |= (uint64(b) & 0x7F) << shift
 			if b < 0x80 {
@@ -2991,7 +3104,7 @@ func (m *ClientCommandResponse) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.Status |= (Status(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -3010,7 +3123,7 @@ func (m *ClientCommandResponse) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				stringLen |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -3025,7 +3138,7 @@ func (m *ClientCommandResponse) Unmarshal(data []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Response = string(data[iNdEx:postIndex])
+			m.Response = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 3:
 			if wireType != 0 {
@@ -3039,7 +3152,7 @@ func (m *ClientCommandResponse) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.LeaderHint |= (uint32(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -3058,7 +3171,7 @@ func (m *ClientCommandResponse) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				m.ClientID |= (uint32(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -3067,7 +3180,7 @@ func (m *ClientCommandResponse) Unmarshal(data []byte) error {
 			}
 		default:
 			iNdEx = preIndex
-			skippy, err := skipRaft(data[iNdEx:])
+			skippy, err := skipRaft(dAtA[iNdEx:])
 			if err != nil {
 				return err
 			}
@@ -3086,8 +3199,8 @@ func (m *ClientCommandResponse) Unmarshal(data []byte) error {
 	}
 	return nil
 }
-func skipRaft(data []byte) (n int, err error) {
-	l := len(data)
+func skipRaft(dAtA []byte) (n int, err error) {
+	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
 		var wire uint64
@@ -3098,7 +3211,7 @@ func skipRaft(data []byte) (n int, err error) {
 			if iNdEx >= l {
 				return 0, io.ErrUnexpectedEOF
 			}
-			b := data[iNdEx]
+			b := dAtA[iNdEx]
 			iNdEx++
 			wire |= (uint64(b) & 0x7F) << shift
 			if b < 0x80 {
@@ -3116,7 +3229,7 @@ func skipRaft(data []byte) (n int, err error) {
 					return 0, io.ErrUnexpectedEOF
 				}
 				iNdEx++
-				if data[iNdEx-1] < 0x80 {
+				if dAtA[iNdEx-1] < 0x80 {
 					break
 				}
 			}
@@ -3133,7 +3246,7 @@ func skipRaft(data []byte) (n int, err error) {
 				if iNdEx >= l {
 					return 0, io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				length |= (int(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -3156,7 +3269,7 @@ func skipRaft(data []byte) (n int, err error) {
 					if iNdEx >= l {
 						return 0, io.ErrUnexpectedEOF
 					}
-					b := data[iNdEx]
+					b := dAtA[iNdEx]
 					iNdEx++
 					innerWire |= (uint64(b) & 0x7F) << shift
 					if b < 0x80 {
@@ -3167,7 +3280,7 @@ func skipRaft(data []byte) (n int, err error) {
 				if innerWireType == 4 {
 					break
 				}
-				next, err := skipRaft(data[start:])
+				next, err := skipRaft(dAtA[start:])
 				if err != nil {
 					return 0, err
 				}
@@ -3194,46 +3307,46 @@ var (
 func init() { proto.RegisterFile("proto/gorums/raft.proto", fileDescriptorRaft) }
 
 var fileDescriptorRaft = []byte{
-	// 651 bytes of a gzipped FileDescriptorProto
+	// 647 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0x7c, 0x54, 0x41, 0x4f, 0x13, 0x41,
-	0x14, 0xee, 0x40, 0x29, 0xe5, 0xd5, 0x22, 0x19, 0x21, 0x6c, 0x2a, 0x4e, 0x9a, 0x8d, 0x41, 0x62,
-	0x0c, 0x98, 0xfa, 0x0b, 0x10, 0x1a, 0x6c, 0xac, 0x40, 0xa6, 0xc4, 0x78, 0x23, 0xd3, 0xdd, 0x01,
-	0x9a, 0x74, 0x77, 0xea, 0xcc, 0x14, 0xf5, 0xc6, 0xc5, 0x3b, 0x37, 0xff, 0x82, 0x7f, 0x80, 0xff,
-	0xe0, 0x91, 0x9b, 0x1e, 0x61, 0xbd, 0x78, 0xf4, 0xe0, 0x59, 0xcd, 0xce, 0xee, 0x96, 0x69, 0x5d,
-	0xec, 0xa5, 0xfb, 0xbe, 0xf7, 0x66, 0xbe, 0xf7, 0x7d, 0xf3, 0x66, 0x60, 0x79, 0x20, 0x85, 0x16,
-	0x1b, 0xc7, 0x42, 0x0e, 0x03, 0xb5, 0x21, 0xd9, 0x91, 0x5e, 0x37, 0x08, 0x2e, 0x25, 0x50, 0xed,
-	0xe1, 0x71, 0x4f, 0x9f, 0x0c, 0xbb, 0xeb, 0x9e, 0x08, 0x36, 0x24, 0xef, 0xb3, 0x6e, 0x56, 0x9b,
-	0xfc, 0x25, 0xd5, 0xee, 0x2b, 0x98, 0x69, 0x86, 0x5a, 0x7e, 0xc0, 0x18, 0x8a, 0x9a, 0xcb, 0xc0,
-	0x41, 0x75, 0xb4, 0x56, 0xa4, 0xe6, 0x1b, 0x3f, 0x85, 0xa2, 0xcf, 0x34, 0x73, 0xa6, 0xea, 0x68,
-	0xad, 0xd2, 0x58, 0x59, 0x4f, 0x57, 0x6e, 0xf5, 0x7b, 0x3c, 0xd4, 0x5b, 0x22, 0x08, 0x58, 0xe8,
-	0x53, 0xfe, 0x76, 0xc8, 0x95, 0xa6, 0xa6, 0xd2, 0x3d, 0x47, 0x80, 0x53, 0xe4, 0xb5, 0xd0, 0x3c,
-	0xfd, 0xc4, 0x75, 0xa8, 0x78, 0x2c, 0xf4, 0x7b, 0x3e, 0xd3, 0xbc, 0xb5, 0x6d, 0x38, 0xaa, 0xd4,
-	0x86, 0x46, 0xf4, 0x53, 0x16, 0xbd, 0x0b, 0x77, 0xfa, 0x4c, 0xe9, 0xb6, 0x38, 0x6e, 0x85, 0x3e,
-	0x7f, 0xef, 0x4c, 0x9b, 0xdc, 0x18, 0x16, 0xef, 0x9c, 0xc6, 0x07, 0xf1, 0xf2, 0xa2, 0x29, 0xb1,
-	0x21, 0x37, 0x80, 0x7b, 0x63, 0x1d, 0xa9, 0x81, 0x08, 0x15, 0xcf, 0xd5, 0x5b, 0x87, 0x8a, 0x4c,
-	0x4a, 0x0f, 0x6e, 0x7a, 0xb1, 0xa1, 0xb8, 0xe2, 0x54, 0x68, 0xbe, 0x23, 0x59, 0xa8, 0xb9, 0x6f,
-	0x3a, 0x2a, 0x53, 0x1b, 0x72, 0xbf, 0x22, 0x58, 0xdc, 0x1c, 0x0c, 0x78, 0xe8, 0xc7, 0xbe, 0xf6,
-	0xb8, 0xca, 0x3c, 0xa8, 0x41, 0xb9, 0xcf, 0x99, 0xcf, 0xe5, 0xc8, 0x80, 0x51, 0x7c, 0x9b, 0xfa,
-	0x81, 0xe4, 0xa7, 0x93, 0xea, 0x6d, 0x2c, 0x6e, 0x27, 0x8d, 0x6d, 0xf5, 0x16, 0x64, 0x9c, 0x17,
-	0x41, 0xd0, 0xd3, 0xc9, 0x26, 0x33, 0x49, 0x85, 0x05, 0xe1, 0x47, 0x30, 0xcb, 0x93, 0x4e, 0x9d,
-	0x52, 0x7d, 0x7a, 0xad, 0xd2, 0xa8, 0x66, 0xe7, 0x6c, 0x06, 0x83, 0x66, 0x59, 0xf7, 0x23, 0x82,
-	0xa5, 0x09, 0x65, 0xa9, 0x97, 0x04, 0xe0, 0x48, 0xf4, 0xfb, 0xe2, 0x9d, 0x25, 0xce, 0x42, 0x72,
-	0xe5, 0x11, 0x80, 0x80, 0x69, 0xef, 0xc4, 0x16, 0x67, 0x21, 0xd8, 0x81, 0x59, 0x35, 0xf4, 0x3c,
-	0xae, 0x94, 0x91, 0x55, 0xa6, 0x59, 0xe8, 0x6a, 0x58, 0xcc, 0x9b, 0xc0, 0xd8, 0x60, 0xcf, 0xe0,
-	0x37, 0x06, 0x67, 0x31, 0x5e, 0x85, 0x79, 0x15, 0x97, 0x85, 0x1e, 0xdf, 0x1d, 0x06, 0x5d, 0x2e,
-	0xd3, 0x5e, 0x26, 0xd0, 0x98, 0xd5, 0x4b, 0x76, 0x35, 0x2d, 0xcd, 0xd1, 0x2c, 0x74, 0x3f, 0x21,
-	0x58, 0x9a, 0xa0, 0x4d, 0xd5, 0xaf, 0x42, 0x49, 0x69, 0xa6, 0x87, 0xca, 0xb0, 0xce, 0x37, 0xe6,
-	0x33, 0xff, 0x3a, 0x06, 0xa5, 0x69, 0x36, 0xee, 0x4f, 0xa6, 0x6b, 0x0c, 0xfb, 0x1c, 0x1d, 0xc5,
-	0xb1, 0x1b, 0xc9, 0x30, 0xbc, 0xe8, 0x85, 0xda, 0x50, 0x57, 0xa9, 0x85, 0x8c, 0x69, 0x2b, 0x8e,
-	0x6b, 0x7b, 0xbc, 0x03, 0xa5, 0x84, 0x09, 0x97, 0x60, 0x6a, 0xef, 0xe5, 0x42, 0x01, 0x2f, 0x03,
-	0xec, 0xee, 0x1d, 0x1c, 0xb6, 0x9b, 0x9b, 0xdb, 0x4d, 0xba, 0xf0, 0x27, 0xfb, 0x21, 0xbc, 0x02,
-	0x77, 0x3b, 0xcd, 0x4e, 0xa7, 0xb5, 0xb7, 0x7b, 0xd8, 0x7c, 0xb3, 0xdf, 0xa2, 0xcd, 0xed, 0x85,
-	0xdf, 0xa3, 0x6c, 0xe3, 0x17, 0x82, 0x22, 0x65, 0x47, 0x1a, 0xef, 0x43, 0xc5, 0xba, 0x32, 0xb8,
-	0x96, 0x09, 0xfa, 0xf7, 0x66, 0xd7, 0xee, 0xe7, 0xe6, 0x12, 0x55, 0x6e, 0xf9, 0xec, 0xc2, 0x41,
-	0xe7, 0x17, 0x0e, 0xc2, 0x6d, 0xa8, 0x8e, 0x8d, 0x0e, 0x1e, 0x3d, 0x26, 0x79, 0x77, 0xa5, 0xf6,
-	0xe0, 0x96, 0x6c, 0xea, 0x56, 0x1b, 0xaa, 0x63, 0x47, 0x81, 0xff, 0xfb, 0x34, 0xdd, 0xec, 0x96,
-	0x7b, 0x7e, 0xcf, 0x9f, 0x5c, 0x5e, 0x93, 0xc2, 0xb7, 0x6b, 0x52, 0xb8, 0xba, 0x26, 0xe8, 0x2c,
-	0x22, 0xe8, 0x73, 0x44, 0xd0, 0x97, 0x88, 0xa0, 0xcb, 0x88, 0xa0, 0xab, 0x88, 0xa0, 0x1f, 0x11,
-	0x29, 0xfc, 0x8c, 0x08, 0x3a, 0xff, 0x4e, 0x0a, 0xdd, 0x92, 0x79, 0x37, 0x9f, 0xfd, 0x0d, 0x00,
-	0x00, 0xff, 0xff, 0xc5, 0x4a, 0x21, 0x85, 0x80, 0x05, 0x00, 0x00,
+	0x14, 0xee, 0xc0, 0x52, 0xe0, 0xd5, 0x22, 0x19, 0x21, 0x34, 0x15, 0x27, 0xcd, 0xc6, 0x20, 0x31,
+	0x06, 0x4c, 0xfd, 0x05, 0x08, 0x0d, 0x36, 0x56, 0x30, 0x53, 0x62, 0xbc, 0x91, 0xe9, 0xee, 0x00,
+	0x4d, 0xba, 0x3b, 0x75, 0x66, 0x8a, 0x7a, 0xf3, 0xe2, 0x9d, 0x9b, 0x57, 0x8f, 0xfe, 0x02, 0x7f,
+	0x83, 0x47, 0x6e, 0x7a, 0x84, 0xf5, 0xe2, 0x91, 0x5f, 0xa0, 0x66, 0x67, 0x77, 0xcb, 0x6c, 0x5d,
+	0xec, 0xa5, 0xfb, 0xbe, 0xf7, 0x66, 0xbe, 0xf7, 0x7d, 0xf3, 0x66, 0x60, 0x65, 0x28, 0x85, 0x16,
+	0x9b, 0xc7, 0x42, 0x8e, 0x02, 0xb5, 0x29, 0xd9, 0x91, 0xde, 0x30, 0x08, 0x2e, 0x27, 0x50, 0xfd,
+	0xfe, 0x71, 0x5f, 0x9f, 0x8c, 0x7a, 0x1b, 0x9e, 0x08, 0x36, 0x25, 0x1f, 0xb0, 0x5e, 0x56, 0x9b,
+	0xfc, 0x25, 0xd5, 0xee, 0x0b, 0x98, 0x69, 0x85, 0x5a, 0xbe, 0xc7, 0x18, 0x1c, 0xcd, 0x65, 0x50,
+	0x43, 0x0d, 0xb4, 0xee, 0x50, 0xf3, 0x8d, 0x1f, 0x83, 0xe3, 0x33, 0xcd, 0x6a, 0x53, 0x0d, 0xb4,
+	0x5e, 0x69, 0xae, 0x6e, 0xa4, 0x2b, 0xb7, 0x07, 0x7d, 0x1e, 0xea, 0x6d, 0x11, 0x04, 0x2c, 0xf4,
+	0x29, 0x7f, 0x33, 0xe2, 0x4a, 0x53, 0x53, 0xe9, 0x9e, 0x21, 0xc0, 0x29, 0xf2, 0x4a, 0x68, 0x9e,
+	0x7e, 0xe2, 0x06, 0x54, 0x3c, 0x16, 0xfa, 0x7d, 0x9f, 0x69, 0xde, 0xde, 0x31, 0x1c, 0x55, 0x6a,
+	0x43, 0x63, 0xfa, 0x29, 0x8b, 0xde, 0x85, 0x5b, 0x03, 0xa6, 0x74, 0x47, 0x1c, 0xb7, 0x43, 0x9f,
+	0xbf, 0xab, 0x4d, 0x9b, 0x5c, 0x0e, 0x8b, 0x77, 0x4e, 0xe3, 0x83, 0x78, 0xb9, 0x63, 0x4a, 0x6c,
+	0xc8, 0x0d, 0xe0, 0x4e, 0xae, 0x23, 0x35, 0x14, 0xa1, 0xe2, 0x85, 0x7a, 0x1b, 0x50, 0x91, 0x49,
+	0xe9, 0xc1, 0x75, 0x2f, 0x36, 0x14, 0x57, 0x9c, 0x0a, 0xcd, 0x77, 0x25, 0x0b, 0x35, 0xf7, 0x4d,
+	0x47, 0x73, 0xd4, 0x86, 0xdc, 0xef, 0x08, 0x96, 0xb6, 0x86, 0x43, 0x1e, 0xfa, 0xb1, 0xaf, 0x7d,
+	0xae, 0x32, 0x0f, 0xea, 0x30, 0x37, 0xe0, 0xcc, 0xe7, 0x72, 0x6c, 0xc0, 0x38, 0xbe, 0x49, 0xfd,
+	0x50, 0xf2, 0xd3, 0x49, 0xf5, 0x36, 0x16, 0xb7, 0x93, 0xc6, 0xb6, 0x7a, 0x0b, 0x32, 0xce, 0x8b,
+	0x20, 0xe8, 0xeb, 0x64, 0x93, 0x99, 0xa4, 0xc2, 0x82, 0xf0, 0x03, 0x98, 0xe5, 0x49, 0xa7, 0xb5,
+	0x72, 0x63, 0x7a, 0xbd, 0xd2, 0xac, 0x66, 0xe7, 0x6c, 0x06, 0x83, 0x66, 0x59, 0xf7, 0x23, 0x82,
+	0xe5, 0x09, 0x65, 0xa9, 0x97, 0x04, 0xe0, 0x48, 0x0c, 0x06, 0xe2, 0xad, 0x25, 0xce, 0x42, 0x0a,
+	0xe5, 0x11, 0x80, 0x80, 0x69, 0xef, 0xc4, 0x16, 0x67, 0x21, 0xb8, 0x06, 0xb3, 0x6a, 0xe4, 0x79,
+	0x5c, 0x29, 0x23, 0x6b, 0x8e, 0x66, 0xa1, 0xab, 0x61, 0xa9, 0x68, 0x02, 0x63, 0x83, 0x3d, 0x83,
+	0x5f, 0x1b, 0x9c, 0xc5, 0x78, 0x0d, 0x16, 0x54, 0x5c, 0x16, 0x7a, 0x7c, 0x6f, 0x14, 0xf4, 0xb8,
+	0x4c, 0x7b, 0x99, 0x40, 0x63, 0x56, 0x2f, 0xd9, 0xd5, 0xb4, 0x34, 0x4f, 0xb3, 0xd0, 0xfd, 0x84,
+	0x60, 0x79, 0x82, 0x36, 0x55, 0xbf, 0x06, 0x65, 0xa5, 0x99, 0x1e, 0x29, 0xc3, 0xba, 0xd0, 0x5c,
+	0xc8, 0xfc, 0xeb, 0x1a, 0x94, 0xa6, 0xd9, 0xb8, 0x3f, 0x99, 0xae, 0x31, 0xec, 0xf3, 0x74, 0x1c,
+	0xc7, 0x6e, 0x24, 0xc3, 0xf0, 0xac, 0x1f, 0x6a, 0x43, 0x5d, 0xa5, 0x16, 0x92, 0xd3, 0xe6, 0xe4,
+	0xb5, 0x3d, 0xdc, 0x85, 0x72, 0xc2, 0x84, 0xcb, 0x30, 0xb5, 0xff, 0x7c, 0xb1, 0x84, 0x57, 0x00,
+	0xf6, 0xf6, 0x0f, 0x0e, 0x3b, 0xad, 0xad, 0x9d, 0x16, 0x5d, 0xfc, 0x93, 0xfd, 0x10, 0x5e, 0x85,
+	0xdb, 0xdd, 0x56, 0xb7, 0xdb, 0xde, 0xdf, 0x3b, 0x6c, 0xbd, 0x7e, 0xd9, 0xa6, 0xad, 0x9d, 0xc5,
+	0xdf, 0xe3, 0x6c, 0xf3, 0x0a, 0x81, 0x43, 0xd9, 0x91, 0xc6, 0x1d, 0xa8, 0x58, 0x57, 0x06, 0xd7,
+	0x33, 0x41, 0xff, 0xde, 0xec, 0xfa, 0xdd, 0xc2, 0x5c, 0xa2, 0xca, 0x75, 0x3e, 0x7f, 0xad, 0x21,
+	0xdc, 0x81, 0x6a, 0x6e, 0x6c, 0xf0, 0xf8, 0x21, 0x29, 0xba, 0x27, 0xf5, 0x7b, 0x37, 0x64, 0x53,
+	0xa7, 0x3a, 0x50, 0xcd, 0x1d, 0x03, 0xfe, 0xef, 0xb3, 0x74, 0xbd, 0x5b, 0xe1, 0xd9, 0x3d, 0x7d,
+	0x74, 0x7e, 0x49, 0x4a, 0x3f, 0x2e, 0x49, 0xe9, 0xe2, 0x92, 0xa0, 0x0f, 0x11, 0x41, 0x5f, 0x22,
+	0x82, 0xbe, 0x45, 0x04, 0x9d, 0x47, 0x04, 0x5d, 0x44, 0x04, 0xfd, 0x8a, 0x48, 0xe9, 0x2a, 0x22,
+	0xe8, 0xec, 0x27, 0x29, 0xf5, 0xca, 0xe6, 0xcd, 0x7c, 0xf2, 0x37, 0x00, 0x00, 0xff, 0xff, 0xf4,
+	0xac, 0x5a, 0x52, 0x7c, 0x05, 0x00, 0x00,
 }
