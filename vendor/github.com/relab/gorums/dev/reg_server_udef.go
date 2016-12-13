@@ -35,6 +35,18 @@ func NewRegisterBasic() *RegisterServerBasic {
 	}
 }
 
+// NewRegisterBasicWithState returns a new basic register server with an initial
+// state set.
+func NewRegisterBasicWithState(state *State) *RegisterServerBasic {
+	return &RegisterServerBasic{
+		state: *state,
+		// Use an appropriate larger buffer size if we construct test
+		// scenarios where it's needed.
+		writeExecutedChan: make(chan struct{}, 32),
+		readExecutedChan:  make(chan struct{}, 32),
+	}
+}
+
 func (r *RegisterServerBasic) Read(ctx context.Context, rq *ReadRequest) (*State, error) {
 	r.RLock()
 	defer r.RUnlock()
@@ -71,9 +83,14 @@ func (r *RegisterServerBasic) WriteAsync(stream Register_WriteAsyncServer) error
 	}
 }
 
-// ReadNoQRPC implements the ReadNoQRPC method from the RegisterServer interface.
-func (r *RegisterServerBasic) ReadNoQRPC(ctx context.Context, rq *ReadRequest) (*State, error) {
+// ReadNoQC implements the ReadNoQC method from the RegisterServer interface.
+func (r *RegisterServerBasic) ReadNoQC(ctx context.Context, rq *ReadRequest) (*State, error) {
 	return r.Read(ctx, rq)
+}
+
+// ReadTwo implements the ReadTwo method from the RegisterServer interface.
+func (r *RegisterServerBasic) ReadTwo(rq *ReadRequest, rrts Register_ReadTwoServer) error {
+	return rrts.Send(&r.state)
 }
 
 // ReadExecuted returns when r has has completed a read.
@@ -112,9 +129,14 @@ func (r *RegisterServerError) WriteAsync(stream Register_WriteAsyncServer) error
 	return r.err
 }
 
-// ReadNoQRPC implements the ReadNoQRPC method from the RegisterServer interface.
-func (r *RegisterServerError) ReadNoQRPC(ctx context.Context, rq *ReadRequest) (*State, error) {
+// ReadNoQC implements the ReadNoQC method from the RegisterServer interface.
+func (r *RegisterServerError) ReadNoQC(ctx context.Context, rq *ReadRequest) (*State, error) {
 	return r.Read(ctx, rq)
+}
+
+// ReadTwo implements the ReadTwo method from the RegisterServer interface.
+func (r *RegisterServerError) ReadTwo(rq *ReadRequest, rrts Register_ReadTwoServer) error {
+	return r.err
 }
 
 // ReadExecuted never returns since r always returns an error for Read.
@@ -142,6 +164,15 @@ func NewRegisterSlow(dur time.Duration) *RegisterServerSlow {
 	}
 }
 
+// NewRegisterSlowWithState returns a new slow register server with an initial
+// state set.
+func NewRegisterSlowWithState(dur time.Duration, state *State) *RegisterServerSlow {
+	return &RegisterServerSlow{
+		delay:      dur,
+		realServer: NewRegisterBasicWithState(state),
+	}
+}
+
 func (r *RegisterServerSlow) Read(ctx context.Context, rq *ReadRequest) (*State, error) {
 	time.Sleep(r.delay)
 	return r.realServer.Read(ctx, rq)
@@ -158,10 +189,15 @@ func (r *RegisterServerSlow) WriteAsync(stream Register_WriteAsyncServer) error 
 	return r.realServer.WriteAsync(stream)
 }
 
-// ReadNoQRPC implements the ReadNoQRPC method from the RegisterServer interface.
-func (r *RegisterServerSlow) ReadNoQRPC(ctx context.Context, rq *ReadRequest) (*State, error) {
+// ReadNoQC implements the ReadNoQC method from the RegisterServer interface.
+func (r *RegisterServerSlow) ReadNoQC(ctx context.Context, rq *ReadRequest) (*State, error) {
 	time.Sleep(r.delay)
 	return r.Read(ctx, rq)
+}
+
+// ReadTwo implements the ReadTwo method from the RegisterServer interface.
+func (r *RegisterServerSlow) ReadTwo(rq *ReadRequest, rrts Register_ReadTwoServer) error {
+	panic("not implemented")
 }
 
 // ReadExecuted returns when r has has completed a read.
@@ -219,9 +255,14 @@ func (r *RegisterServerBench) WriteAsync(stream Register_WriteAsyncServer) error
 	}
 }
 
-// ReadNoQRPC implements the ReadNoQRPC method from the RegisterServer interface.
-func (r *RegisterServerBench) ReadNoQRPC(ctx context.Context, rq *ReadRequest) (*State, error) {
-	return r.ReadNoQRPC(ctx, rq)
+// ReadNoQC implements the ReadNoQC method from the RegisterServer interface.
+func (r *RegisterServerBench) ReadNoQC(ctx context.Context, rq *ReadRequest) (*State, error) {
+	return r.Read(ctx, rq)
+}
+
+// ReadTwo implements the ReadTwo method from the RegisterServer interface.
+func (r *RegisterServerBench) ReadTwo(rq *ReadRequest, rrts Register_ReadTwoServer) error {
+	panic("not implemented")
 }
 
 // ReadExecuted is a no-op.
@@ -229,3 +270,83 @@ func (r *RegisterServerBench) ReadExecuted() {}
 
 // WriteExecuted is no-op.
 func (r *RegisterServerBench) WriteExecuted() {}
+
+// RegisterServerLockedWithState represents a register server with an initial
+// state that does not reply to any requests before it's unlocked.
+type RegisterServerLockedWithState struct {
+	lock              chan struct{}
+	realServer        *RegisterServerBasic
+	readTwoNumReplies int
+	readTwoLockChan   chan struct{}
+}
+
+// NewRegisterServerLockedWithState returns a new locked register server with an initial state.
+func NewRegisterServerLockedWithState(state *State, readTwoNumReplies int) *RegisterServerLockedWithState {
+	return &RegisterServerLockedWithState{
+		lock:              make(chan struct{}),
+		realServer:        NewRegisterBasicWithState(state),
+		readTwoNumReplies: readTwoNumReplies,
+		readTwoLockChan:   make(chan struct{}, 1),
+	}
+}
+
+func (r *RegisterServerLockedWithState) Read(ctx context.Context, rq *ReadRequest) (*State, error) {
+	<-r.lock
+	return r.realServer.Read(ctx, rq)
+}
+
+func (r *RegisterServerLockedWithState) Write(ctx context.Context, s *State) (*WriteResponse, error) {
+	<-r.lock
+	return r.realServer.Write(ctx, s)
+}
+
+// WriteAsync implements the WriteAsync method from the RegisterServer interface.
+func (r *RegisterServerLockedWithState) WriteAsync(stream Register_WriteAsyncServer) error {
+	<-r.lock
+	return r.realServer.WriteAsync(stream)
+}
+
+// ReadNoQC implements the ReadNoQC method from the RegisterServer interface.
+func (r *RegisterServerLockedWithState) ReadNoQC(ctx context.Context, rq *ReadRequest) (*State, error) {
+	return r.Read(ctx, rq)
+}
+
+// ReadTwo implements the ReadTwo method from the RegisterServer interface.
+func (r *RegisterServerLockedWithState) ReadTwo(rq *ReadRequest, rrts Register_ReadTwoServer) error {
+	<-r.lock
+
+	r.realServer.RLock()
+	state := r.realServer.state
+	r.realServer.RUnlock()
+
+	for i := 0; i < r.readTwoNumReplies; i++ {
+		<-r.readTwoLockChan
+		err := rrts.Send(&state)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ReadExecuted returns when r has has completed a read.
+func (r *RegisterServerLockedWithState) ReadExecuted() {
+	r.realServer.ReadExecuted()
+}
+
+// WriteExecuted returns when r has has completed a write.
+func (r *RegisterServerLockedWithState) WriteExecuted() {
+	r.realServer.WriteExecuted()
+}
+
+// Unlock unlocks the register server.
+func (r *RegisterServerLockedWithState) Unlock() {
+	close(r.lock)
+}
+
+// PerformSingleReadTwo lets the register server send a single reply from a
+// single ReadTwo method handler.
+func (r *RegisterServerLockedWithState) PerformSingleReadTwo() {
+	r.readTwoLockChan <- struct{}{}
+}

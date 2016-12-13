@@ -7,17 +7,20 @@ import (
 	"log"
 	"net"
 	"sort"
+	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/net/trace"
 )
 
 // Manager manages a pool of node configurations on which quorum remote
 // procedure calls can be made.
 type Manager struct {
-	sync.RWMutex
-
-	nodes   map[uint32]*Node
-	configs map[uint32]*Configuration
+	sync.Mutex
+	nodes    map[uint32]*Node
+	configs  map[uint32]*Configuration
+	eventLog trace.EventLog
 
 	closeOnce sync.Once
 	logger    *log.Logger
@@ -67,6 +70,11 @@ func NewManager(nodeAddrs []string, opts ...ManagerOption) (*Manager, error) {
 		)
 	}
 
+	if m.opts.trace {
+		title := strings.Join(nodeAddrs, ",")
+		m.eventLog = trace.NewEventLog("gorums.Manager", title)
+	}
+
 	err = m.connectAll()
 	if err != nil {
 		return nil, ManagerCreationError(err)
@@ -74,6 +82,10 @@ func NewManager(nodeAddrs []string, opts ...ManagerOption) (*Manager, error) {
 
 	if m.opts.logger != nil {
 		m.logger = m.opts.logger
+	}
+
+	if m.eventLog != nil {
+		m.eventLog.Printf("ready")
 	}
 
 	return m, nil
@@ -130,12 +142,20 @@ func (m *Manager) connectAll() error {
 	if m.opts.noConnect {
 		return nil
 	}
+
+	if m.eventLog != nil {
+		m.eventLog.Printf("connecting")
+	}
+
 	for _, node := range m.nodes {
 		if node.self {
 			continue
 		}
 		err := node.connect(m.opts.grpcDialOpts...)
 		if err != nil {
+			if m.eventLog != nil {
+				m.eventLog.Errorf("connect failed, error connecting to node %s, error: %v", node.addr, err)
+			}
 			return fmt.Errorf("connect node %s error: %v", node.addr, err)
 		}
 	}
@@ -160,14 +180,17 @@ func (m *Manager) closeNodeConns() {
 // Close closes all node connections and any client streams.
 func (m *Manager) Close() {
 	m.closeOnce.Do(func() {
+		if m.eventLog != nil {
+			m.eventLog.Printf("closing")
+		}
 		m.closeNodeConns()
 	})
 }
 
 // NodeIDs returns the identifier of each available node.
 func (m *Manager) NodeIDs() []uint32 {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	ids := make([]uint32, 0, len(m.nodes))
 	for id := range m.nodes {
 		ids = append(ids, id)
@@ -178,16 +201,16 @@ func (m *Manager) NodeIDs() []uint32 {
 
 // Node returns the node with the given identifier if present.
 func (m *Manager) Node(id uint32) (node *Node, found bool) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	node, found = m.nodes[id]
 	return node, found
 }
 
 // Nodes returns a slice of each available node.
 func (m *Manager) Nodes(excludeSelf bool) []*Node {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	var nodes []*Node
 	for _, node := range m.nodes {
 		if excludeSelf && node.self {
@@ -202,8 +225,8 @@ func (m *Manager) Nodes(excludeSelf bool) []*Node {
 // ConfigurationIDs returns the identifier of each available
 // configuration.
 func (m *Manager) ConfigurationIDs() []uint32 {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	ids := make([]uint32, 0, len(m.configs))
 	for id := range m.configs {
 		ids = append(ids, id)
@@ -215,16 +238,16 @@ func (m *Manager) ConfigurationIDs() []uint32 {
 // Configuration returns the configuration with the given global
 // identifier if present.
 func (m *Manager) Configuration(id uint32) (config *Configuration, found bool) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	config, found = m.configs[id]
 	return config, found
 }
 
 // Configurations returns a slice of each available configuration.
 func (m *Manager) Configurations() []*Configuration {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	configs := make([]*Configuration, 0, len(m.configs))
 	for _, conf := range m.configs {
 		configs = append(configs, conf)
@@ -234,8 +257,8 @@ func (m *Manager) Configurations() []*Configuration {
 
 // Size returns the number of nodes and configurations in the Manager.
 func (m *Manager) Size() (nodes, configs int) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	return len(m.nodes), len(m.configs)
 }
 
@@ -247,15 +270,12 @@ func (m *Manager) AddNode(addr string) error {
 
 // NewConfiguration returns a new configuration given quorum specification and
 // a timeout.
-func (m *Manager) NewConfiguration(ids []uint32, qspec QuorumSpec, timeout time.Duration) (*Configuration, error) {
+func (m *Manager) NewConfiguration(ids []uint32, qspec QuorumSpec) (*Configuration, error) {
 	m.Lock()
 	defer m.Unlock()
 
 	if len(ids) == 0 {
 		return nil, IllegalConfigError("need at least one node")
-	}
-	if timeout <= 0 {
-		return nil, IllegalConfigError("timeout must be positive")
 	}
 
 	var cnodes []*Node
@@ -276,7 +296,6 @@ func (m *Manager) NewConfiguration(ids []uint32, qspec QuorumSpec, timeout time.
 	OrderedBy(ID).Sort(cnodes)
 
 	h := fnv.New32a()
-	binary.Write(h, binary.LittleEndian, timeout)
 	for _, node := range cnodes {
 		binary.Write(h, binary.LittleEndian, node.id)
 	}
@@ -288,12 +307,11 @@ func (m *Manager) NewConfiguration(ids []uint32, qspec QuorumSpec, timeout time.
 	}
 
 	c := &Configuration{
-		id:      cid,
-		nodes:   cnodes,
-		n:       len(cnodes),
-		mgr:     m,
-		qspec:   qspec,
-		timeout: timeout,
+		id:    cid,
+		nodes: cnodes,
+		n:     len(cnodes),
+		mgr:   m,
+		qspec: qspec,
 	}
 	m.configs[cid] = c
 

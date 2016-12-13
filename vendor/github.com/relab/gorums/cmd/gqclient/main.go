@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -30,6 +33,7 @@ func main() {
 		predefined = flag.String("predef", "", "predefined grids ('2x2' or '3x3') for local testing")
 		printGrid  = flag.Bool("gprid", true, "print quorums to screen")
 		psize      = flag.Int("p", 1024, "payload size in bytes")
+		trace      = flag.Bool("t", false, "enable tracing")
 	)
 
 	flag.Usage = func() {
@@ -70,13 +74,22 @@ func main() {
 
 	fmt.Println("#addrs:", len(addrs), "rows:", rows, "cols:", cols)
 
-	mgr, err := gridq.NewManager(
-		addrs,
+	mgrOpts := []gridq.ManagerOption{
 		gridq.WithGrpcDialOptions(
 			grpc.WithBlock(),
 			grpc.WithInsecure(),
 			grpc.WithTimeout(5*time.Second),
 		),
+	}
+	if *trace {
+		mgrOpts = append(mgrOpts, gridq.WithTracing())
+		go func() {
+			log.Println(http.ListenAndServe(":9090", nil))
+		}()
+	}
+	mgr, err := gridq.NewManager(
+		addrs,
+		mgrOpts...,
 	)
 	if err != nil {
 		dief("error creating manager: %v", err)
@@ -86,7 +99,7 @@ func main() {
 
 	gqspec := gridq.NewGQSort(rows, cols, *printGrid)
 
-	conf, err := mgr.NewConfiguration(ids, gqspec, time.Second)
+	conf, err := mgr.NewConfiguration(ids, gqspec)
 	if err != nil {
 		dief("error creating config: %v", err)
 	}
@@ -98,21 +111,21 @@ func main() {
 		}
 
 		fmt.Println("writing:", state)
-		wreply, err := conf.Write(state)
+		wreply, err := conf.Write(context.Background(), state)
 		if err != nil {
 			fmt.Println("error writing value:", err)
-			os.Exit(2)
+		} else {
+			fmt.Println("write response:", wreply)
 		}
-		fmt.Println("write response:", wreply)
 
 		time.Sleep(2 * time.Second)
 
-		rreply, err := conf.Read(&gridq.Empty{})
+		rreply, err := conf.Read(context.Background(), &gridq.Empty{})
 		if err != nil {
 			fmt.Println("error reading value:", err)
-			os.Exit(2)
+		} else {
+			fmt.Println("read response:", rreply.State)
 		}
-		fmt.Println("read response:", rreply.Reply.State)
 
 		time.Sleep(3 * time.Second)
 	}

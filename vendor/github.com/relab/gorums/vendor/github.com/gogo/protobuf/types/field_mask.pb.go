@@ -249,6 +249,47 @@ func (*FieldMask) Descriptor() ([]byte, []int) { return fileDescriptorFieldMask,
 func init() {
 	proto.RegisterType((*FieldMask)(nil), "google.protobuf.FieldMask")
 }
+func (this *FieldMask) Compare(that interface{}) int {
+	if that == nil {
+		if this == nil {
+			return 0
+		}
+		return 1
+	}
+
+	that1, ok := that.(*FieldMask)
+	if !ok {
+		that2, ok := that.(FieldMask)
+		if ok {
+			that1 = &that2
+		} else {
+			return 1
+		}
+	}
+	if that1 == nil {
+		if this == nil {
+			return 0
+		}
+		return 1
+	} else if this == nil {
+		return -1
+	}
+	if len(this.Paths) != len(that1.Paths) {
+		if len(this.Paths) < len(that1.Paths) {
+			return -1
+		}
+		return 1
+	}
+	for i := range this.Paths {
+		if this.Paths[i] != that1.Paths[i] {
+			if this.Paths[i] < that1.Paths[i] {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
+}
 func (this *FieldMask) Equal(that interface{}) bool {
 	if that == nil {
 		if this == nil {
@@ -320,64 +361,64 @@ func extensionToGoStringFieldMask(m github_com_gogo_protobuf_proto.Message) stri
 	s += strings.Join(ss, ",") + "})"
 	return s
 }
-func (m *FieldMask) Marshal() (data []byte, err error) {
+func (m *FieldMask) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
-	data = make([]byte, size)
-	n, err := m.MarshalTo(data)
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
 	if err != nil {
 		return nil, err
 	}
-	return data[:n], nil
+	return dAtA[:n], nil
 }
 
-func (m *FieldMask) MarshalTo(data []byte) (int, error) {
+func (m *FieldMask) MarshalTo(dAtA []byte) (int, error) {
 	var i int
 	_ = i
 	var l int
 	_ = l
 	if len(m.Paths) > 0 {
 		for _, s := range m.Paths {
-			data[i] = 0xa
+			dAtA[i] = 0xa
 			i++
 			l = len(s)
 			for l >= 1<<7 {
-				data[i] = uint8(uint64(l)&0x7f | 0x80)
+				dAtA[i] = uint8(uint64(l)&0x7f | 0x80)
 				l >>= 7
 				i++
 			}
-			data[i] = uint8(l)
+			dAtA[i] = uint8(l)
 			i++
-			i += copy(data[i:], s)
+			i += copy(dAtA[i:], s)
 		}
 	}
 	return i, nil
 }
 
-func encodeFixed64FieldMask(data []byte, offset int, v uint64) int {
-	data[offset] = uint8(v)
-	data[offset+1] = uint8(v >> 8)
-	data[offset+2] = uint8(v >> 16)
-	data[offset+3] = uint8(v >> 24)
-	data[offset+4] = uint8(v >> 32)
-	data[offset+5] = uint8(v >> 40)
-	data[offset+6] = uint8(v >> 48)
-	data[offset+7] = uint8(v >> 56)
+func encodeFixed64FieldMask(dAtA []byte, offset int, v uint64) int {
+	dAtA[offset] = uint8(v)
+	dAtA[offset+1] = uint8(v >> 8)
+	dAtA[offset+2] = uint8(v >> 16)
+	dAtA[offset+3] = uint8(v >> 24)
+	dAtA[offset+4] = uint8(v >> 32)
+	dAtA[offset+5] = uint8(v >> 40)
+	dAtA[offset+6] = uint8(v >> 48)
+	dAtA[offset+7] = uint8(v >> 56)
 	return offset + 8
 }
-func encodeFixed32FieldMask(data []byte, offset int, v uint32) int {
-	data[offset] = uint8(v)
-	data[offset+1] = uint8(v >> 8)
-	data[offset+2] = uint8(v >> 16)
-	data[offset+3] = uint8(v >> 24)
+func encodeFixed32FieldMask(dAtA []byte, offset int, v uint32) int {
+	dAtA[offset] = uint8(v)
+	dAtA[offset+1] = uint8(v >> 8)
+	dAtA[offset+2] = uint8(v >> 16)
+	dAtA[offset+3] = uint8(v >> 24)
 	return offset + 4
 }
-func encodeVarintFieldMask(data []byte, offset int, v uint64) int {
+func encodeVarintFieldMask(dAtA []byte, offset int, v uint64) int {
 	for v >= 1<<7 {
-		data[offset] = uint8(v&0x7f | 0x80)
+		dAtA[offset] = uint8(v&0x7f | 0x80)
 		v >>= 7
 		offset++
 	}
-	data[offset] = uint8(v)
+	dAtA[offset] = uint8(v)
 	return offset + 1
 }
 func NewPopulatedFieldMask(r randyFieldMask, easy bool) *FieldMask {
@@ -385,7 +426,7 @@ func NewPopulatedFieldMask(r randyFieldMask, easy bool) *FieldMask {
 	v1 := r.Intn(10)
 	this.Paths = make([]string, v1)
 	for i := 0; i < v1; i++ {
-		this.Paths[i] = randStringFieldMask(r)
+		this.Paths[i] = string(randStringFieldMask(r))
 	}
 	if !easy && r.Intn(10) != 0 {
 	}
@@ -418,7 +459,7 @@ func randStringFieldMask(r randyFieldMask) string {
 	}
 	return string(tmps)
 }
-func randUnrecognizedFieldMask(r randyFieldMask, maxFieldNumber int) (data []byte) {
+func randUnrecognizedFieldMask(r randyFieldMask, maxFieldNumber int) (dAtA []byte) {
 	l := r.Intn(5)
 	for i := 0; i < l; i++ {
 		wire := r.Intn(4)
@@ -426,43 +467,43 @@ func randUnrecognizedFieldMask(r randyFieldMask, maxFieldNumber int) (data []byt
 			wire = 5
 		}
 		fieldNumber := maxFieldNumber + r.Intn(100)
-		data = randFieldFieldMask(data, r, fieldNumber, wire)
+		dAtA = randFieldFieldMask(dAtA, r, fieldNumber, wire)
 	}
-	return data
+	return dAtA
 }
-func randFieldFieldMask(data []byte, r randyFieldMask, fieldNumber int, wire int) []byte {
+func randFieldFieldMask(dAtA []byte, r randyFieldMask, fieldNumber int, wire int) []byte {
 	key := uint32(fieldNumber)<<3 | uint32(wire)
 	switch wire {
 	case 0:
-		data = encodeVarintPopulateFieldMask(data, uint64(key))
+		dAtA = encodeVarintPopulateFieldMask(dAtA, uint64(key))
 		v3 := r.Int63()
 		if r.Intn(2) == 0 {
 			v3 *= -1
 		}
-		data = encodeVarintPopulateFieldMask(data, uint64(v3))
+		dAtA = encodeVarintPopulateFieldMask(dAtA, uint64(v3))
 	case 1:
-		data = encodeVarintPopulateFieldMask(data, uint64(key))
-		data = append(data, byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)))
+		dAtA = encodeVarintPopulateFieldMask(dAtA, uint64(key))
+		dAtA = append(dAtA, byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)))
 	case 2:
-		data = encodeVarintPopulateFieldMask(data, uint64(key))
+		dAtA = encodeVarintPopulateFieldMask(dAtA, uint64(key))
 		ll := r.Intn(100)
-		data = encodeVarintPopulateFieldMask(data, uint64(ll))
+		dAtA = encodeVarintPopulateFieldMask(dAtA, uint64(ll))
 		for j := 0; j < ll; j++ {
-			data = append(data, byte(r.Intn(256)))
+			dAtA = append(dAtA, byte(r.Intn(256)))
 		}
 	default:
-		data = encodeVarintPopulateFieldMask(data, uint64(key))
-		data = append(data, byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)))
+		dAtA = encodeVarintPopulateFieldMask(dAtA, uint64(key))
+		dAtA = append(dAtA, byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)))
 	}
-	return data
+	return dAtA
 }
-func encodeVarintPopulateFieldMask(data []byte, v uint64) []byte {
+func encodeVarintPopulateFieldMask(dAtA []byte, v uint64) []byte {
 	for v >= 1<<7 {
-		data = append(data, uint8(uint64(v)&0x7f|0x80))
+		dAtA = append(dAtA, uint8(uint64(v)&0x7f|0x80))
 		v >>= 7
 	}
-	data = append(data, uint8(v))
-	return data
+	dAtA = append(dAtA, uint8(v))
+	return dAtA
 }
 func (m *FieldMask) Size() (n int) {
 	var l int
@@ -507,8 +548,8 @@ func valueToStringFieldMask(v interface{}) string {
 	pv := reflect.Indirect(rv).Interface()
 	return fmt.Sprintf("*%v", pv)
 }
-func (m *FieldMask) Unmarshal(data []byte) error {
-	l := len(data)
+func (m *FieldMask) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
 		preIndex := iNdEx
@@ -520,7 +561,7 @@ func (m *FieldMask) Unmarshal(data []byte) error {
 			if iNdEx >= l {
 				return io.ErrUnexpectedEOF
 			}
-			b := data[iNdEx]
+			b := dAtA[iNdEx]
 			iNdEx++
 			wire |= (uint64(b) & 0x7F) << shift
 			if b < 0x80 {
@@ -548,7 +589,7 @@ func (m *FieldMask) Unmarshal(data []byte) error {
 				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				stringLen |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -563,11 +604,11 @@ func (m *FieldMask) Unmarshal(data []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Paths = append(m.Paths, string(data[iNdEx:postIndex]))
+			m.Paths = append(m.Paths, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
-			skippy, err := skipFieldMask(data[iNdEx:])
+			skippy, err := skipFieldMask(dAtA[iNdEx:])
 			if err != nil {
 				return err
 			}
@@ -586,8 +627,8 @@ func (m *FieldMask) Unmarshal(data []byte) error {
 	}
 	return nil
 }
-func skipFieldMask(data []byte) (n int, err error) {
-	l := len(data)
+func skipFieldMask(dAtA []byte) (n int, err error) {
+	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
 		var wire uint64
@@ -598,7 +639,7 @@ func skipFieldMask(data []byte) (n int, err error) {
 			if iNdEx >= l {
 				return 0, io.ErrUnexpectedEOF
 			}
-			b := data[iNdEx]
+			b := dAtA[iNdEx]
 			iNdEx++
 			wire |= (uint64(b) & 0x7F) << shift
 			if b < 0x80 {
@@ -616,7 +657,7 @@ func skipFieldMask(data []byte) (n int, err error) {
 					return 0, io.ErrUnexpectedEOF
 				}
 				iNdEx++
-				if data[iNdEx-1] < 0x80 {
+				if dAtA[iNdEx-1] < 0x80 {
 					break
 				}
 			}
@@ -633,7 +674,7 @@ func skipFieldMask(data []byte) (n int, err error) {
 				if iNdEx >= l {
 					return 0, io.ErrUnexpectedEOF
 				}
-				b := data[iNdEx]
+				b := dAtA[iNdEx]
 				iNdEx++
 				length |= (int(b) & 0x7F) << shift
 				if b < 0x80 {
@@ -656,7 +697,7 @@ func skipFieldMask(data []byte) (n int, err error) {
 					if iNdEx >= l {
 						return 0, io.ErrUnexpectedEOF
 					}
-					b := data[iNdEx]
+					b := dAtA[iNdEx]
 					iNdEx++
 					innerWire |= (uint64(b) & 0x7F) << shift
 					if b < 0x80 {
@@ -667,7 +708,7 @@ func skipFieldMask(data []byte) (n int, err error) {
 				if innerWireType == 4 {
 					break
 				}
-				next, err := skipFieldMask(data[start:])
+				next, err := skipFieldMask(dAtA[start:])
 				if err != nil {
 					return 0, err
 				}
@@ -694,18 +735,18 @@ var (
 func init() { proto.RegisterFile("field_mask.proto", fileDescriptorFieldMask) }
 
 var fileDescriptorFieldMask = []byte{
-	// 194 bytes of a gzipped FileDescriptorProto
+	// 196 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xe2, 0x12, 0x48, 0xcb, 0x4c, 0xcd,
 	0x49, 0x89, 0xcf, 0x4d, 0x2c, 0xce, 0xd6, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0xe2, 0x4f, 0xcf,
 	0xcf, 0x4f, 0xcf, 0x49, 0x85, 0xf0, 0x92, 0x4a, 0xd3, 0x94, 0x14, 0xb9, 0x38, 0xdd, 0x40, 0x8a,
 	0x7c, 0x13, 0x8b, 0xb3, 0x85, 0x44, 0xb8, 0x58, 0x0b, 0x12, 0x4b, 0x32, 0x8a, 0x25, 0x18, 0x15,
-	0x98, 0x35, 0x38, 0x83, 0x20, 0x1c, 0xa7, 0x16, 0xc6, 0x0b, 0x0f, 0xe5, 0x18, 0x6e, 0x3c, 0x94,
+	0x98, 0x35, 0x38, 0x83, 0x20, 0x1c, 0xa7, 0x0e, 0xc6, 0x0b, 0x0f, 0xe5, 0x18, 0x6e, 0x3c, 0x94,
 	0x63, 0xf8, 0xf0, 0x50, 0x8e, 0xf1, 0xc7, 0x43, 0x39, 0xc6, 0x86, 0x47, 0x72, 0x8c, 0x2b, 0x1e,
 	0xc9, 0x31, 0x9e, 0x78, 0x24, 0xc7, 0x78, 0xe1, 0x91, 0x1c, 0xe3, 0x83, 0x47, 0x72, 0x8c, 0x2f,
-	0x1e, 0xc9, 0x31, 0x7c, 0x78, 0x24, 0xc7, 0xc8, 0x25, 0x9c, 0x9c, 0x9f, 0xab, 0x87, 0x66, 0x8d,
-	0x13, 0x1f, 0xdc, 0x92, 0x00, 0x90, 0x50, 0x00, 0x63, 0x14, 0x6b, 0x49, 0x65, 0x41, 0x6a, 0xf1,
-	0x02, 0x46, 0xc6, 0x45, 0x4c, 0xcc, 0xee, 0x01, 0x4e, 0xab, 0x98, 0xe4, 0xdc, 0x21, 0x7a, 0x02,
-	0xa0, 0x7a, 0xf4, 0xc2, 0x53, 0x73, 0x72, 0xbc, 0xf3, 0xf2, 0xcb, 0xf3, 0x42, 0x40, 0x2a, 0x93,
-	0xd8, 0xc0, 0x86, 0x19, 0x03, 0x02, 0x00, 0x00, 0xff, 0xff, 0xad, 0xd3, 0x2d, 0xcf, 0xd5, 0x00,
-	0x00, 0x00,
+	0x1e, 0xc9, 0x31, 0x7c, 0x00, 0x89, 0x3f, 0x96, 0x63, 0xe4, 0x12, 0x4e, 0xce, 0xcf, 0xd5, 0x43,
+	0xb3, 0xca, 0x89, 0x0f, 0x6e, 0x51, 0x00, 0x48, 0x28, 0x80, 0x31, 0x8a, 0xb5, 0xa4, 0xb2, 0x20,
+	0xb5, 0x78, 0x01, 0x23, 0xe3, 0x22, 0x26, 0x66, 0xf7, 0x00, 0xa7, 0x55, 0x4c, 0x72, 0xee, 0x10,
+	0x3d, 0x01, 0x50, 0x3d, 0x7a, 0xe1, 0xa9, 0x39, 0x39, 0xde, 0x79, 0xf9, 0xe5, 0x79, 0x21, 0x20,
+	0x95, 0x49, 0x6c, 0x60, 0xc3, 0x8c, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0xea, 0xb1, 0x3a, 0xd5,
+	0xd9, 0x00, 0x00, 0x00,
 }

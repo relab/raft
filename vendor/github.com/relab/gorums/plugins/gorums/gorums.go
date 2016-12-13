@@ -130,6 +130,8 @@ func (g *gorums) Generate(file *generator.FileDescriptor) {
 	g.pkgData.PackageName = file.GetPackage()
 	g.pkgData.Clients, g.pkgData.Services = g.generateServiceMethods(file.FileDescriptorProto.Service)
 
+	g.referenceToSuppressErrs()
+
 	g.pkgData.IgnoreImports = true
 	if err := g.processTemplates(); err != nil {
 		die(err)
@@ -141,6 +143,12 @@ func (g *gorums) Generate(file *generator.FileDescriptor) {
 	}
 
 	g.embedStaticResources()
+}
+
+func (g *gorums) referenceToSuppressErrs() {
+	g.P()
+	g.P("//  Reference Gorums specific imports to suppress errors if they are not otherwise used.")
+	g.P("var _ = codes.OK")
 }
 
 func (g *gorums) processTemplates() error {
@@ -204,6 +212,10 @@ func (g *gorums) GenerateImports(file *generator.FileDescriptor) {
 		return
 	}
 
+	if hasMessageWithByteField(file) {
+		ignoreImport["bytes"] = true
+	}
+
 	sort.Strings(staticImports)
 	g.P("import (")
 	for _, simport := range staticImports {
@@ -212,29 +224,32 @@ func (g *gorums) GenerateImports(file *generator.FileDescriptor) {
 		}
 		g.P("\"", simport, "\"")
 	}
-	if !onlyClientStreamMethods(file.FileDescriptorProto.Service) {
-		g.P()
-		g.P("\"google.golang.org/grpc/codes\"")
-	}
+	g.P()
+	g.P("\"golang.org/x/net/trace\"")
+	g.P()
+	g.P("\"google.golang.org/grpc/codes\"")
 	g.P(")")
 }
 
-var ignoreImport = map[string]bool{
-	"fmt":  true,
-	"math": true,
-	"golang.org/x/net/context": true,
-	"google.golang.org/grpc":   true,
-}
-
-func onlyClientStreamMethods(services []*pb.ServiceDescriptorProto) bool {
-	for _, service := range services {
-		for _, method := range service.Method {
-			if !method.GetClientStreaming() {
-				return false
+func hasMessageWithByteField(file *generator.FileDescriptor) bool {
+	for _, msg := range file.Messages() {
+		for _, field := range msg.Field {
+			if field.IsBytes() {
+				return true
 			}
 		}
 	}
-	return true
+	return false
+}
+
+var ignoreImport = map[string]bool{
+	"fmt":                      true,
+	"io":                       true,
+	"math":                     true,
+	"strings":                  true,
+	"golang.org/x/net/context": true,
+	"golang.org/x/net/trace":   true,
+	"google.golang.org/grpc":   true,
 }
 
 func die(err error) {
@@ -264,8 +279,11 @@ type serviceMethod struct {
 	TypeName           string
 	UnexportedTypeName string
 
-	GenFuture bool
-	Multicast bool
+	QuorumCall        bool
+	Correctable       bool
+	CorrectablePrelim bool
+	Future            bool
+	Multicast         bool
 
 	ServName string // Redundant, but keeps it simple.
 }
@@ -296,15 +314,14 @@ func (g *gorums) generateServiceMethods(services []*pb.ServiceDescriptorProto) (
 	for i, service := range services {
 		clients[i] = service.GetName() + "Client"
 		for _, method := range service.Method {
-			skip, err := verify(service.GetName(), method)
-			if skip {
-				continue
-			}
+			sm, err := verifyExtensionsAndCreate(service.GetName(), method)
 			if err != nil {
 				die(err)
 			}
+			if sm == nil {
+				continue
+			}
 
-			sm := serviceMethod{}
 			sm.OrigName = method.GetName()
 			sm.MethodName = generator.CamelCase(sm.OrigName)
 			sm.RPCName = sm.MethodName // sm.MethodName may be overwritten if method name conflict
@@ -317,13 +334,9 @@ func (g *gorums) generateServiceMethods(services []*pb.ServiceDescriptorProto) (
 			if sm.TypeName == sm.RespName {
 				sm.TypeName += "_"
 			}
-			if method.GetClientStreaming() {
-				sm.Multicast = true
-			}
-			sm.GenFuture = hasFutureExtension(method)
 
 			methodsForName, _ := smethods[sm.MethodName]
-			methodsForName = append(methodsForName, &sm)
+			methodsForName = append(methodsForName, sm)
 			smethods[sm.MethodName] = methodsForName
 		}
 	}
@@ -357,35 +370,34 @@ func (g *gorums) generateServiceMethods(services []*pb.ServiceDescriptorProto) (
 	return clients, allRewrittenFlat
 }
 
-func verify(service string, method *pb.MethodDescriptorProto) (skip bool, err error) {
-	qrpc := hasQRPCExtension(method)
-	mcast := hasMcastExtension(method)
-	future := hasFutureExtension(method)
+func verifyExtensionsAndCreate(service string, method *pb.MethodDescriptorProto) (*serviceMethod, error) {
+	sm := &serviceMethod{
+		QuorumCall:        hasQuorumCallExtension(method),
+		Future:            hasFutureExtension(method),
+		Correctable:       hasCorrectableExtension(method),
+		CorrectablePrelim: hasCorrectablePRExtension(method),
+		Multicast:         hasMulticastExtension(method),
+	}
 
 	switch {
-	case !qrpc && !mcast:
-		return true, nil
-	case qrpc && mcast:
-		return false, fmt.Errorf(
-			"%s.%s: illegal combination combination of options: both 'qrcp' and 'broadcast'",
+	case !sm.QuorumCall && !sm.Future && !sm.Correctable && !sm.CorrectablePrelim && !sm.Multicast:
+		return nil, nil
+	case (sm.QuorumCall || sm.Future || sm.Correctable || sm.CorrectablePrelim) && sm.Multicast:
+		return nil, fmt.Errorf(
+			"%s.%s: illegal combination combination of options: both 'qc/qc-future/correctable' and 'broadcast'",
 			service, method.GetName(),
 		)
-	case future && !qrpc:
-		return false, fmt.Errorf(
-			"%s.%s: illegal combination combination of options: 'future' but not 'qrpc'",
-			service, method.GetName(),
-		)
-	case mcast && !method.GetClientStreaming():
-		return false, fmt.Errorf(
+	case sm.Multicast && !method.GetClientStreaming():
+		return nil, fmt.Errorf(
 			"%s.%s: 'broadcast' option only vaild for client-server streams methods",
 			service, method.GetName(),
 		)
-	case method.GetServerStreaming():
-		return false, fmt.Errorf(
-			"%s.%s: server-client streams are not supported by gorums",
+	case method.GetServerStreaming() && !sm.CorrectablePrelim:
+		return nil, fmt.Errorf(
+			"%s.%s: server-client streams only supported for 'correctable' option",
 			service, method.GetName(),
 		)
 	default:
-		return false, nil
+		return sm, nil
 	}
 }

@@ -5,14 +5,18 @@ package gorums
 
 var staticImports = []string{
 	"fmt",
+	"io",
+	"bytes",
+	"golang.org/x/net/trace",
 	"google.golang.org/grpc",
+	"time",
 	"sort",
 	"sync",
+	"strings",
 	"net",
 	"log",
 	"hash/fnv",
 	"encoding/binary",
-	"time",
 }
 
 const staticResources = `
@@ -25,7 +29,6 @@ type Configuration struct {
 	nodes	[]*Node
 	n	int
 	mgr	*Manager
-	timeout	time.Duration
 	qspec	QuorumSpec
 }
 
@@ -51,6 +54,10 @@ func (c *Configuration) Size() int {
 
 func (c *Configuration) String() string {
 	return fmt.Sprintf("configuration %d", c.id)
+}
+
+func (c *Configuration) tstring() string {
+	return fmt.Sprintf("config-%d", c.id)
 }
 
 // Equal returns a boolean reporting whether a and b represents the same
@@ -83,31 +90,6 @@ func (e ConfigNotFoundError) Error() string {
 	return fmt.Sprintf("configuration not found: %d", e)
 }
 
-// An IncompleteRPCError reports that a quorum RPC call failed.
-type IncompleteRPCError struct {
-	ErrCount, ReplyCount int
-}
-
-func (e IncompleteRPCError) Error() string {
-	return fmt.Sprintf(
-		"incomplete rpc (errors: %d, replies: %d)",
-		e.ErrCount, e.ReplyCount,
-	)
-}
-
-// An TimeoutRPCError reports that a quorum RPC call timed out.
-type TimeoutRPCError struct {
-	Waited			time.Duration
-	ErrCount, RepliesCount	int
-}
-
-func (e TimeoutRPCError) Error() string {
-	return fmt.Sprintf(
-		"rpc timed out: waited %v (errors: %d, replies: %d)",
-		e.Waited, e.ErrCount, e.RepliesCount,
-	)
-}
-
 // An IllegalConfigError reports that a specified configuration could not be
 // created.
 type IllegalConfigError string
@@ -122,15 +104,34 @@ func ManagerCreationError(err error) error {
 	return fmt.Errorf("could not create manager: %s", err.Error())
 }
 
+// A QuorumCallError is used to report that a quorum call failed.
+type QuorumCallError struct {
+	Reason			string
+	ErrCount, ReplyCount	int
+}
+
+func (e QuorumCallError) Error() string {
+	return fmt.Sprintf(
+		"quorum call error: %s (errors: %d, replies: %d)",
+		e.Reason, e.ErrCount, e.ReplyCount,
+	)
+}
+
+/* level.go */
+
+// LevelNotSet is the zero value level used to indicate that no level (and
+// thereby no reply) has been set for a correctable quorum call.
+const LevelNotSet = -1
+
 /* mgr.go */
 
 // Manager manages a pool of node configurations on which quorum remote
 // procedure calls can be made.
 type Manager struct {
-	sync.RWMutex
-
-	nodes	map[uint32]*Node
-	configs	map[uint32]*Configuration
+	sync.Mutex
+	nodes		map[uint32]*Node
+	configs		map[uint32]*Configuration
+	eventLog	trace.EventLog
 
 	closeOnce	sync.Once
 	logger		*log.Logger
@@ -180,6 +181,11 @@ func NewManager(nodeAddrs []string, opts ...ManagerOption) (*Manager, error) {
 		)
 	}
 
+	if m.opts.trace {
+		title := strings.Join(nodeAddrs, ",")
+		m.eventLog = trace.NewEventLog("gorums.Manager", title)
+	}
+
 	err = m.connectAll()
 	if err != nil {
 		return nil, ManagerCreationError(err)
@@ -187,6 +193,10 @@ func NewManager(nodeAddrs []string, opts ...ManagerOption) (*Manager, error) {
 
 	if m.opts.logger != nil {
 		m.logger = m.opts.logger
+	}
+
+	if m.eventLog != nil {
+		m.eventLog.Printf("ready")
 	}
 
 	return m, nil
@@ -243,12 +253,20 @@ func (m *Manager) connectAll() error {
 	if m.opts.noConnect {
 		return nil
 	}
+
+	if m.eventLog != nil {
+		m.eventLog.Printf("connecting")
+	}
+
 	for _, node := range m.nodes {
 		if node.self {
 			continue
 		}
 		err := node.connect(m.opts.grpcDialOpts...)
 		if err != nil {
+			if m.eventLog != nil {
+				m.eventLog.Errorf("connect failed, error connecting to node %s, error: %v", node.addr, err)
+			}
 			return fmt.Errorf("connect node %s error: %v", node.addr, err)
 		}
 	}
@@ -273,14 +291,17 @@ func (m *Manager) closeNodeConns() {
 // Close closes all node connections and any client streams.
 func (m *Manager) Close() {
 	m.closeOnce.Do(func() {
+		if m.eventLog != nil {
+			m.eventLog.Printf("closing")
+		}
 		m.closeNodeConns()
 	})
 }
 
 // NodeIDs returns the identifier of each available node.
 func (m *Manager) NodeIDs() []uint32 {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	ids := make([]uint32, 0, len(m.nodes))
 	for id := range m.nodes {
 		ids = append(ids, id)
@@ -291,16 +312,16 @@ func (m *Manager) NodeIDs() []uint32 {
 
 // Node returns the node with the given identifier if present.
 func (m *Manager) Node(id uint32) (node *Node, found bool) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	node, found = m.nodes[id]
 	return node, found
 }
 
 // Nodes returns a slice of each available node.
 func (m *Manager) Nodes(excludeSelf bool) []*Node {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	var nodes []*Node
 	for _, node := range m.nodes {
 		if excludeSelf && node.self {
@@ -315,8 +336,8 @@ func (m *Manager) Nodes(excludeSelf bool) []*Node {
 // ConfigurationIDs returns the identifier of each available
 // configuration.
 func (m *Manager) ConfigurationIDs() []uint32 {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	ids := make([]uint32, 0, len(m.configs))
 	for id := range m.configs {
 		ids = append(ids, id)
@@ -328,16 +349,16 @@ func (m *Manager) ConfigurationIDs() []uint32 {
 // Configuration returns the configuration with the given global
 // identifier if present.
 func (m *Manager) Configuration(id uint32) (config *Configuration, found bool) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	config, found = m.configs[id]
 	return config, found
 }
 
 // Configurations returns a slice of each available configuration.
 func (m *Manager) Configurations() []*Configuration {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	configs := make([]*Configuration, 0, len(m.configs))
 	for _, conf := range m.configs {
 		configs = append(configs, conf)
@@ -347,8 +368,8 @@ func (m *Manager) Configurations() []*Configuration {
 
 // Size returns the number of nodes and configurations in the Manager.
 func (m *Manager) Size() (nodes, configs int) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	return len(m.nodes), len(m.configs)
 }
 
@@ -360,15 +381,12 @@ func (m *Manager) AddNode(addr string) error {
 
 // NewConfiguration returns a new configuration given quorum specification and
 // a timeout.
-func (m *Manager) NewConfiguration(ids []uint32, qspec QuorumSpec, timeout time.Duration) (*Configuration, error) {
+func (m *Manager) NewConfiguration(ids []uint32, qspec QuorumSpec) (*Configuration, error) {
 	m.Lock()
 	defer m.Unlock()
 
 	if len(ids) == 0 {
 		return nil, IllegalConfigError("need at least one node")
-	}
-	if timeout <= 0 {
-		return nil, IllegalConfigError("timeout must be positive")
 	}
 
 	var cnodes []*Node
@@ -389,7 +407,6 @@ func (m *Manager) NewConfiguration(ids []uint32, qspec QuorumSpec, timeout time.
 	OrderedBy(ID).Sort(cnodes)
 
 	h := fnv.New32a()
-	binary.Write(h, binary.LittleEndian, timeout)
 	for _, node := range cnodes {
 		binary.Write(h, binary.LittleEndian, node.id)
 	}
@@ -401,12 +418,11 @@ func (m *Manager) NewConfiguration(ids []uint32, qspec QuorumSpec, timeout time.
 	}
 
 	c := &Configuration{
-		id:		cid,
-		nodes:		cnodes,
-		n:		len(cnodes),
-		mgr:		m,
-		qspec:		qspec,
-		timeout:	timeout,
+		id:	cid,
+		nodes:	cnodes,
+		n:	len(cnodes),
+		mgr:	m,
+		qspec:	qspec,
 	}
 	m.configs[cid] = c
 
@@ -561,6 +577,7 @@ type managerOptions struct {
 	grpcDialOpts	[]grpc.DialOption
 	logger		*log.Logger
 	noConnect	bool
+	trace		bool
 	selfAddr	string
 	selfID		uint32
 }
@@ -611,6 +628,69 @@ func WithSelfID(id uint32) ManagerOption {
 	}
 }
 
+// WithTracing controls whether to trace qourum calls for this Manager instance
+// using the golang.org/x/net/trace package. Tracing is currently only supported
+// for regular quorum calls.
+func WithTracing() ManagerOption {
+	return func(o *managerOptions) {
+		o.trace = true
+	}
+}
+
+/* trace.go */
+
+type traceInfo struct {
+	tr		trace.Trace
+	firstLine	firstLine
+}
+
+type firstLine struct {
+	deadline	time.Duration
+	cid		uint32
+}
+
+func (f *firstLine) String() string {
+	var line bytes.Buffer
+	io.WriteString(&line, "QC: to config")
+	fmt.Fprintf(&line, "%v deadline:", f.cid)
+	if f.deadline != 0 {
+		fmt.Fprint(&line, f.deadline)
+	} else {
+		io.WriteString(&line, "none")
+	}
+	return line.String()
+}
+
+type payload struct {
+	sent	bool
+	id	uint32
+	msg	interface{}
+}
+
+func (p payload) String() string {
+	if p.sent {
+		return fmt.Sprintf("sent: %v", p.msg)
+	}
+	return fmt.Sprintf("recv from %d: %v", p.id, p.msg)
+}
+
+type qcresult struct {
+	ids	[]uint32
+	reply	interface{}
+	err	error
+}
+
+func (q qcresult) String() string {
+	var out bytes.Buffer
+	io.WriteString(&out, "recv QC reply: ")
+	fmt.Fprintf(&out, "ids: %v, ", q.ids)
+	fmt.Fprintf(&out, "reply: %v ", q.reply)
+	if q.err != nil {
+		fmt.Fprintf(&out, ", error: %v", q.err)
+	}
+	return out.String()
+}
+
 /* util.go */
 
 func contains(addr string, addrs []string) (found bool, index int) {
@@ -620,5 +700,14 @@ func contains(addr string, addrs []string) (found bool, index int) {
 		}
 	}
 	return false, -1
+}
+
+func appendIfNotPresent(set []uint32, x uint32) []uint32 {
+	for _, y := range set {
+		if y == x {
+			return set
+		}
+	}
+	return append(set, x)
 }
 `

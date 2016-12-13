@@ -1,19 +1,15 @@
 package dev
 
-import (
-	"fmt"
-	"time"
-)
+import "fmt"
 
 // A Configuration represents a static set of nodes on which quorum remote
 // procedure calls may be invoked.
 type Configuration struct {
-	id      uint32
-	nodes   []*Node
-	n       int
-	mgr     *Manager
-	timeout time.Duration
-	qspec   QuorumSpec
+	id    uint32
+	nodes []*Node
+	n     int
+	mgr   *Manager
+	qspec QuorumSpec
 }
 
 // ID reports the identifier for the configuration.
@@ -38,6 +34,10 @@ func (c *Configuration) Size() int {
 
 func (c *Configuration) String() string {
 	return fmt.Sprintf("configuration %d", c.id)
+}
+
+func (c *Configuration) tstring() string {
+	return fmt.Sprintf("config-%d", c.id)
 }
 
 // Equal returns a boolean reporting whether a and b represents the same
