@@ -103,6 +103,11 @@ func randomTimeout() time.Duration {
 	return time.Duration(ELECTION+rand.Intn(ELECTION*2-ELECTION)) * time.Millisecond
 }
 
+func (r *Replica) save(buffer string) {
+	r.recoverFile.WriteString(buffer)
+	r.recoverFile.Sync()
+}
+
 // Replica represents a Raft server
 type Replica struct {
 	// Must be acquired before mutating Replica state.
@@ -386,8 +391,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 
 		// Write to stable storage
 		// TODO Assumes successful
-		r.recoverFile.WriteString(fmt.Sprintf(STOREVOTEDFOR, r.votedFor))
-		r.recoverFile.Sync()
+		r.save(fmt.Sprintf(STOREVOTEDFOR, r.votedFor))
 
 		// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
 		// Here we are granting a vote to a candidate so we reset the election timeout.
@@ -445,8 +449,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 
 		// Write to stable storage
 		// TODO Assumes successful
-		r.recoverFile.WriteString(buffer.String())
-		r.recoverFile.Sync()
+		r.save(buffer.String())
 
 		if logLevel >= DEBUG {
 			logTo(request.LeaderID, fmt.Sprintf("AppendEntries persisted %d entries to stable storage", len(request.Entries)))
@@ -605,8 +608,7 @@ func (r *Replica) startElection() {
 
 	// Write to stable storage
 	// TODO Assumes successful
-	r.recoverFile.WriteString(buffer.String())
-	r.recoverFile.Sync()
+	r.save(buffer.String())
 
 	if logLevel >= INFO {
 		logLocal(fmt.Sprintf("Starting election for term %d", r.currentTerm))
@@ -705,8 +707,7 @@ LOOP:
 
 	// Write to stable storage
 	// TODO Assumes successful
-	r.recoverFile.WriteString(buffer.String())
-	r.recoverFile.Sync()
+	r.save(buffer.String())
 
 	// #L1
 	for id, node := range r.nodes {
@@ -801,8 +802,7 @@ func (r *Replica) becomeFollower(term uint64) {
 
 		// Write to stable storage
 		// TODO Assumes successful
-		r.recoverFile.WriteString(buffer.String())
-		r.recoverFile.Sync()
+		r.save(buffer.String())
 	}
 
 	r.election.Reset(r.electionTimeout)
