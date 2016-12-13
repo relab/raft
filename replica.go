@@ -183,7 +183,7 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 		Q: n / 2,
 	}
 
-	conf, err := mgr.NewConfiguration(mgr.NodeIDs(), qspec, TCPHEARTBEAT*time.Millisecond)
+	conf, err := mgr.NewConfiguration(mgr.NodeIDs(), qspec)
 
 	if err != nil {
 		return err
@@ -617,10 +617,13 @@ func (r *Replica) startElection() {
 	// #C3 Reset election timer.
 	r.election.Reset(r.electionTimeout)
 
+	ctx, cancel := context.WithTimeout(context.Background(), TCPHEARTBEAT*time.Millisecond)
+
 	// #C4 Send RequestVote RPCs to all other servers.
-	req := r.conf.RequestVoteFuture(&gorums.RequestVoteRequest{CandidateID: r.id, Term: r.currentTerm, LastLogTerm: r.logTerm(len(r.log)), LastLogIndex: uint64(len(r.log))})
+	req := r.conf.RequestVoteFuture(ctx, &gorums.RequestVoteRequest{CandidateID: r.id, Term: r.currentTerm, LastLogTerm: r.logTerm(len(r.log)), LastLogIndex: uint64(len(r.log))})
 
 	go func() {
+		defer cancel()
 		reply, err := req.Get()
 
 		if err != nil {
@@ -629,7 +632,7 @@ func (r *Replica) startElection() {
 			return
 		}
 
-		r.handleRequestVoteResponse(reply.Reply)
+		r.handleRequestVoteResponse(reply.RequestVoteResponse)
 	}()
 
 	// Election is now started. Election will be continued in handleRequestVote when a response from Gorums is received.
