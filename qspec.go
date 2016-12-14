@@ -40,15 +40,12 @@ func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse
 	numSuccess := 0
 	response := &gorums.AppendEntriesResponse{}
 
-	var term uint64
-	var matchIndex uint64
-
 	for _, reply := range replies {
-		if reply.MatchIndex < matchIndex || matchIndex == 0 {
+		if reply.MatchIndex < response.MatchIndex || response.MatchIndex == 0 {
 			response.MatchIndex = reply.MatchIndex
 		}
 
-		if reply.Term > term || term == 0 {
+		if reply.Term > response.Term || response.Term == 0 {
 			response.Term = reply.Term
 		}
 
