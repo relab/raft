@@ -48,7 +48,7 @@ func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse
 			response.MatchIndex = reply.MatchIndex
 		}
 
-		if reply.Term < term || term == 0 {
+		if reply.Term > term || term == 0 {
 			response.Term = reply.Term
 		}
 
