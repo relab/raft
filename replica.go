@@ -163,7 +163,7 @@ func (r *Replica) logTerm(index int) uint64 {
 
 // Init initializes a Replica.
 // This must always be run before Run.
-func (r *Replica) Init(this string, nodes []string, recover bool) error {
+func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum bool) error {
 	defer r.Unlock()
 
 	mgr, err := gorums.NewManager(nodes,
@@ -179,9 +179,16 @@ func (r *Replica) Init(this string, nodes []string, recover bool) error {
 
 	n := len(nodes) + 1
 
+	sq := n / 2
+
+	if slowQuorum {
+		sq = n - 1
+	}
+
 	qspec := &QuorumSpec{
-		N: n,
-		Q: n / 2,
+		N:  n,
+		SQ: sq,
+		FQ: n / 2,
 	}
 
 	conf, err := mgr.NewConfiguration(mgr.NodeIDs(), qspec)

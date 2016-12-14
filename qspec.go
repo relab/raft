@@ -5,8 +5,9 @@ import "github.com/relab/raft/proto/gorums"
 // QuorumSpec holds information about the quorum size of the current configuration
 // and allows us to invoke QRPCs.
 type QuorumSpec struct {
-	N int
-	Q int
+	N  int
+	SQ int
+	FQ int
 }
 
 // RequestVoteQF gathers RequestVoteResponses
@@ -26,7 +27,7 @@ func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*
 			votes++
 		}
 
-		if votes >= qspec.Q {
+		if votes >= qspec.SQ {
 			response.VoteGranted = true
 			return response, true
 		}
@@ -54,7 +55,7 @@ func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse
 			response.FollowerID = append(response.FollowerID, reply.FollowerID[0])
 		}
 
-		if numSuccess >= qspec.N-1 {
+		if numSuccess >= qspec.SQ {
 			reply.FollowerID = response.FollowerID
 
 			return reply, true
@@ -62,7 +63,7 @@ func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse
 	}
 
 	// If some replicas are down, we still want the cluster to function.
-	response.Success = numSuccess >= qspec.Q && len(replies) == numSuccess
+	response.Success = numSuccess >= qspec.FQ && len(replies) == numSuccess
 
-	return response, false
+	return response, len(replies) == qspec.N-1
 }
