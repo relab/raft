@@ -54,17 +54,15 @@ func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse
 			response.FollowerID = append(response.FollowerID, reply.FollowerID[0])
 		}
 
-		if numSuccess >= qspec.Q {
+		if numSuccess >= qspec.N-1 {
 			reply.FollowerID = response.FollowerID
 
 			return reply, true
 		}
 	}
 
-	response.Success = false
-	// FollowerID is now irrelevant.
-	// Set to nil as accessing it is a bug.
-	response.FollowerID = nil
+	// If some replicas are down, we still want the cluster to function.
+	response.Success = numSuccess >= qspec.Q && len(replies) == numSuccess
 
 	return response, false
 }
