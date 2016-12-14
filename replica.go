@@ -146,6 +146,8 @@ type Replica struct {
 	commands map[uniqueCommand]*gorums.ClientCommandRequest
 
 	queue chan *gorums.Entry
+
+	batch bool
 }
 
 type uniqueCommand struct {
@@ -163,8 +165,10 @@ func (r *Replica) logTerm(index int) uint64 {
 
 // Init initializes a Replica.
 // This must always be run before Run.
-func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum bool) error {
+func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum bool, batch bool) error {
 	defer r.Unlock()
+
+	r.batch = batch
 
 	mgr, err := gorums.NewManager(nodes,
 		gorums.WithGrpcDialOptions(
@@ -479,6 +483,10 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 // See Raft paper § 8 and the Raft PhD dissertation chapter 6.
 func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientCommandRequest) (*gorums.ClientCommandResponse, error) {
 	if response, isLeader := r.logCommand(request); isLeader {
+		if !r.batch {
+			r.sendAppendEntries()
+		}
+
 		select {
 		// Wait on committed entry.
 		case entry := <-response:
@@ -735,7 +743,13 @@ LOOP:
 	}
 
 	if len(r.log) > nextIndex {
-		entries = r.log[nextIndex:int(min(uint64(nextIndex+MAXENTRIES), uint64(len(r.log))))]
+		maxEntries := int(min(uint64(nextIndex+MAXENTRIES), uint64(len(r.log))))
+
+		if !r.batch {
+			maxEntries = nextIndex + 1
+		}
+
+		entries = r.log[nextIndex:maxEntries]
 	}
 
 	if logLevel >= DEBUG {

@@ -24,6 +24,7 @@ var bench = flag.Bool("quiet", false, "Silence log output")
 var recover = flag.Bool("recover", false, "Recover from stable storage")
 var cpuprofile = flag.String("cpuprofile", "", "Write cpu profile to file")
 var slowQuorum = flag.Bool("slowquorum", false, "set quorum size to the number of servers")
+var batch = flag.Bool("batch", true, "enable batching")
 var nodes raft.Nodes
 
 func main() {
@@ -83,7 +84,7 @@ func main() {
 	// Wait for the server to start
 	<-time.After(500 * time.Millisecond)
 
-	if err := rs.Init(*this, nodes, *recover, *slowQuorum); err != nil {
+	if err := rs.Init(*this, nodes, *recover, *slowQuorum, *batch); err != nil {
 		log.Fatal(err)
 	}
 
