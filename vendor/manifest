@@ -208,6 +208,14 @@
 			"notests": true
 		},
 		{
+			"importpath": "github.com/codahale/hdrhistogram",
+			"repository": "https://github.com/codahale/hdrhistogram",
+			"vcs": "git",
+			"revision": "3a0bb77429bd3a61596f5e8a3172445844342120",
+			"branch": "master",
+			"notests": true
+		},
+		{
 			"importpath": "github.com/davecgh/go-spew/spew",
 			"repository": "https://github.com/davecgh/go-spew",
 			"vcs": "git",
@@ -493,6 +501,14 @@
 			"repository": "https://github.com/streadway/amqp",
 			"vcs": "git",
 			"revision": "cb4fb930736ebd61a54da180a6aa4e92b206ff13",
+			"branch": "master",
+			"notests": true
+		},
+		{
+			"importpath": "github.com/tylertreat/bench",
+			"repository": "https://github.com/tylertreat/bench",
+			"vcs": "git",
+			"revision": "3456b313d396bc1b687dc08a92b710e260d02636",
 			"branch": "master",
 			"notests": true
 		},
