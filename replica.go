@@ -108,7 +108,7 @@ func (r *Replica) save(buffer string) {
 	r.recoverFile.Sync()
 }
 
-// Replica represents a Raft server
+// Replica represents a Raft server.
 type Replica struct {
 	// Must be acquired before mutating Replica state.
 	sync.Mutex
@@ -148,6 +148,10 @@ type Replica struct {
 	queue chan *gorums.Entry
 
 	batch bool
+	qrpc  bool
+
+	sendAppendEntries           func()
+	handleAppendEntriesResponse func(*gorums.AppendEntriesResponse)
 }
 
 type uniqueCommand struct {
@@ -165,10 +169,18 @@ func (r *Replica) logTerm(index int) uint64 {
 
 // Init initializes a Replica.
 // This must always be run before Run.
-func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum bool, batch bool) error {
+func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum bool, batch bool, qrpc bool) error {
 	defer r.Unlock()
 
 	r.batch = batch
+
+	if qrpc {
+		r.sendAppendEntries = r.sendAppendEntriesQRPC
+		r.handleAppendEntriesResponse = r.handleAppendEntriesResponseQRPC
+	} else {
+		r.sendAppendEntries = r.sendAppendEntriesNoQRPC
+		r.handleAppendEntriesResponse = r.handleAppendEntriesResponseNoQRPC
+	}
 
 	mgr, err := gorums.NewManager(nodes,
 		gorums.WithGrpcDialOptions(
@@ -702,7 +714,7 @@ func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse
 	// This will happened if we don't receive enough replies in time. Or we lose the election but don't see a higher term number.
 }
 
-func (r *Replica) sendAppendEntries() {
+func (r *Replica) sendAppendEntriesQRPC() {
 	r.Lock()
 	defer r.Unlock()
 
@@ -786,7 +798,79 @@ LOOP:
 	r.heartbeat.Reset(r.heartbeatTimeout)
 }
 
-func (r *Replica) handleAppendEntriesResponse(response *gorums.AppendEntriesResponse) {
+func (r *Replica) sendAppendEntriesNoQRPC() {
+	r.Lock()
+	defer r.Unlock()
+
+	if logLevel >= DEBUG {
+		logLocal(fmt.Sprintf("Sending AppendEntries for term %d", r.currentTerm))
+	}
+
+	var buffer bytes.Buffer
+
+LOOP:
+	for i := MAXENTRIES; i > 0; i-- {
+		select {
+		case entry := <-r.queue:
+			r.log = append(r.log, entry)
+
+			buffer.WriteString(fmt.Sprintf(STORECOMMAND, r.currentTerm, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
+		default:
+			break LOOP
+		}
+	}
+
+	// Write to stable storage
+	// TODO Assumes successful
+	r.save(buffer.String())
+
+	// #L1
+	for id, node := range r.nodes {
+		entries := []*gorums.Entry{}
+
+		nextIndex := r.nextIndex[id] - 1
+
+		if len(r.log) > nextIndex {
+			maxEntries := int(min(uint64(nextIndex+MAXENTRIES), uint64(len(r.log))))
+
+			if !r.batch {
+				maxEntries = nextIndex + 1
+			}
+
+			entries = r.log[nextIndex:maxEntries]
+		}
+
+		if logLevel >= DEBUG {
+			logTo(id, fmt.Sprintf("Sending %d entries", len(entries)))
+		}
+
+		req := &gorums.AppendEntriesRequest{
+			LeaderID:     r.id,
+			Term:         r.currentTerm,
+			PrevLogIndex: uint64(nextIndex),
+			PrevLogTerm:  r.logTerm(nextIndex),
+			CommitIndex:  r.commitIndex,
+			Entries:      entries,
+		}
+
+		go func(node *gorums.Node, req *gorums.AppendEntriesRequest) {
+			ctx, cancel := context.WithTimeout(context.Background(), TCPHEARTBEAT*time.Millisecond)
+			defer cancel()
+
+			resp, err := node.RaftClient.AppendEntries(ctx, req)
+
+			if err != nil {
+				logTo(node.ID(), fmt.Sprintf("AppendEntries failed = %v", err))
+
+				return
+			}
+			r.handleAppendEntriesResponse(resp)
+		}(node, req)
+	}
+
+	r.heartbeat.Reset(r.heartbeatTimeout)
+}
+func (r *Replica) handleAppendEntriesResponseQRPC(response *gorums.AppendEntriesResponse) {
 	r.Lock()
 	defer func() {
 		r.Unlock()
@@ -819,6 +903,37 @@ func (r *Replica) handleAppendEntriesResponse(response *gorums.AppendEntriesResp
 		for id := range r.nodes {
 			r.nextIndex[id] = int(response.MatchIndex)
 		}
+	}
+}
+
+func (r *Replica) handleAppendEntriesResponseNoQRPC(response *gorums.AppendEntriesResponse) {
+	r.Lock()
+	defer func() {
+		r.Unlock()
+		r.advanceCommitIndex()
+	}()
+
+	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
+	if response.Term > r.currentTerm {
+		r.becomeFollower(response.Term)
+
+		return
+	}
+
+	// Ignore late response
+	if response.Term < r.currentTerm {
+		return
+	}
+
+	if r.state == LEADER {
+		if response.Success {
+			r.matchIndex[response.FollowerID[0]] = int(response.MatchIndex)
+			r.nextIndex[response.FollowerID[0]] = r.matchIndex[response.FollowerID[0]] + 1
+
+			return
+		}
+
+		r.nextIndex[response.FollowerID[0]] = int(max(1, response.MatchIndex))
 	}
 }
 
