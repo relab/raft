@@ -7,20 +7,29 @@
   The other servers in the cluster is given through multiple =-add= arguments, one for each server.
   If you want a server to recover from stable storage pass the =-recover= argument.
   The =-quiet= argument will silence all log output.
+  Setting =-batch= to false will limit the number entries per message to 1, and new entries will be tried committed immediately.
+  =-qrpc= enables the use of a quorum function for AppendEntries.
+  When =-qrpc= is enabled only the fastest followers will stay up-to-date, to force all servers to replicate an entry before committing, one can set =-slowquorum=.
 
 *** Usage
 #+BEGIN_EXAMPLE
 Usage of replica:
   -add value
     	Remote server address, repeat argument for each server in the cluster
+  -batch
+    	enable batching (default true)
   -cpuprofile string
     	Write cpu profile to file
   -listen string
     	Local server address
+  -qrpc
+    	enable QRPC
   -quiet
     	Silence log output
   -recover
     	Recover from stable storage
+  -slowquorum
+    	set quorum size to the number of servers
 #+END_EXAMPLE
 
 *** Example
