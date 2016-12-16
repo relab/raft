@@ -21,7 +21,7 @@ var seq chan uint64
 var leader = flag.String("leader", "", "Leader server address")
 var clients = flag.Int("clients", 1, "Number of clients")
 var rate = flag.Int("rate", 40, "How often each client sends a request in microseconds")
-var timeout = flag.Int("time", 30, "How long to measure in seconds\n\ttime/2 seconds will be spent to saturate the cluster")
+var timeout = flag.Duration("time", time.Second*30, "How long to measure in `seconds`\n\ttime/2 seconds will be spent to saturate the cluster")
 
 func main() {
 	flag.Parse()
@@ -32,7 +32,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	t := time.Duration(*timeout) * time.Second
+	t := *timeout
 
 	counter = make(chan interface{})
 	seq = make(chan uint64)
