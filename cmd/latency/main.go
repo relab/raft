@@ -35,7 +35,7 @@ const t = 10 * time.Second
 var output = flag.String("output", "client.txt", "What to use as the base for the output filenames")
 var clients = flag.Int("clients", 15, "Number of clients")
 var rate = flag.Int("rate", 15, "How many requests each client sends per second")
-var timeout = flag.Int("time", 30, "How long to measure in seconds")
+var timeout = flag.Duration("time", time.Second*30, "How long to measure in `seconds`")
 var nodes raft.Nodes
 
 // ManagerWithLeader is a *gorums.Manager containing information about which replica is currently the leader.
@@ -213,7 +213,7 @@ func main() {
 		done:        done,
 	}
 
-	benchmark := bench.NewBenchmark(r, uint64(*rate)*uint64(*clients), uint64(*clients), time.Duration(*timeout)*time.Second)
+	benchmark := bench.NewBenchmark(r, uint64(*rate)*uint64(*clients), uint64(*clients), *timeout)
 	summary, err := benchmark.Run()
 
 	if err != nil {
