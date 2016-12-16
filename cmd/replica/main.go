@@ -12,6 +12,7 @@ import (
 	"runtime/pprof"
 	"time"
 
+	"github.com/relab/gorums/idutil"
 	"github.com/relab/raft"
 	"github.com/relab/raft/proto/gorums"
 	"github.com/relab/raft/rlog"
@@ -58,6 +59,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	rid, err := idutil.IDFromAddress(*this)
+	if err != nil {
+		diep("id generation", err)
+	}
+
 	var logger rlog.Logger
 
 	if *quiet {
@@ -65,6 +71,11 @@ func main() {
 		logSink := log.New(ioutil.Discard, "", log.LstdFlags)
 		grpclog.SetLogger(logSink)
 		grpc.EnableTracing = false
+	} else {
+		logger = rlog.NewStdLibLogger(
+			rid,
+			log.New(os.Stderr, "", log.LstdFlags),
+		)
 	}
 
 	rs := &raft.Replica{}
@@ -106,5 +117,10 @@ func main() {
 
 func die(err error) {
 	fmt.Print(err)
+	os.Exit(1)
+}
+
+func diep(prefix string, err error) {
+	fmt.Printf("%s: %v", prefix, err)
 	os.Exit(1)
 }

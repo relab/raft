@@ -16,7 +16,6 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
-	"github.com/relab/gorums/idutil"
 	"github.com/relab/raft/proto/gorums"
 	"github.com/relab/raft/rlog"
 )
@@ -167,8 +166,10 @@ func (r *Replica) logTerm(index int) uint64 {
 
 // Init initializes a Replica.
 // This must always be run before Run.
-func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum bool, batch bool, qrpc bool, logger rlog.Logger) error {
+func (r *Replica) Init(id uint32, nodes []string, recover bool, slowQuorum bool, batch bool, qrpc bool, logger rlog.Logger) error {
 	defer r.Unlock()
+
+	r.id = id
 
 	r.logger = logger
 
@@ -214,12 +215,6 @@ func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum boo
 	}
 
 	r.conf = conf
-
-	r.id, err = idutil.IDFromAddress(this)
-
-	if err != nil {
-		return err
-	}
 
 	r.nodes = make(map[uint32]*gorums.Node, n-1)
 
