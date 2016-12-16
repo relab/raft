@@ -59,7 +59,6 @@ func main() {
 		silentLogger := log.New(ioutil.Discard, "", log.LstdFlags)
 		grpclog.SetLogger(silentLogger)
 		grpc.EnableTracing = false
-		rand.Seed(42)
 	}
 
 	rs := &raft.Replica{}
