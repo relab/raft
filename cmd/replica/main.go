@@ -14,18 +14,22 @@ import (
 
 	"github.com/relab/raft"
 	"github.com/relab/raft/proto/gorums"
+	"github.com/relab/raft/rlog"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
 )
 
-var this = flag.String("listen", "", "Local server address")
-var bench = flag.Bool("quiet", false, "Silence log output")
-var recover = flag.Bool("recover", false, "Recover from stable storage")
-var cpuprofile = flag.String("cpuprofile", "", "Write cpu profile to file")
-var slowQuorum = flag.Bool("slowquorum", false, "set quorum size to the number of servers")
-var batch = flag.Bool("batch", true, "enable batching")
-var qrpc = flag.Bool("qrpc", false, "enable QRPC")
+var (
+	this       = flag.String("listen", "", "Local server address")
+	quiet      = flag.Bool("quiet", false, "Silence log output")
+	recover    = flag.Bool("recover", false, "Recover from stable storage")
+	cpuprofile = flag.String("cpuprofile", "", "Write cpu profile to file")
+	slowQuorum = flag.Bool("slowquorum", false, "set quorum size to the number of servers")
+	batch      = flag.Bool("batch", true, "enable batching")
+	qrpc       = flag.Bool("qrpc", false, "enable QRPC")
+)
+
 var nodes raft.Nodes
 
 func main() {
@@ -37,7 +41,7 @@ func main() {
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
 		if err != nil {
-			log.Fatal(err)
+			die(err)
 		}
 		pprof.StartCPUProfile(f)
 	}
@@ -54,10 +58,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *bench {
-		log.SetOutput(ioutil.Discard)
-		silentLogger := log.New(ioutil.Discard, "", log.LstdFlags)
-		grpclog.SetLogger(silentLogger)
+	var logger rlog.Logger
+
+	if *quiet {
+		logger = rlog.NewSilentLogger()
+		logSink := log.New(ioutil.Discard, "", log.LstdFlags)
+		grpclog.SetLogger(logSink)
 		grpc.EnableTracing = false
 	}
 
@@ -68,24 +74,22 @@ func main() {
 	gorums.RegisterRaftServer(s, rs)
 
 	l, err := net.Listen("tcp", *this)
-
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 
 	go func() {
 		err := s.Serve(l)
-
 		if err != nil {
-			log.Println(err)
+			fmt.Print(err)
 		}
 	}()
 
 	// Wait for the server to start
 	<-time.After(500 * time.Millisecond)
 
-	if err := rs.Init(*this, nodes, *recover, *slowQuorum, *batch, *qrpc); err != nil {
-		log.Fatal(err)
+	if err := rs.Init(*this, nodes, *recover, *slowQuorum, *batch, *qrpc, logger); err != nil {
+		die(err)
 	}
 
 	if *cpuprofile != "" {
@@ -98,4 +102,9 @@ func main() {
 	} else {
 		rs.Run()
 	}
+}
+
+func die(err error) {
+	fmt.Print(err)
+	os.Exit(1)
 }
