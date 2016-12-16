@@ -78,8 +78,8 @@ var qspecs = []struct {
 	spec gorums.QuorumSpec
 }{
 	{
-		"QuorumSpec N3 Q2",
-		&raft.QuorumSpec{N: 3, Q: 2},
+		"QuorumSpec N3 SQ2",
+		&raft.QuorumSpec{N: 3, SQ: 2},
 	},
 }
 
