@@ -27,7 +27,7 @@ func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*
 			votes++
 		}
 
-		if votes >= qspec.SQ {
+		if votes >= qspec.FQ {
 			response.VoteGranted = true
 			return response, true
 		}
