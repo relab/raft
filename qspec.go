@@ -40,15 +40,17 @@ func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*
 // and calculates the log entries replicated, depending on the quorum configuration.
 func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse) (*gorums.AppendEntriesResponse, bool) {
 	numSuccess := 0
-	response := &gorums.AppendEntriesResponse{}
+	response := &gorums.AppendEntriesResponse{Term: replies[0].RequestTerm}
 
 	for _, reply := range replies {
 		if reply.MatchIndex < response.MatchIndex || response.MatchIndex == 0 {
 			response.MatchIndex = reply.MatchIndex
 		}
 
-		if reply.Term > response.Term || response.Term == 0 {
+		if reply.Term > response.Term {
 			response.Term = reply.Term
+
+			return response, true
 		}
 
 		if reply.Success {
