@@ -10,6 +10,7 @@
   Setting =-batch= to false will limit the number entries per message to 1, and new entries will be tried committed immediately.
   =-qrpc= enables the use of a quorum function for AppendEntries.
   When =-qrpc= is enabled only the fastest followers will stay up-to-date, to force all servers to replicate an entry before committing, one can set =-slowquorum=.
+  Without =-qrpc= enabled =replica= is limited to exactly 3 servers.
 
 *** Usage
 #+BEGIN_EXAMPLE

@@ -54,6 +54,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	if !*qrpc && len(nodes) != 2 {
+		fmt.Print("only 3 nodes is supported with QRPC enabled\n\n")
+		flag.Usage()
+		os.Exit(1)
+	}
+
 	if *bench {
 		log.SetOutput(ioutil.Discard)
 		silentLogger := log.New(ioutil.Discard, "", log.LstdFlags)
