@@ -870,6 +870,7 @@ LOOP:
 
 	r.heartbeat.Reset(r.heartbeatTimeout)
 }
+
 func (r *Replica) handleAppendEntriesResponseQRPC(response *gorums.AppendEntriesResponse) {
 	r.Lock()
 	defer func() {
