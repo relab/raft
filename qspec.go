@@ -36,7 +36,8 @@ func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*
 	return response, false
 }
 
-// TODO GoDoc
+// AppendEntriesQF gathers AppendEntriesResponses
+// and calculates the log entries replicated, depending on the quorum configuration.
 func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse) (*gorums.AppendEntriesResponse, bool) {
 	numSuccess := 0
 	response := &gorums.AppendEntriesResponse{}
