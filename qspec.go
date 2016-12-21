@@ -33,7 +33,7 @@ func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*
 		}
 	}
 
-	return response, false
+	return nil, false
 }
 
 // AppendEntriesQF gathers AppendEntriesResponses
@@ -65,8 +65,23 @@ func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse
 		}
 	}
 
-	// If some replicas are down, we still want the cluster to function.
-	response.Success = numSuccess >= qspec.FQ && len(replies) == numSuccess
+	// Majority quorum.
+	quorum := numSuccess >= qspec.FQ
 
-	return response, len(replies) == qspec.N-1
+	// If we have a majority and all the replicas that responded were successful.
+	if quorum && len(replies) == numSuccess {
+		response.Success = true
+	} else {
+		// This is not needed but makes it clear that FollowerID should not when AppendEntries fail.
+		response.FollowerID = nil
+	}
+
+	// If all replicas have responded.
+	if len(replies) == qspec.N-1 {
+		return response, true
+	}
+
+	// Wait for more replies but leave the response in the case of a timeout.
+	// We do this so that the cluster can proceed even if some replicas are down.
+	return response, false
 }
