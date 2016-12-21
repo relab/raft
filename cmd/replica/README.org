@@ -1,4 +1,4 @@
-* Raft Consensus using Gorums
+* Raft Consensus with Gorums
 
 ** Replica
 

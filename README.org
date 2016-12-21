@@ -1,4 +1,4 @@
-* Raft Consensus using Gorums
+* Raft Consensus with Gorums
 
 This repository contains an implementation of the [[https://raft.github.io/raft.pdf][Raft Consensus Algorithm]] using the [[https://github.com/relab/gorums][Gorums framework]].
 
