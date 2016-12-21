@@ -72,7 +72,8 @@ func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse
 	if quorum && len(replies) == numSuccess {
 		response.Success = true
 	} else {
-		// This is not needed but makes it clear that FollowerID should not when AppendEntries fail.
+		// This is not needed but makes it clear that FollowerID should
+		// not be used when AppendEntries fail.
 		response.FollowerID = nil
 	}
 
