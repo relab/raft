@@ -25,7 +25,7 @@ var requestVoteQFTests = []struct {
 	reply   *gorums.RequestVoteResponse
 }{
 	{
-		"do not grant vote, len(replies) = q",
+		"do not grant vote",
 		[]*gorums.RequestVoteResponse{
 			{Term: 2, RequestTerm: 2, VoteGranted: false},
 		},
@@ -33,39 +33,20 @@ var requestVoteQFTests = []struct {
 		nil,
 	},
 	{
-		"grant vote, len(replies) = q",
+		"grant vote",
 		[]*gorums.RequestVoteResponse{
 			{Term: 3, RequestTerm: 3, VoteGranted: true},
 		},
 		true,
-		&gorums.RequestVoteResponse{Term: 3, VoteGranted: true},
+		&gorums.RequestVoteResponse{Term: 3, RequestTerm: 3, VoteGranted: true},
 	},
 	{
-		"grant vote, len(replies) = n",
+		"reply higher term",
 		[]*gorums.RequestVoteResponse{
-			{Term: 4, RequestTerm: 4, VoteGranted: true},
-			{Term: 4, RequestTerm: 4, VoteGranted: true},
-		},
-		true,
-		&gorums.RequestVoteResponse{Term: 4, VoteGranted: true},
-	},
-	{
-		"last reply higher term, len(replies) = n",
-		[]*gorums.RequestVoteResponse{
-			{Term: 3, RequestTerm: 3, VoteGranted: true},
 			{Term: 4, RequestTerm: 3, VoteGranted: false},
 		},
 		true,
-		&gorums.RequestVoteResponse{Term: 3, VoteGranted: true},
-	},
-	{
-		"first reply high term, len(replies) = n",
-		[]*gorums.RequestVoteResponse{
-			{Term: 4, RequestTerm: 3, VoteGranted: false},
-			{Term: 3, RequestTerm: 3, VoteGranted: true},
-		},
-		true,
-		&gorums.RequestVoteResponse{Term: 4, VoteGranted: false},
+		&gorums.RequestVoteResponse{Term: 4, RequestTerm: 3, VoteGranted: false},
 	},
 }
 
@@ -86,7 +67,8 @@ var appendEntriesCommonQFTests = []struct {
 		},
 		true,
 		&gorums.AppendEntriesResponse{
-			Term: 6,
+			RequestTerm: 5,
+			Term:        6,
 		},
 	},
 	{
@@ -102,9 +84,10 @@ var appendEntriesCommonQFTests = []struct {
 		},
 		false,
 		&gorums.AppendEntriesResponse{
-			Term:       5,
-			MatchIndex: 50,
-			Success:    false,
+			RequestTerm: 5,
+			Term:        5,
+			MatchIndex:  50,
+			Success:     false,
 		},
 	},
 	{
@@ -125,11 +108,12 @@ var appendEntriesCommonQFTests = []struct {
 				Success:     false,
 			},
 		},
-		true,
+		false,
 		&gorums.AppendEntriesResponse{
-			Term:       5,
-			MatchIndex: 100,
-			Success:    false,
+			RequestTerm: 5,
+			Term:        5,
+			MatchIndex:  100,
+			Success:     false,
 		},
 	},
 	{
@@ -150,11 +134,12 @@ var appendEntriesCommonQFTests = []struct {
 				Success:     false,
 			},
 		},
-		true,
+		false,
 		&gorums.AppendEntriesResponse{
-			Term:       5,
-			MatchIndex: 50,
-			Success:    false,
+			RequestTerm: 5,
+			Term:        5,
+			MatchIndex:  50,
+			Success:     false,
 		},
 	},
 }
@@ -167,17 +152,10 @@ var appendEntriesFastQFTests = []struct {
 }{
 	// Stops after successful quorum, ignoring the last response.
 	{
-		"two successful same MatchIndex",
+		"quorum successful",
 		[]*gorums.AppendEntriesResponse{
 			{
 				FollowerID:  []uint32{10},
-				RequestTerm: 5,
-				Term:        5,
-				MatchIndex:  100,
-				Success:     true,
-			},
-			{
-				FollowerID:  []uint32{20},
 				RequestTerm: 5,
 				Term:        5,
 				MatchIndex:  100,
@@ -279,11 +257,12 @@ var appendEntriesSlowQFTests = []struct {
 				Success:     false,
 			},
 		},
-		true,
+		false,
 		&gorums.AppendEntriesResponse{
-			Term:       5,
-			MatchIndex: 50,
-			Success:    false,
+			RequestTerm: 5,
+			Term:        5,
+			MatchIndex:  50,
+			Success:     false,
 		},
 	},
 }
@@ -293,7 +272,7 @@ var qspecs = []struct {
 	spec gorums.QuorumSpec
 }{
 	{
-		"QuorumSpec N3 FQ2",
+		"QuorumSpec N3 FQ1",
 		&raft.QuorumSpec{N: 3, FQ: 1},
 	},
 	{

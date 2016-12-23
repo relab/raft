@@ -14,23 +14,23 @@ type QuorumSpec struct {
 // and delivers a reply when a higher term is seen or a quorum of votes is received.
 func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*gorums.RequestVoteResponse, bool) {
 	votes := 0
-	response := &gorums.RequestVoteResponse{Term: replies[0].RequestTerm}
+	response := *replies[len(replies)-1]
+
+	if response.Term > response.RequestTerm {
+		return &response, true
+	}
 
 	for _, reply := range replies {
-		if reply.Term > response.Term {
-			response.Term = reply.Term
-
-			return response, true
-		}
-
 		if reply.VoteGranted {
 			votes++
 		}
 
-		if votes >= qspec.FQ {
-			response.VoteGranted = true
-			return response, true
-		}
+	}
+
+	if votes >= qspec.FQ {
+		response.VoteGranted = true
+
+		return &response, true
 	}
 
 	return nil, false
@@ -40,29 +40,32 @@ func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*
 // and calculates the log entries replicated, depending on the quorum configuration.
 func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse) (*gorums.AppendEntriesResponse, bool) {
 	numSuccess := 0
-	response := &gorums.AppendEntriesResponse{Term: replies[0].RequestTerm}
+	maxMatchIndex := uint64(0)
+	response := *replies[len(replies)-1]
+	response.Success = false
+	response.FollowerID = nil
+
+	if response.Term > response.RequestTerm {
+		return &response, true
+	}
 
 	for _, reply := range replies {
-		if reply.MatchIndex < response.MatchIndex || response.MatchIndex == 0 {
+		if reply.MatchIndex < response.MatchIndex {
 			response.MatchIndex = reply.MatchIndex
 		}
 
-		if reply.Term > response.Term {
-			response.Term = reply.Term
-
-			return response, true
-		}
-
 		if reply.Success {
+			maxMatchIndex = reply.MatchIndex
 			numSuccess++
 			response.FollowerID = append(response.FollowerID, reply.FollowerID[0])
 		}
+	}
 
-		if numSuccess >= qspec.SQ {
-			reply.FollowerID = response.FollowerID
+	if numSuccess >= qspec.SQ {
+		response.MatchIndex = maxMatchIndex
+		response.Success = true
 
-			return reply, true
-		}
+		return &response, true
 	}
 
 	// Majority quorum.
@@ -77,12 +80,7 @@ func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse
 		response.FollowerID = nil
 	}
 
-	// If all replicas have responded.
-	if len(replies) == qspec.N-1 {
-		return response, true
-	}
-
 	// Wait for more replies but leave the response in the case of a timeout.
 	// We do this so that the cluster can proceed even if some replicas are down.
-	return response, false
+	return &response, false
 }

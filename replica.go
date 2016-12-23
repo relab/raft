@@ -440,7 +440,12 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 
 	// #AE1 Reply false if term < currentTerm.
 	if request.Term < r.currentTerm {
-		return &gorums.AppendEntriesResponse{FollowerID: []uint32{r.id}, Success: false, Term: r.currentTerm}, nil
+		return &gorums.AppendEntriesResponse{
+			FollowerID:  []uint32{r.id},
+			Success:     false,
+			Term:        request.Term,
+			RequestTerm: request.Term,
+		}, nil
 	}
 
 	success := request.PrevLogIndex == 0 || (request.PrevLogIndex-1 < uint64(len(r.log)) && r.log[request.PrevLogIndex-1].Term == request.PrevLogTerm)
@@ -488,7 +493,13 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 		}
 	}
 
-	return &gorums.AppendEntriesResponse{FollowerID: []uint32{r.id}, Term: r.currentTerm, MatchIndex: uint64(len(r.log)), Success: success}, nil
+	return &gorums.AppendEntriesResponse{
+		FollowerID:  []uint32{r.id},
+		Term:        request.Term,
+		MatchIndex:  uint64(len(r.log)),
+		Success:     success,
+		RequestTerm: request.Term,
+	}, nil
 }
 
 // ClientCommand is invoked by a client to commit a command.
