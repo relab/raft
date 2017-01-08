@@ -482,10 +482,10 @@
 		},
 		{
 			"importpath": "github.com/relab/gorums",
-			"repository": "https://github.com/relab/gorums",
+			"repository": "https://github.com/relab/gorums-dev",
 			"vcs": "git",
-			"revision": "2cdbe23f2c7dca985a3a12181879f7bb8cc50904",
-			"branch": "HEAD",
+			"revision": "3bfc81f9d25ad9aca65a2195647bc2592fd6380e",
+			"branch": "master",
 			"notests": true
 		},
 		{
