@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"runtime/pprof"
+	"strings"
 	"time"
 
 	"github.com/relab/raft"
@@ -19,19 +20,17 @@ import (
 	"google.golang.org/grpc/grpclog"
 )
 
-var this = flag.String("listen", "", "Local server address")
+var id = flag.Uint64("id", 0, "server ID")
+var cluster = flag.String("cluster", ":9201", "comma separated cluster servers")
 var bench = flag.Bool("quiet", false, "Silence log output")
 var recover = flag.Bool("recover", false, "Recover from stable storage")
 var cpuprofile = flag.String("cpuprofile", "", "Write cpu profile to file")
 var slowQuorum = flag.Bool("slowquorum", false, "set quorum size to the number of servers")
 var batch = flag.Bool("batch", true, "enable batching")
 var qrpc = flag.Bool("qrpc", false, "enable QRPC")
-var nodes raft.Nodes
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
-
-	flag.Var(&nodes, "add", "Remote server address, repeat argument for each server in the cluster")
 	flag.Parse()
 
 	if *cpuprofile != "" {
@@ -42,19 +41,21 @@ func main() {
 		pprof.StartCPUProfile(f)
 	}
 
-	if len(*this) == 0 {
-		fmt.Print("-listen argument is required\n\n")
+	if *id == 0 {
+		fmt.Print("-id argument is required\n\n")
 		flag.Usage()
 		os.Exit(1)
 	}
+
+	nodes := strings.Split(*cluster, ",")
 
 	if len(nodes) == 0 {
-		fmt.Print("-add argument is required\n\n")
+		fmt.Print("-cluster argument is required\n\n")
 		flag.Usage()
 		os.Exit(1)
 	}
 
-	if !*qrpc && len(nodes) != 2 {
+	if !*qrpc && len(nodes) != 3 {
 		fmt.Print("only 3 nodes is supported with QRPC enabled\n\n")
 		flag.Usage()
 		os.Exit(1)
@@ -73,7 +74,7 @@ func main() {
 	s := grpc.NewServer()
 	pb.RegisterRaftServer(s, rs)
 
-	l, err := net.Listen("tcp", *this)
+	l, err := net.Listen("tcp", nodes[*id-1])
 
 	if err != nil {
 		log.Fatal(err)
@@ -90,7 +91,7 @@ func main() {
 	// Wait for the server to start
 	<-time.After(500 * time.Millisecond)
 
-	if err := rs.Init(*this, nodes, *recover, *slowQuorum, *batch, *qrpc); err != nil {
+	if err := rs.Init(*id, nodes, *recover, *slowQuorum, *batch, *qrpc); err != nil {
 		log.Fatal(err)
 	}
 

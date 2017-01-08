@@ -1,4 +1,4 @@
-package raft
+package main
 
 import "strings"
 

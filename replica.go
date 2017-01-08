@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"math/rand"
+	"net"
 	"os"
 	"sort"
 	"strconv"
@@ -17,7 +19,6 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
-	"github.com/relab/gorums/idutil"
 	pb "github.com/relab/raft/raftpb"
 )
 
@@ -95,9 +96,37 @@ func max(a, b uint64) uint64 {
 	return b
 }
 
+func lookupTables(raftOrder []string, nodeOrder []uint32) (map[uint32]uint64, map[uint64]uint32, error) {
+	h := fnv.New32a()
+
+	raftID := make(map[uint32]uint64)
+	nodeID := make(map[uint64]uint32)
+
+	for _, id := range nodeOrder {
+		raftID[id] = 0
+	}
+
+	for rid, addr := range raftOrder {
+		tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
+
+		if err != nil {
+			return nil, nil, err
+		}
+
+		_, _ = h.Write([]byte(tcpAddr.String()))
+		nid := h.Sum32()
+		h.Reset()
+
+		raftID[nid] = uint64(rid + 1)
+		nodeID[uint64(rid+1)] = nid
+	}
+
+	return raftID, nodeID, nil
+}
+
 var logLocal func(string)
-var logFrom func(uint32, string)
-var logTo func(uint32, string)
+var logFrom func(uint64, string)
+var logTo func(uint64, string)
 
 func randomTimeout() time.Duration {
 	return time.Duration(ELECTION+rand.Intn(ELECTION*2-ELECTION)) * time.Millisecond
@@ -113,9 +142,9 @@ type Replica struct {
 	// Must be acquired before mutating Replica state.
 	sync.Mutex
 
-	id       uint32
-	leader   uint32
-	votedFor uint32
+	id       uint64
+	leader   uint64
+	votedFor uint64
 
 	seenLeader bool
 
@@ -123,7 +152,10 @@ type Replica struct {
 
 	conf *pb.Configuration
 
-	nodes map[uint32]*pb.Node
+	nodes map[uint64]*pb.Node
+
+	raftID map[uint32]uint64
+	nodeID map[uint64]uint32
 
 	currentTerm uint64
 
@@ -131,8 +163,8 @@ type Replica struct {
 
 	commitIndex uint64
 
-	nextIndex  map[uint32]int
-	matchIndex map[uint32]int
+	nextIndex  map[uint64]int
+	matchIndex map[uint64]int
 
 	electionTimeout  time.Duration
 	heartbeatTimeout time.Duration
@@ -169,9 +201,10 @@ func (r *Replica) logTerm(index int) uint64 {
 
 // Init initializes a Replica.
 // This must always be run before Run.
-func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum bool, batch bool, qrpc bool) error {
+func (r *Replica) Init(id uint64, nodes []string, recover bool, slowQuorum bool, batch bool, qrpc bool) error {
 	defer r.Unlock()
 
+	r.id = id
 	r.batch = batch
 
 	if qrpc {
@@ -188,6 +221,12 @@ func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum boo
 			grpc.WithBackoffMaxDelay(time.Second),
 			grpc.WithInsecure(),
 			grpc.WithTimeout(TCPCONNECT*time.Millisecond)))
+
+	if err != nil {
+		return err
+	}
+
+	r.raftID, r.nodeID, err = lookupTables(nodes, mgr.NodeIDs())
 
 	if err != nil {
 		return err
@@ -215,18 +254,12 @@ func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum boo
 
 	r.conf = conf
 
-	r.id, err = idutil.IDFromAddress(this)
-
-	if err != nil {
-		return err
-	}
-
 	r.setupLogging()
 
-	r.nodes = make(map[uint32]*pb.Node, n-1)
+	r.nodes = make(map[uint64]*pb.Node, n-1)
 
 	for _, node := range mgr.Nodes(false) {
-		r.nodes[node.ID()] = node
+		r.nodes[r.raftID[node.ID()]] = node
 	}
 
 	r.electionTimeout = randomTimeout()
@@ -242,8 +275,8 @@ func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum boo
 
 	r.votedFor = NONE
 
-	r.nextIndex = make(map[uint32]int, n-1)
-	r.matchIndex = make(map[uint32]int, n-1)
+	r.nextIndex = make(map[uint64]int, n-1)
+	r.matchIndex = make(map[uint64]int, n-1)
 
 	for id := range r.nodes {
 		// Initialized to leader last log index + 1.
@@ -270,11 +303,11 @@ func (r *Replica) setupLogging() {
 		log.Printf("%d: %s", r.id, message)
 	}
 
-	logFrom = func(from uint32, message string) {
+	logFrom = func(from uint64, message string) {
 		log.Printf("%d <- %d: %s", r.id, from, message)
 	}
 
-	logTo = func(to uint32, message string) {
+	logTo = func(to uint64, message string) {
 		log.Printf("%d -> %d: %s", r.id, to, message)
 	}
 }
@@ -313,7 +346,7 @@ func (r *Replica) recoverFromStable(recover bool) error {
 					return err
 				}
 
-				r.votedFor = uint32(votedFor)
+				r.votedFor = uint64(votedFor)
 			default:
 				var entry pb.Entry
 
@@ -441,7 +474,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 	// #AE1 Reply false if term < currentTerm.
 	if request.Term < r.currentTerm {
 		return &pb.AppendEntriesResponse{
-			FollowerID: []uint32{r.id},
+			FollowerID: []uint64{r.id},
 			Success:    false,
 			Term:       request.Term,
 		}, nil
@@ -493,7 +526,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 	}
 
 	return &pb.AppendEntriesResponse{
-		FollowerID: []uint32{r.id},
+		FollowerID: []uint64{r.id},
 		Term:       request.Term,
 		MatchIndex: uint64(len(r.log)),
 		Success:    success,
@@ -534,10 +567,10 @@ func (r *Replica) logCommand(request *pb.ClientCommandRequest) (<-chan *pb.Clien
 			request.ClientID = rand.Uint32()
 
 			if logLevel >= INFO {
-				logFrom(request.ClientID, fmt.Sprintf("Client request = %s", request.Command))
+				logFrom(uint64(request.ClientID), fmt.Sprintf("Client request = %s", request.Command))
 			}
 		} else if logLevel >= TRACE {
-			logFrom(request.ClientID, fmt.Sprintf("Client request = %s", request.Command))
+			logFrom(uint64(request.ClientID), fmt.Sprintf("Client request = %s", request.Command))
 		}
 
 		commandID := uniqueCommand{clientID: request.ClientID, sequenceNumber: request.SequenceNumber}
@@ -569,7 +602,7 @@ func (r *Replica) getHint() uint32 {
 	var hint uint32
 
 	if r.seenLeader {
-		hint = r.leader
+		hint = uint32(r.leader)
 	}
 
 	// If client receives hint = 0, it should try another random server.
@@ -869,7 +902,7 @@ LOOP:
 			resp, err := node.RaftClient.AppendEntries(ctx, req)
 
 			if err != nil {
-				logTo(node.ID(), fmt.Sprintf("AppendEntries failed = %v", err))
+				logTo(r.raftID[node.ID()], fmt.Sprintf("AppendEntries failed = %v", err))
 
 				return
 			}

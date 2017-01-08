@@ -15,7 +15,6 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/relab/raft"
 	"github.com/relab/raft/raftpb"
 )
 
@@ -36,7 +35,7 @@ var output = flag.String("output", "client.txt", "What to use as the base for th
 var clients = flag.Int("clients", 15, "Number of clients")
 var rate = flag.Int("rate", 15, "How many requests each client sends per second")
 var timeout = flag.Duration("time", time.Second*30, "How long to measure in `seconds`")
-var nodes raft.Nodes
+var nodes Nodes
 
 // ManagerWithLeader is a *raftpb.Manager containing information about which replica is currently the leader.
 type ManagerWithLeader struct {

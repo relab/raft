@@ -25,7 +25,7 @@ message Entry {
 }
 
 message RequestVoteRequest {
-  uint32 candidateID = 1;
+  uint64 candidateID = 1;
 
   uint64 term = 2;
   uint64 lastLogIndex = 3;
@@ -39,7 +39,7 @@ message RequestVoteResponse {
 }
 
 message AppendEntriesRequest {
-  uint32 leaderID = 1;
+  uint64 leaderID = 1;
 
   uint64 term = 2;
   uint64 prevLogIndex = 3;
@@ -50,7 +50,7 @@ message AppendEntriesRequest {
 }
 
 message AppendEntriesResponse {
-  repeated uint32 followerID = 1;
+  repeated uint64 followerID = 1;
 
   uint64 term = 3;
   uint64 matchIndex = 4;

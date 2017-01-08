@@ -68,7 +68,7 @@ var appendEntriesCommonQFTests = []AETestCase{
 		&pb.AppendEntriesRequest{Term: 5},
 		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID: []uint32{10},
+				FollowerID: []uint64{10},
 				Term:       6,
 			},
 		},
@@ -82,7 +82,7 @@ var appendEntriesCommonQFTests = []AETestCase{
 		&pb.AppendEntriesRequest{Term: 5},
 		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID: []uint32{10},
+				FollowerID: []uint64{10},
 				Term:       5,
 				MatchIndex: 50,
 				Success:    false,
@@ -100,13 +100,13 @@ var appendEntriesCommonQFTests = []AETestCase{
 		&pb.AppendEntriesRequest{Term: 5},
 		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID: []uint32{10},
+				FollowerID: []uint64{10},
 				Term:       5,
 				MatchIndex: 100,
 				Success:    false,
 			},
 			{
-				FollowerID: []uint32{20},
+				FollowerID: []uint64{20},
 				Term:       5,
 				MatchIndex: 100,
 				Success:    false,
@@ -124,13 +124,13 @@ var appendEntriesCommonQFTests = []AETestCase{
 		&pb.AppendEntriesRequest{Term: 5},
 		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID: []uint32{10},
+				FollowerID: []uint64{10},
 				Term:       5,
 				MatchIndex: 50,
 				Success:    false,
 			},
 			{
-				FollowerID: []uint32{20},
+				FollowerID: []uint64{20},
 				Term:       5,
 				MatchIndex: 100,
 				Success:    false,
@@ -152,7 +152,7 @@ var appendEntriesFastQFTests = []AETestCase{
 		&pb.AppendEntriesRequest{Term: 5},
 		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID: []uint32{10},
+				FollowerID: []uint64{10},
 				Term:       5,
 				MatchIndex: 100,
 				Success:    true,
@@ -160,7 +160,7 @@ var appendEntriesFastQFTests = []AETestCase{
 		},
 		true,
 		&pb.AppendEntriesResponse{
-			FollowerID: []uint32{10},
+			FollowerID: []uint64{10},
 			Term:       5,
 			MatchIndex: 100,
 			Success:    true,
@@ -174,13 +174,13 @@ var appendEntriesFastQFTests = []AETestCase{
 		&pb.AppendEntriesRequest{Term: 5},
 		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID: []uint32{10},
+				FollowerID: []uint64{10},
 				Term:       5,
 				MatchIndex: 100,
 				Success:    true,
 			},
 			{
-				FollowerID: []uint32{20},
+				FollowerID: []uint64{20},
 				Term:       5,
 				MatchIndex: 50,
 				Success:    false,
@@ -188,7 +188,7 @@ var appendEntriesFastQFTests = []AETestCase{
 		},
 		true,
 		&pb.AppendEntriesResponse{
-			FollowerID: []uint32{10},
+			FollowerID: []uint64{10},
 			Term:       5,
 			MatchIndex: 100,
 			Success:    true,
@@ -203,13 +203,13 @@ var appendEntriesSlowQFTests = []AETestCase{
 		&pb.AppendEntriesRequest{Term: 5},
 		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID: []uint32{10},
+				FollowerID: []uint64{10},
 				Term:       5,
 				MatchIndex: 100,
 				Success:    true,
 			},
 			{
-				FollowerID: []uint32{20},
+				FollowerID: []uint64{20},
 				Term:       5,
 				MatchIndex: 100,
 				Success:    true,
@@ -217,7 +217,7 @@ var appendEntriesSlowQFTests = []AETestCase{
 		},
 		true,
 		&pb.AppendEntriesResponse{
-			FollowerID: []uint32{10, 20},
+			FollowerID: []uint64{10, 20},
 			Term:       5,
 			MatchIndex: 100,
 			Success:    true,
@@ -230,13 +230,13 @@ var appendEntriesSlowQFTests = []AETestCase{
 		&pb.AppendEntriesRequest{Term: 5},
 		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID: []uint32{10},
+				FollowerID: []uint64{10},
 				Term:       5,
 				MatchIndex: 100,
 				Success:    true,
 			},
 			{
-				FollowerID: []uint32{20},
+				FollowerID: []uint64{20},
 				Term:       5,
 				MatchIndex: 50,
 				Success:    false,
