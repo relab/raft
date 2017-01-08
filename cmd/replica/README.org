@@ -2,9 +2,9 @@
 
 ** Replica
 
-  =replica= starts a raft server listening on the ip:port provided through the =-listen= argument.
+  =replica= starts a raft server listening on the ip:port found in position =-id= of the =-cluster= argument, starting at 1.
   You need to start more than one raft server to form a operational raft cluster.
-  The other servers in the cluster is given through multiple =-add= arguments, one for each server.
+  All servers in the cluster is specified with the =-cluster= argument as a comma separated list of addresses.
   If you want a server to recover from stable storage pass the =-recover= argument.
   The =-quiet= argument will silence all log output.
   Setting =-batch= to false will limit the number entries per message to 1, and new entries will be tried committed immediately.
@@ -14,15 +14,15 @@
 
 *** Usage
 #+BEGIN_EXAMPLE
-Usage of replica:
-  -add value
-    	Remote server address, repeat argument for each server in the cluster
+Usage of ./replica:
   -batch
     	enable batching (default true)
+  -cluster string
+    	comma separated cluster servers (default ":9201")
   -cpuprofile string
     	Write cpu profile to file
-  -listen string
-    	Local server address
+  -id uint
+    	server ID
   -qrpc
     	enable QRPC
   -quiet
@@ -37,13 +37,13 @@ Usage of replica:
 **** Separate machines
 #+BEGIN_SRC shell
 # Computer with IP1.
-replica -listen IP1:9200 -add IP2:9200 -add IP3:9200
+replica -id 1 -cluster IP1:9200,IP2:9200,IP3:9200
 
 # Computer with IP2.
-replica -listen IP2:9200 -add IP1:9200 -add IP3:9200
+replica -id 2 -cluster IP1:9200,IP2:9200,IP3:9200
 
 # Computer with IP3.
-replica -listen IP3:9200 -add IP2:9200 -add IP1:9200
+replica -id 3 -cluster IP1:9200,IP2:9200,IP3:9200
 
 # Computer(s) with client(s).
 ## Do something, i.e, run latency/throughput.
@@ -53,9 +53,9 @@ replica -listen IP3:9200 -add IP2:9200 -add IP1:9200
 You can omit the ip to listen on localhost.
 
 #+BEGIN_SRC shell
-replica -listen :9201 -add :9202 -add :9203 &
-replica -listen :9202 -add :9201 -add :9203 &
-replica -listen :9203 -add :9202 -add :9201 &
+replica -id 1 -cluster :9201,:9202,:9203 &
+replica -id 2 -cluster :9201,:9202,:9203 &
+replica -id 3 -cluster :9201,:9202,:9203 &
 
 ## Do something (preferably in another shell, unless you add -quiet), i.e, run latency/throughput.
 ## Stop cluster when you are done.
