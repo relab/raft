@@ -16,7 +16,7 @@ func (qspec *QuorumSpec) RequestVoteQF(req *gorums.RequestVoteRequest, replies [
 	votes := 0
 	response := *replies[len(replies)-1]
 
-	if response.Term > response.RequestTerm {
+	if response.Term > req.Term {
 		return &response, true
 	}
 
@@ -45,7 +45,7 @@ func (qspec *QuorumSpec) AppendEntriesQF(req *gorums.AppendEntriesRequest, repli
 	response.Success = false
 	response.FollowerID = nil
 
-	if response.Term > response.RequestTerm {
+	if response.Term > req.Term {
 		return &response, true
 	}
 

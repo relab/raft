@@ -34,7 +34,6 @@ message RequestVoteRequest {
 
 message RequestVoteResponse {
   uint64 term = 1;
-  uint64 requestTerm = 2;
 
   bool voteGranted = 3;
 }
@@ -53,7 +52,6 @@ message AppendEntriesRequest {
 message AppendEntriesResponse {
   repeated uint32 followerID = 1;
 
-  uint64 requestTerm = 2;
   uint64 term = 3;
   uint64 matchIndex = 4;
 

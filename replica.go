@@ -395,7 +395,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 
 	// #RV1 Reply false if term < currentTerm.
 	if request.Term < r.currentTerm {
-		return &gorums.RequestVoteResponse{Term: r.currentTerm, RequestTerm: request.Term}, nil
+		return &gorums.RequestVoteResponse{Term: r.currentTerm}, nil
 	}
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
@@ -421,11 +421,11 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 		// Here we are granting a vote to a candidate so we reset the election timeout.
 		r.election.Reset(r.electionTimeout)
 
-		return &gorums.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm, RequestTerm: request.Term}, nil
+		return &gorums.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm}, nil
 	}
 
 	// #RV2 The candidate's log was not up-to-date
-	return &gorums.RequestVoteResponse{Term: r.currentTerm, RequestTerm: request.Term}, nil
+	return &gorums.RequestVoteResponse{Term: r.currentTerm}, nil
 }
 
 // AppendEntries invoked by leader to replicate log entries, also used as a heartbeat.
@@ -441,10 +441,9 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 	// #AE1 Reply false if term < currentTerm.
 	if request.Term < r.currentTerm {
 		return &gorums.AppendEntriesResponse{
-			FollowerID:  []uint32{r.id},
-			Success:     false,
-			Term:        request.Term,
-			RequestTerm: request.Term,
+			FollowerID: []uint32{r.id},
+			Success:    false,
+			Term:       request.Term,
 		}, nil
 	}
 
@@ -494,11 +493,10 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 	}
 
 	return &gorums.AppendEntriesResponse{
-		FollowerID:  []uint32{r.id},
-		Term:        request.Term,
-		MatchIndex:  uint64(len(r.log)),
-		Success:     success,
-		RequestTerm: request.Term,
+		FollowerID: []uint32{r.id},
+		Term:       request.Term,
+		MatchIndex: uint64(len(r.log)),
+		Success:    success,
 	}, nil
 }
 
