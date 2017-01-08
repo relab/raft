@@ -6,11 +6,13 @@ package gorums;
 
 service Raft {
   rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse) {
-    option (gorums.qc_future) = true;
+    option (gorums.qc_future) 	= true;
+    option (gorums.qf_with_req) = true;
   }
 
   rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse) {
     option (gorums.qc) = true;
+    option (gorums.qf_with_req) = true;
   }
 
   rpc ClientCommand(ClientCommandRequest) returns (ClientCommandResponse);

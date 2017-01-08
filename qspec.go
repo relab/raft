@@ -12,7 +12,7 @@ type QuorumSpec struct {
 
 // RequestVoteQF gathers RequestVoteResponses
 // and delivers a reply when a higher term is seen or a quorum of votes is received.
-func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*gorums.RequestVoteResponse, bool) {
+func (qspec *QuorumSpec) RequestVoteQF(req *gorums.RequestVoteRequest, replies []*gorums.RequestVoteResponse) (*gorums.RequestVoteResponse, bool) {
 	votes := 0
 	response := *replies[len(replies)-1]
 
@@ -38,7 +38,7 @@ func (qspec *QuorumSpec) RequestVoteQF(replies []*gorums.RequestVoteResponse) (*
 
 // AppendEntriesQF gathers AppendEntriesResponses
 // and calculates the log entries replicated, depending on the quorum configuration.
-func (qspec *QuorumSpec) AppendEntriesQF(replies []*gorums.AppendEntriesResponse) (*gorums.AppendEntriesResponse, bool) {
+func (qspec *QuorumSpec) AppendEntriesQF(req *gorums.AppendEntriesRequest, replies []*gorums.AppendEntriesResponse) (*gorums.AppendEntriesResponse, bool) {
 	numSuccess := 0
 	maxMatchIndex := uint64(0)
 	response := *replies[len(replies)-1]
