@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/relab/raft"
-	"github.com/relab/raft/proto/gorums"
+	pb "github.com/relab/raft/raftpb"
 )
 
 /*
@@ -20,155 +20,150 @@ received.
 
 var requestVoteQFTests = []struct {
 	name    string
-	replies []*gorums.RequestVoteResponse
+	request *pb.RequestVoteRequest
+	replies []*pb.RequestVoteResponse
 	quorum  bool
-	reply   *gorums.RequestVoteResponse
+	reply   *pb.RequestVoteResponse
 }{
 	{
 		"do not grant vote",
-		[]*gorums.RequestVoteResponse{
-			{Term: 2, RequestTerm: 2, VoteGranted: false},
+		&pb.RequestVoteRequest{Term: 2},
+		[]*pb.RequestVoteResponse{
+			{Term: 2, VoteGranted: false},
 		},
 		false,
 		nil,
 	},
 	{
 		"grant vote",
-		[]*gorums.RequestVoteResponse{
-			{Term: 3, RequestTerm: 3, VoteGranted: true},
+		&pb.RequestVoteRequest{Term: 3},
+		[]*pb.RequestVoteResponse{
+			{Term: 3, VoteGranted: true},
 		},
 		true,
-		&gorums.RequestVoteResponse{Term: 3, RequestTerm: 3, VoteGranted: true},
+		&pb.RequestVoteResponse{Term: 3, VoteGranted: true},
 	},
 	{
-		"reply higher term",
-		[]*gorums.RequestVoteResponse{
-			{Term: 4, RequestTerm: 3, VoteGranted: false},
+		"reply with higher Term",
+		&pb.RequestVoteRequest{Term: 3},
+		[]*pb.RequestVoteResponse{
+			{Term: 4, VoteGranted: false},
 		},
 		true,
-		&gorums.RequestVoteResponse{Term: 4, RequestTerm: 3, VoteGranted: false},
+		&pb.RequestVoteResponse{Term: 4, VoteGranted: false},
 	},
 }
 
-var appendEntriesCommonQFTests = []struct {
+type AETestCase struct {
 	name    string
-	replies []*gorums.AppendEntriesResponse
+	request *pb.AppendEntriesRequest
+	replies []*pb.AppendEntriesResponse
 	quorum  bool
-	reply   *gorums.AppendEntriesResponse
-}{
+	reply   *pb.AppendEntriesResponse
+}
+
+var appendEntriesCommonQFTests = []AETestCase{
 	{
 		"reply with higher Term",
-		[]*gorums.AppendEntriesResponse{
+		&pb.AppendEntriesRequest{Term: 5},
+		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID:  []uint32{10},
-				RequestTerm: 5,
-				Term:        6,
+				FollowerID: []uint32{10},
+				Term:       6,
 			},
 		},
 		true,
-		&gorums.AppendEntriesResponse{
-			RequestTerm: 5,
-			Term:        6,
+		&pb.AppendEntriesResponse{
+			Term: 6,
 		},
 	},
 	{
 		"one unsuccessful MatchIndex",
-		[]*gorums.AppendEntriesResponse{
+		&pb.AppendEntriesRequest{Term: 5},
+		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID:  []uint32{10},
-				RequestTerm: 5,
-				Term:        5,
-				MatchIndex:  50,
-				Success:     false,
+				FollowerID: []uint32{10},
+				Term:       5,
+				MatchIndex: 50,
+				Success:    false,
 			},
 		},
 		false,
-		&gorums.AppendEntriesResponse{
-			RequestTerm: 5,
-			Term:        5,
-			MatchIndex:  50,
-			Success:     false,
+		&pb.AppendEntriesResponse{
+			Term:       5,
+			MatchIndex: 50,
+			Success:    false,
 		},
 	},
 	{
 		"two unsuccessful same MatchIndex",
-		[]*gorums.AppendEntriesResponse{
+		&pb.AppendEntriesRequest{Term: 5},
+		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID:  []uint32{10},
-				RequestTerm: 5,
-				Term:        5,
-				MatchIndex:  100,
-				Success:     false,
+				FollowerID: []uint32{10},
+				Term:       5,
+				MatchIndex: 100,
+				Success:    false,
 			},
 			{
-				FollowerID:  []uint32{20},
-				RequestTerm: 5,
-				Term:        5,
-				MatchIndex:  100,
-				Success:     false,
+				FollowerID: []uint32{20},
+				Term:       5,
+				MatchIndex: 100,
+				Success:    false,
 			},
 		},
 		false,
-		&gorums.AppendEntriesResponse{
-			RequestTerm: 5,
-			Term:        5,
-			MatchIndex:  100,
-			Success:     false,
+		&pb.AppendEntriesResponse{
+			Term:       5,
+			MatchIndex: 100,
+			Success:    false,
 		},
 	},
 	{
 		"two unsuccessful different MatchIndex",
-		[]*gorums.AppendEntriesResponse{
+		&pb.AppendEntriesRequest{Term: 5},
+		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID:  []uint32{10},
-				RequestTerm: 5,
-				Term:        5,
-				MatchIndex:  50,
-				Success:     false,
+				FollowerID: []uint32{10},
+				Term:       5,
+				MatchIndex: 50,
+				Success:    false,
 			},
 			{
-				FollowerID:  []uint32{20},
-				RequestTerm: 5,
-				Term:        5,
-				MatchIndex:  100,
-				Success:     false,
+				FollowerID: []uint32{20},
+				Term:       5,
+				MatchIndex: 100,
+				Success:    false,
 			},
 		},
 		false,
-		&gorums.AppendEntriesResponse{
-			RequestTerm: 5,
-			Term:        5,
-			MatchIndex:  50,
-			Success:     false,
+		&pb.AppendEntriesResponse{
+			Term:       5,
+			MatchIndex: 50,
+			Success:    false,
 		},
 	},
 }
 
-var appendEntriesFastQFTests = []struct {
-	name    string
-	replies []*gorums.AppendEntriesResponse
-	quorum  bool
-	reply   *gorums.AppendEntriesResponse
-}{
+var appendEntriesFastQFTests = []AETestCase{
 	// Stops after successful quorum, ignoring the last response.
 	{
 		"quorum successful",
-		[]*gorums.AppendEntriesResponse{
+		&pb.AppendEntriesRequest{Term: 5},
+		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID:  []uint32{10},
-				RequestTerm: 5,
-				Term:        5,
-				MatchIndex:  100,
-				Success:     true,
+				FollowerID: []uint32{10},
+				Term:       5,
+				MatchIndex: 100,
+				Success:    true,
 			},
 		},
 		true,
-		&gorums.AppendEntriesResponse{
-			FollowerID:  []uint32{10},
-			RequestTerm: 5,
-			Term:        5,
-			MatchIndex:  100,
-			Success:     true,
+		&pb.AppendEntriesResponse{
+			FollowerID: []uint32{10},
+			Term:       5,
+			MatchIndex: 100,
+			Success:    true,
 		},
 	},
 	// Stops after successful quorum, ignoring the last response.
@@ -176,100 +171,89 @@ var appendEntriesFastQFTests = []struct {
 	// it will never receive updates as long as the first follower is faster.
 	{
 		"one of two successful MatchIndex",
-		[]*gorums.AppendEntriesResponse{
+		&pb.AppendEntriesRequest{Term: 5},
+		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID:  []uint32{10},
-				RequestTerm: 5,
-				Term:        5,
-				MatchIndex:  100,
-				Success:     true,
+				FollowerID: []uint32{10},
+				Term:       5,
+				MatchIndex: 100,
+				Success:    true,
 			},
 			{
-				FollowerID:  []uint32{20},
-				RequestTerm: 5,
-				Term:        5,
-				MatchIndex:  50,
-				Success:     false,
+				FollowerID: []uint32{20},
+				Term:       5,
+				MatchIndex: 50,
+				Success:    false,
 			},
 		},
 		true,
-		&gorums.AppendEntriesResponse{
-			FollowerID:  []uint32{10},
-			RequestTerm: 5,
-			Term:        5,
-			MatchIndex:  100,
-			Success:     true,
+		&pb.AppendEntriesResponse{
+			FollowerID: []uint32{10},
+			Term:       5,
+			MatchIndex: 100,
+			Success:    true,
 		},
 	},
 }
 
-var appendEntriesSlowQFTests = []struct {
-	name    string
-	replies []*gorums.AppendEntriesResponse
-	quorum  bool
-	reply   *gorums.AppendEntriesResponse
-}{
+var appendEntriesSlowQFTests = []AETestCase{
 	// Reads all responses.
 	{
 		"two successful same MatchIndex",
-		[]*gorums.AppendEntriesResponse{
+		&pb.AppendEntriesRequest{Term: 5},
+		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID:  []uint32{10},
-				RequestTerm: 5,
-				Term:        5,
-				MatchIndex:  100,
-				Success:     true,
+				FollowerID: []uint32{10},
+				Term:       5,
+				MatchIndex: 100,
+				Success:    true,
 			},
 			{
-				FollowerID:  []uint32{20},
-				RequestTerm: 5,
-				Term:        5,
-				MatchIndex:  100,
-				Success:     true,
+				FollowerID: []uint32{20},
+				Term:       5,
+				MatchIndex: 100,
+				Success:    true,
 			},
 		},
 		true,
-		&gorums.AppendEntriesResponse{
-			FollowerID:  []uint32{10, 20},
-			RequestTerm: 5,
-			Term:        5,
-			MatchIndex:  100,
-			Success:     true,
+		&pb.AppendEntriesResponse{
+			FollowerID: []uint32{10, 20},
+			Term:       5,
+			MatchIndex: 100,
+			Success:    true,
 		},
 	},
 	// Reads all responses, returning with the lowest MatchIndex.
 	// This tests show how this configuration makes sure all followers are up-to-date.
 	{
 		"one of two successful MatchIndex",
-		[]*gorums.AppendEntriesResponse{
+		&pb.AppendEntriesRequest{Term: 5},
+		[]*pb.AppendEntriesResponse{
 			{
-				FollowerID:  []uint32{10},
-				RequestTerm: 5,
-				Term:        5,
-				MatchIndex:  100,
-				Success:     true,
+				FollowerID: []uint32{10},
+				Term:       5,
+				MatchIndex: 100,
+				Success:    true,
 			},
 			{
-				FollowerID:  []uint32{20},
-				RequestTerm: 5,
-				Term:        5,
-				MatchIndex:  50,
-				Success:     false,
+				FollowerID: []uint32{20},
+				Term:       5,
+				MatchIndex: 50,
+				Success:    false,
 			},
 		},
 		false,
-		&gorums.AppendEntriesResponse{
-			RequestTerm: 5,
-			Term:        5,
-			MatchIndex:  50,
-			Success:     false,
+		&pb.AppendEntriesResponse{
+			Term:       5,
+			MatchIndex: 50,
+			Success:    false,
 		},
 	},
 }
 
 var qspecs = []struct {
 	name string
-	spec gorums.QuorumSpec
+	spec pb.QuorumSpec
 }{
 	{
 		"QuorumSpec N3 FQ1",
@@ -290,7 +274,7 @@ func TestRequestVoteQF(t *testing.T) {
 
 	for _, test := range requestVoteQFTests {
 		t.Run(qspec.name+"-"+test.name, func(t *testing.T) {
-			reply, quorum := qspec.spec.RequestVoteQF(test.replies)
+			reply, quorum := qspec.spec.RequestVoteQF(test.request, test.replies)
 
 			if quorum != test.quorum {
 				t.Errorf("got %t, want %t", quorum, test.quorum)
@@ -308,7 +292,7 @@ func TestAppendEntriesFastQF(t *testing.T) {
 
 	for _, test := range append(appendEntriesCommonQFTests, appendEntriesFastQFTests...) {
 		t.Run(qspec.name+"-"+test.name, func(t *testing.T) {
-			reply, quorum := qspec.spec.AppendEntriesQF(test.replies)
+			reply, quorum := qspec.spec.AppendEntriesQF(test.request, test.replies)
 
 			if quorum != test.quorum {
 				t.Errorf("got %t, want %t", quorum, test.quorum)
@@ -326,7 +310,7 @@ func TestAppendEntriesSlowQF(t *testing.T) {
 
 	for _, test := range append(appendEntriesCommonQFTests, appendEntriesSlowQFTests...) {
 		t.Run(qspec.name+"-"+test.name, func(t *testing.T) {
-			reply, quorum := qspec.spec.AppendEntriesQF(test.replies)
+			reply, quorum := qspec.spec.AppendEntriesQF(test.request, test.replies)
 
 			if quorum != test.quorum {
 				t.Errorf("got %t, want %t", quorum, test.quorum)

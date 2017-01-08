@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/relab/gorums/idutil"
-	"github.com/relab/raft/proto/gorums"
+	pb "github.com/relab/raft/raftpb"
 )
 
 // LogLevel sets the level of log verbosity.
@@ -121,13 +121,13 @@ type Replica struct {
 
 	state State
 
-	conf *gorums.Configuration
+	conf *pb.Configuration
 
-	nodes map[uint32]*gorums.Node
+	nodes map[uint32]*pb.Node
 
 	currentTerm uint64
 
-	log []*gorums.Entry
+	log []*pb.Entry
 
 	commitIndex uint64
 
@@ -142,16 +142,16 @@ type Replica struct {
 
 	recoverFile *os.File
 
-	pending  map[uniqueCommand]chan<- *gorums.ClientCommandRequest
-	commands map[uniqueCommand]*gorums.ClientCommandRequest
+	pending  map[uniqueCommand]chan<- *pb.ClientCommandRequest
+	commands map[uniqueCommand]*pb.ClientCommandRequest
 
-	queue chan *gorums.Entry
+	queue chan *pb.Entry
 
 	batch bool
 	qrpc  bool
 
 	sendAppendEntries           func()
-	handleAppendEntriesResponse func(*gorums.AppendEntriesResponse)
+	handleAppendEntriesResponse func(*pb.AppendEntriesResponse)
 }
 
 type uniqueCommand struct {
@@ -182,8 +182,8 @@ func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum boo
 		r.handleAppendEntriesResponse = r.handleAppendEntriesResponseNoQRPC
 	}
 
-	mgr, err := gorums.NewManager(nodes,
-		gorums.WithGrpcDialOptions(
+	mgr, err := pb.NewManager(nodes,
+		pb.WithGrpcDialOptions(
 			grpc.WithBlock(),
 			grpc.WithBackoffMaxDelay(time.Second),
 			grpc.WithInsecure(),
@@ -223,7 +223,7 @@ func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum boo
 
 	r.setupLogging()
 
-	r.nodes = make(map[uint32]*gorums.Node, n-1)
+	r.nodes = make(map[uint32]*pb.Node, n-1)
 
 	for _, node := range mgr.Nodes(false) {
 		r.nodes[node.ID()] = node
@@ -251,8 +251,8 @@ func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum boo
 		r.matchIndex[id] = 0
 	}
 
-	r.pending = make(map[uniqueCommand]chan<- *gorums.ClientCommandRequest)
-	r.commands = make(map[uniqueCommand]*gorums.ClientCommandRequest)
+	r.pending = make(map[uniqueCommand]chan<- *pb.ClientCommandRequest)
+	r.commands = make(map[uniqueCommand]*pb.ClientCommandRequest)
 
 	err = r.recoverFromStable(recover)
 
@@ -260,7 +260,7 @@ func (r *Replica) Init(this string, nodes []string, recover bool, slowQuorum boo
 		return err
 	}
 
-	r.queue = make(chan *gorums.Entry, 10000)
+	r.queue = make(chan *pb.Entry, 10000)
 
 	return nil
 }
@@ -315,7 +315,7 @@ func (r *Replica) recoverFromStable(recover bool) error {
 
 				r.votedFor = uint32(votedFor)
 			default:
-				var entry gorums.Entry
+				var entry pb.Entry
 
 				if len(split) != 4 {
 					return errCommaInCommand
@@ -342,7 +342,7 @@ func (r *Replica) recoverFromStable(recover bool) error {
 				command := split[3]
 
 				entry.Term = uint64(term)
-				entry.Data = &gorums.ClientCommandRequest{ClientID: uint32(clientID), SequenceNumber: uint64(sequenceNumber), Command: command}
+				entry.Data = &pb.ClientCommandRequest{ClientID: uint32(clientID), SequenceNumber: uint64(sequenceNumber), Command: command}
 
 				r.log = append(r.log, &entry)
 				r.commands[uniqueCommand{entry.Data.ClientID, entry.Data.SequenceNumber}] = entry.Data
@@ -385,7 +385,7 @@ func (r *Replica) Run() {
 
 // RequestVote handles a RequestVoteRequest which is invoked by candidates to gather votes.
 // See Raft paper § 5.2.
-func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRequest) (*gorums.RequestVoteResponse, error) {
+func (r *Replica) RequestVote(ctx context.Context, request *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -395,7 +395,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 
 	// #RV1 Reply false if term < currentTerm.
 	if request.Term < r.currentTerm {
-		return &gorums.RequestVoteResponse{Term: r.currentTerm}, nil
+		return &pb.RequestVoteResponse{Term: r.currentTerm}, nil
 	}
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
@@ -421,16 +421,16 @@ func (r *Replica) RequestVote(ctx context.Context, request *gorums.RequestVoteRe
 		// Here we are granting a vote to a candidate so we reset the election timeout.
 		r.election.Reset(r.electionTimeout)
 
-		return &gorums.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm}, nil
+		return &pb.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm}, nil
 	}
 
 	// #RV2 The candidate's log was not up-to-date
-	return &gorums.RequestVoteResponse{Term: r.currentTerm}, nil
+	return &pb.RequestVoteResponse{Term: r.currentTerm}, nil
 }
 
 // AppendEntries invoked by leader to replicate log entries, also used as a heartbeat.
 // See Raft paper § 5.3 and § 5.2.
-func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntriesRequest) (*gorums.AppendEntriesResponse, error) {
+func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -440,7 +440,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 
 	// #AE1 Reply false if term < currentTerm.
 	if request.Term < r.currentTerm {
-		return &gorums.AppendEntriesResponse{
+		return &pb.AppendEntriesResponse{
 			FollowerID: []uint32{r.id},
 			Success:    false,
 			Term:       request.Term,
@@ -492,7 +492,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 		}
 	}
 
-	return &gorums.AppendEntriesResponse{
+	return &pb.AppendEntriesResponse{
 		FollowerID: []uint32{r.id},
 		Term:       request.Term,
 		MatchIndex: uint64(len(r.log)),
@@ -502,7 +502,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *gorums.AppendEntri
 
 // ClientCommand is invoked by a client to commit a command.
 // See Raft paper § 8 and the Raft PhD dissertation chapter 6.
-func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientCommandRequest) (*gorums.ClientCommandResponse, error) {
+func (r *Replica) ClientCommand(ctx context.Context, request *pb.ClientCommandRequest) (*pb.ClientCommandResponse, error) {
 	if response, isLeader := r.logCommand(request); isLeader {
 		if !r.batch {
 			r.sendAppendEntries()
@@ -511,7 +511,7 @@ func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientComma
 		select {
 		// Wait on committed entry.
 		case entry := <-response:
-			return &gorums.ClientCommandResponse{Status: gorums.OK, Response: entry.Command, ClientID: entry.ClientID}, nil
+			return &pb.ClientCommandResponse{Status: pb.OK, Response: entry.Command, ClientID: entry.ClientID}, nil
 
 		// Return if responding takes too much time.
 		// The client will retry.
@@ -522,10 +522,10 @@ func (r *Replica) ClientCommand(ctx context.Context, request *gorums.ClientComma
 
 	hint := r.getHint()
 
-	return &gorums.ClientCommandResponse{Status: gorums.NOT_LEADER, LeaderHint: hint}, nil
+	return &pb.ClientCommandResponse{Status: pb.NOT_LEADER, LeaderHint: hint}, nil
 }
 
-func (r *Replica) logCommand(request *gorums.ClientCommandRequest) (<-chan *gorums.ClientCommandRequest, bool) {
+func (r *Replica) logCommand(request *pb.ClientCommandRequest) (<-chan *pb.ClientCommandRequest, bool) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -543,17 +543,17 @@ func (r *Replica) logCommand(request *gorums.ClientCommandRequest) (<-chan *goru
 		commandID := uniqueCommand{clientID: request.ClientID, sequenceNumber: request.SequenceNumber}
 
 		if old, ok := r.commands[commandID]; ok {
-			response := make(chan *gorums.ClientCommandRequest, 1)
+			response := make(chan *pb.ClientCommandRequest, 1)
 			response <- old
 
 			return response, true
 		}
 
 		r.Unlock()
-		r.queue <- &gorums.Entry{Term: r.currentTerm, Data: request}
+		r.queue <- &pb.Entry{Term: r.currentTerm, Data: request}
 		r.Lock()
 
-		response := make(chan *gorums.ClientCommandRequest)
+		response := make(chan *pb.ClientCommandRequest)
 		r.pending[commandID] = response
 
 		return response, true
@@ -612,7 +612,7 @@ func (r *Replica) newCommit(old uint64) {
 		if response, ok := r.pending[commandID]; ok {
 			// If entry is not committed fast enough, the client
 			// will retry.
-			go func(response chan<- *gorums.ClientCommandRequest) {
+			go func(response chan<- *pb.ClientCommandRequest) {
 				select {
 				case response <- committed.Data:
 				case <-time.After(TCPHEARTBEAT * time.Millisecond):
@@ -657,7 +657,7 @@ func (r *Replica) startElection() {
 	ctx, cancel := context.WithTimeout(context.Background(), TCPHEARTBEAT*time.Millisecond)
 
 	// #C4 Send RequestVote RPCs to all other servers.
-	req := r.conf.RequestVoteFuture(ctx, &gorums.RequestVoteRequest{CandidateID: r.id, Term: r.currentTerm, LastLogTerm: r.logTerm(len(r.log)), LastLogIndex: uint64(len(r.log))})
+	req := r.conf.RequestVoteFuture(ctx, &pb.RequestVoteRequest{CandidateID: r.id, Term: r.currentTerm, LastLogTerm: r.logTerm(len(r.log)), LastLogIndex: uint64(len(r.log))})
 
 	go func() {
 		defer cancel()
@@ -676,7 +676,7 @@ func (r *Replica) startElection() {
 	// See RequestVoteQF for the quorum function creating the response.
 }
 
-func (r *Replica) handleRequestVoteResponse(response *gorums.RequestVoteResponse) {
+func (r *Replica) handleRequestVoteResponse(response *pb.RequestVoteResponse) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -750,7 +750,7 @@ LOOP:
 	r.save(buffer.String())
 
 	// #L1
-	entries := []*gorums.Entry{}
+	entries := []*pb.Entry{}
 
 	nextIndex := 0
 
@@ -777,7 +777,7 @@ LOOP:
 		logLocal(fmt.Sprintf("Sending %d entries", len(entries)))
 	}
 
-	req := &gorums.AppendEntriesRequest{
+	req := &pb.AppendEntriesRequest{
 		LeaderID:     r.id,
 		Term:         r.currentTerm,
 		PrevLogIndex: uint64(nextIndex),
@@ -786,7 +786,7 @@ LOOP:
 		Entries:      entries,
 	}
 
-	go func(req *gorums.AppendEntriesRequest) {
+	go func(req *pb.AppendEntriesRequest) {
 		ctx, cancel := context.WithTimeout(context.Background(), TCPHEARTBEAT*time.Millisecond)
 		defer cancel()
 
@@ -835,7 +835,7 @@ LOOP:
 
 	// #L1
 	for id, node := range r.nodes {
-		entries := []*gorums.Entry{}
+		entries := []*pb.Entry{}
 
 		nextIndex := r.nextIndex[id] - 1
 
@@ -853,7 +853,7 @@ LOOP:
 			logTo(id, fmt.Sprintf("Sending %d entries", len(entries)))
 		}
 
-		req := &gorums.AppendEntriesRequest{
+		req := &pb.AppendEntriesRequest{
 			LeaderID:     r.id,
 			Term:         r.currentTerm,
 			PrevLogIndex: uint64(nextIndex),
@@ -862,7 +862,7 @@ LOOP:
 			Entries:      entries,
 		}
 
-		go func(node *gorums.Node, req *gorums.AppendEntriesRequest) {
+		go func(node *pb.Node, req *pb.AppendEntriesRequest) {
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHEARTBEAT*time.Millisecond)
 			defer cancel()
 
@@ -880,7 +880,7 @@ LOOP:
 	r.heartbeat.Reset(r.heartbeatTimeout)
 }
 
-func (r *Replica) handleAppendEntriesResponseQRPC(response *gorums.AppendEntriesResponse) {
+func (r *Replica) handleAppendEntriesResponseQRPC(response *pb.AppendEntriesResponse) {
 	r.Lock()
 	defer func() {
 		r.Unlock()
@@ -916,7 +916,7 @@ func (r *Replica) handleAppendEntriesResponseQRPC(response *gorums.AppendEntries
 	}
 }
 
-func (r *Replica) handleAppendEntriesResponseNoQRPC(response *gorums.AppendEntriesResponse) {
+func (r *Replica) handleAppendEntriesResponseNoQRPC(response *pb.AppendEntriesResponse) {
 	r.Lock()
 	defer func() {
 		r.Unlock()

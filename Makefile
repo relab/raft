@@ -1,7 +1,7 @@
 .PHONY: autocomplete
 autocomplete:
 	go install .
-	cd proto/gorums; go install .
+	cd raftpb; go install .
 
 .PHONY: protocgorums
 protocgorums:
@@ -9,7 +9,7 @@ protocgorums:
 
 .PHONY: proto
 proto: protocgorums
-	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. proto/gorums/raft.proto
+	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. raftpb/raft.proto
 
 .PHONY: restore
 restore:

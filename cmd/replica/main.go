@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/relab/raft"
-	"github.com/relab/raft/proto/gorums"
+	pb "github.com/relab/raft/raftpb"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
@@ -71,7 +71,7 @@ func main() {
 	rs.Lock()
 
 	s := grpc.NewServer()
-	gorums.RegisterRaftServer(s, rs)
+	pb.RegisterRaftServer(s, rs)
 
 	l, err := net.Listen("tcp", *this)
 
