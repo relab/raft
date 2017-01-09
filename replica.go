@@ -137,6 +137,11 @@ func (r *Replica) save(buffer string) {
 	r.recoverFile.Sync()
 }
 
+type appendEntriesHandler interface {
+	sendRequest(*Replica)
+	handleResponse(*Replica, *pb.AppendEntriesResponse)
+}
+
 // Replica represents a Raft server.
 type Replica struct {
 	// Must be acquired before mutating Replica state.
@@ -182,8 +187,7 @@ type Replica struct {
 	batch bool
 	qrpc  bool
 
-	sendAppendEntries           func()
-	handleAppendEntriesResponse func(*pb.AppendEntriesResponse)
+	aeHandler appendEntriesHandler
 }
 
 type uniqueCommand struct {
@@ -208,11 +212,9 @@ func (r *Replica) Init(id uint64, nodes []string, recover bool, slowQuorum bool,
 	r.batch = batch
 
 	if qrpc {
-		r.sendAppendEntries = r.sendAppendEntriesQRPC
-		r.handleAppendEntriesResponse = r.handleAppendEntriesResponseQRPC
+		r.aeHandler = &aeqrpc{}
 	} else {
-		r.sendAppendEntries = r.sendAppendEntriesNoQRPC
-		r.handleAppendEntriesResponse = r.handleAppendEntriesResponseNoQRPC
+		r.aeHandler = &aenoqrpc{}
 	}
 
 	mgr, err := pb.NewManager(nodes,
@@ -411,7 +413,7 @@ func (r *Replica) Run() {
 			r.startElection()
 
 		case <-r.heartbeat.C:
-			r.sendAppendEntries()
+			r.aeHandler.sendRequest(r)
 		}
 	}
 }
@@ -538,7 +540,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 func (r *Replica) ClientCommand(ctx context.Context, request *pb.ClientCommandRequest) (*pb.ClientCommandResponse, error) {
 	if response, isLeader := r.logCommand(request); isLeader {
 		if !r.batch {
-			r.sendAppendEntries()
+			r.aeHandler.sendRequest(r)
 		}
 
 		select {
@@ -756,7 +758,10 @@ func (r *Replica) handleRequestVoteResponse(response *pb.RequestVoteResponse) {
 	// This will happened if we don't receive enough replies in time. Or we lose the election but don't see a higher term number.
 }
 
-func (r *Replica) sendAppendEntriesQRPC() {
+type aeqrpc struct{}
+type aenoqrpc struct{}
+
+func (q *aeqrpc) sendRequest(r *Replica) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -834,13 +839,13 @@ LOOP:
 			}
 		}
 
-		r.handleAppendEntriesResponse(resp.AppendEntriesResponse)
+		r.aeHandler.handleResponse(r, resp.AppendEntriesResponse)
 	}(req)
 
 	r.heartbeat.Reset(r.heartbeatTimeout)
 }
 
-func (r *Replica) sendAppendEntriesNoQRPC() {
+func (q *aenoqrpc) sendRequest(r *Replica) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -906,14 +911,14 @@ LOOP:
 
 				return
 			}
-			r.handleAppendEntriesResponse(resp)
+			r.aeHandler.handleResponse(r, resp)
 		}(node, req)
 	}
 
 	r.heartbeat.Reset(r.heartbeatTimeout)
 }
 
-func (r *Replica) handleAppendEntriesResponseQRPC(response *pb.AppendEntriesResponse) {
+func (q *aeqrpc) handleResponse(r *Replica, response *pb.AppendEntriesResponse) {
 	r.Lock()
 	defer func() {
 		r.Unlock()
@@ -949,7 +954,7 @@ func (r *Replica) handleAppendEntriesResponseQRPC(response *pb.AppendEntriesResp
 	}
 }
 
-func (r *Replica) handleAppendEntriesResponseNoQRPC(response *pb.AppendEntriesResponse) {
+func (q *aenoqrpc) handleResponse(r *Replica, response *pb.AppendEntriesResponse) {
 	r.Lock()
 	defer func() {
 		r.Unlock()
