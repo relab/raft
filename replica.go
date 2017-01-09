@@ -133,8 +133,8 @@ func randomTimeout() time.Duration {
 }
 
 func (r *Replica) save(buffer string) {
-	r.recoverFile.WriteString(buffer)
-	r.recoverFile.Sync()
+	r.persistent.recoverFile.WriteString(buffer)
+	r.persistent.recoverFile.Sync()
 }
 
 type appendEntriesHandler interface {
@@ -147,9 +147,10 @@ type Replica struct {
 	// Must be acquired before mutating Replica state.
 	sync.Mutex
 
-	id       uint64
-	leader   uint64
-	votedFor uint64
+	id     uint64
+	leader uint64
+
+	persistent *persistent
 
 	seenLeader bool
 
@@ -162,10 +163,6 @@ type Replica struct {
 	raftID map[uint32]uint64
 	nodeID map[uint64]uint32
 
-	currentTerm uint64
-
-	log []*pb.Entry
-
 	commitIndex uint64
 
 	nextIndex  map[uint64]int
@@ -177,10 +174,7 @@ type Replica struct {
 	election  Timer
 	heartbeat Timer
 
-	recoverFile *os.File
-
-	pending  map[uniqueCommand]chan<- *pb.ClientCommandRequest
-	commands map[uniqueCommand]*pb.ClientCommandRequest
+	pending map[uniqueCommand]chan<- *pb.ClientCommandRequest
 
 	queue chan *pb.Entry
 
@@ -196,11 +190,11 @@ type uniqueCommand struct {
 }
 
 func (r *Replica) logTerm(index int) uint64 {
-	if index < 1 || index > len(r.log) {
+	if index < 1 || index > len(r.persistent.log) {
 		return 0
 	}
 
-	return r.log[index-1].Term
+	return r.persistent.log[index-1].Term
 }
 
 // Init initializes a Replica.
@@ -283,8 +277,6 @@ func (r *Replica) Init(id uint64, nodes []string, recover bool, slowQuorum bool,
 	r.heartbeat = NewTimer(0)
 	r.heartbeat.Stop()
 
-	r.votedFor = NONE
-
 	r.nextIndex = make(map[uint64]int, n-1)
 	r.matchIndex = make(map[uint64]int, n-1)
 
@@ -295,9 +287,8 @@ func (r *Replica) Init(id uint64, nodes []string, recover bool, slowQuorum bool,
 	}
 
 	r.pending = make(map[uniqueCommand]chan<- *pb.ClientCommandRequest)
-	r.commands = make(map[uniqueCommand]*pb.ClientCommandRequest)
-
-	err = r.recoverFromStable(recover)
+	// Initializes r.commands.
+	r.persistent, err = recoverFromStable(r.id, recover)
 
 	if err != nil {
 		return err
@@ -322,14 +313,27 @@ func (r *Replica) setupLogging() {
 	}
 }
 
-func (r *Replica) recoverFromStable(recover bool) error {
-	recoverFile := fmt.Sprintf(STOREFILE, r.id)
+type persistent struct {
+	currentTerm uint64
+	votedFor    uint64
+	log         []*pb.Entry
+	commands    map[uniqueCommand]*pb.ClientCommandRequest
+
+	recoverFile *os.File
+}
+
+func recoverFromStable(id uint64, recover bool) (*persistent, error) {
+	p := &persistent{
+		commands: make(map[uniqueCommand]*pb.ClientCommandRequest, BUFFERSIZE),
+	}
+
+	recoverFile := fmt.Sprintf(STOREFILE, id)
 
 	if _, err := os.Stat(recoverFile); !os.IsNotExist(err) && recover {
 		file, err := os.Open(recoverFile)
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		defer file.Close()
@@ -345,41 +349,41 @@ func (r *Replica) recoverFromStable(recover bool) error {
 				term, err := strconv.Atoi(split[1])
 
 				if err != nil {
-					return err
+					return nil, err
 				}
 
-				r.currentTerm = uint64(term)
+				p.currentTerm = uint64(term)
 			case "VOTED":
 				votedFor, err := strconv.Atoi(split[1])
 
 				if err != nil {
-					return err
+					return nil, err
 				}
 
-				r.votedFor = uint64(votedFor)
+				p.votedFor = uint64(votedFor)
 			default:
 				var entry pb.Entry
 
 				if len(split) != 4 {
-					return errCommaInCommand
+					return nil, errCommaInCommand
 				}
 
 				term, err := strconv.Atoi(split[0])
 
 				if err != nil {
-					return err
+					return nil, err
 				}
 
 				clientID, err := strconv.Atoi(split[1])
 
 				if err != nil {
-					return err
+					return nil, err
 				}
 
 				sequenceNumber, err := strconv.Atoi(split[2])
 
 				if err != nil {
-					return err
+					return nil, err
 				}
 
 				command := split[3]
@@ -387,26 +391,26 @@ func (r *Replica) recoverFromStable(recover bool) error {
 				entry.Term = uint64(term)
 				entry.Data = &pb.ClientCommandRequest{ClientID: uint32(clientID), SequenceNumber: uint64(sequenceNumber), Command: command}
 
-				r.log = append(r.log, &entry)
-				r.commands[uniqueCommand{entry.Data.ClientID, entry.Data.SequenceNumber}] = entry.Data
+				p.log = append(p.log, &entry)
+				p.commands[uniqueCommand{entry.Data.ClientID, entry.Data.SequenceNumber}] = entry.Data
 			}
 		}
 
 		if err := scanner.Err(); err != nil {
-			return err
+			return nil, err
 		}
 
 		// TODO Close if we were to implement graceful shutdown.
-		r.recoverFile, err = os.OpenFile(recoverFile, os.O_APPEND|os.O_WRONLY, 0666)
+		p.recoverFile, err = os.OpenFile(recoverFile, os.O_APPEND|os.O_WRONLY, 0666)
 
-		return err
+		return p, err
 	}
 
 	// TODO Close if we were to implement graceful shutdown.
 	var err error
-	r.recoverFile, err = os.Create(recoverFile)
+	p.recoverFile, err = os.Create(recoverFile)
 
-	return err
+	return p, err
 }
 
 // Run handles timeouts.
@@ -433,42 +437,42 @@ func (r *Replica) RequestVote(ctx context.Context, request *pb.RequestVoteReques
 	defer r.Unlock()
 
 	if logLevel >= INFO {
-		logFrom(request.CandidateID, fmt.Sprintf("Vote requested in term %d for term %d", r.currentTerm, request.Term))
+		logFrom(request.CandidateID, fmt.Sprintf("Vote requested in term %d for term %d", r.persistent.currentTerm, request.Term))
 	}
 
 	// #RV1 Reply false if term < currentTerm.
-	if request.Term < r.currentTerm {
-		return &pb.RequestVoteResponse{Term: r.currentTerm}, nil
+	if request.Term < r.persistent.currentTerm {
+		return &pb.RequestVoteResponse{Term: r.persistent.currentTerm}, nil
 	}
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if request.Term > r.currentTerm {
+	if request.Term > r.persistent.currentTerm {
 		r.becomeFollower(request.Term)
 	}
 
 	// #RV2 If votedFor is null or candidateId, and candidate's log is at least as up-to-date as receiver's log, grant vote.
-	if (r.votedFor == NONE || r.votedFor == request.CandidateID) &&
-		(request.LastLogTerm > r.logTerm(len(r.log)) ||
-			(request.LastLogTerm == r.logTerm(len(r.log)) && request.LastLogIndex >= uint64(len(r.log)))) {
+	if (r.persistent.votedFor == NONE || r.persistent.votedFor == request.CandidateID) &&
+		(request.LastLogTerm > r.logTerm(len(r.persistent.log)) ||
+			(request.LastLogTerm == r.logTerm(len(r.persistent.log)) && request.LastLogIndex >= uint64(len(r.persistent.log)))) {
 		if logLevel >= INFO {
 			logTo(request.CandidateID, fmt.Sprintf("Vote granted for term %d", request.Term))
 		}
 
-		r.votedFor = request.CandidateID
+		r.persistent.votedFor = request.CandidateID
 
 		// Write to stable storage
 		// TODO Assumes successful
-		r.save(fmt.Sprintf(STOREVOTEDFOR, r.votedFor))
+		r.save(fmt.Sprintf(STOREVOTEDFOR, r.persistent.votedFor))
 
 		// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
 		// Here we are granting a vote to a candidate so we reset the election timeout.
 		r.election.Reset(r.electionTimeout)
 
-		return &pb.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm}, nil
+		return &pb.RequestVoteResponse{VoteGranted: true, Term: r.persistent.currentTerm}, nil
 	}
 
 	// #RV2 The candidate's log was not up-to-date
-	return &pb.RequestVoteResponse{Term: r.currentTerm}, nil
+	return &pb.RequestVoteResponse{Term: r.persistent.currentTerm}, nil
 }
 
 // AppendEntries invoked by leader to replicate log entries, also used as a heartbeat.
@@ -482,7 +486,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 	}
 
 	// #AE1 Reply false if term < currentTerm.
-	if request.Term < r.currentTerm {
+	if request.Term < r.persistent.currentTerm {
 		return &pb.AppendEntriesResponse{
 			FollowerID: []uint64{r.id},
 			Success:    false,
@@ -490,13 +494,13 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 		}, nil
 	}
 
-	success := request.PrevLogIndex == 0 || (request.PrevLogIndex-1 < uint64(len(r.log)) && r.log[request.PrevLogIndex-1].Term == request.PrevLogTerm)
+	success := request.PrevLogIndex == 0 || (request.PrevLogIndex-1 < uint64(len(r.persistent.log)) && r.persistent.log[request.PrevLogIndex-1].Term == request.PrevLogTerm)
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if request.Term > r.currentTerm {
+	if request.Term > r.persistent.currentTerm {
 		r.becomeFollower(request.Term)
 	} else if r.id != request.LeaderID {
-		r.becomeFollower(r.currentTerm)
+		r.becomeFollower(r.persistent.currentTerm)
 	}
 
 	if success {
@@ -510,9 +514,9 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 		for _, entry := range request.Entries {
 			index++
 
-			if index == len(r.log) || r.logTerm(index) != entry.Term {
-				r.log = r.log[:index-1] // Remove excessive log entries.
-				r.log = append(r.log, entry)
+			if index == len(r.persistent.log) || r.logTerm(index) != entry.Term {
+				r.persistent.log = r.persistent.log[:index-1] // Remove excessive log entries.
+				r.persistent.log = append(r.persistent.log, entry)
 
 				buffer.WriteString(fmt.Sprintf(STORECOMMAND, entry.Term, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
 			}
@@ -538,7 +542,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 	return &pb.AppendEntriesResponse{
 		FollowerID: []uint64{r.id},
 		Term:       request.Term,
-		MatchIndex: uint64(len(r.log)),
+		MatchIndex: uint64(len(r.persistent.log)),
 		Success:    success,
 	}, nil
 }
@@ -585,7 +589,7 @@ func (r *Replica) logCommand(request *pb.ClientCommandRequest) (<-chan *pb.Clien
 
 		commandID := uniqueCommand{clientID: request.ClientID, sequenceNumber: request.SequenceNumber}
 
-		if old, ok := r.commands[commandID]; ok {
+		if old, ok := r.persistent.commands[commandID]; ok {
 			response := make(chan *pb.ClientCommandRequest, 1)
 			response <- old
 
@@ -593,7 +597,7 @@ func (r *Replica) logCommand(request *pb.ClientCommandRequest) (<-chan *pb.Clien
 		}
 
 		r.Unlock()
-		r.queue <- &pb.Entry{Term: r.currentTerm, Data: request}
+		r.queue <- &pb.Entry{Term: r.persistent.currentTerm, Data: request}
 		r.Lock()
 
 		response := make(chan *pb.ClientCommandRequest)
@@ -623,7 +627,7 @@ func (r *Replica) advanceCommitIndex() {
 	r.Lock()
 	defer r.Unlock()
 
-	matchIndexes := []int{len(r.log)}
+	matchIndexes := []int{len(r.persistent.log)}
 
 	for _, i := range r.matchIndex {
 		matchIndexes = append(matchIndexes, i)
@@ -635,7 +639,7 @@ func (r *Replica) advanceCommitIndex() {
 
 	old := r.commitIndex
 
-	if r.state == LEADER && r.logTerm(atleast) == r.currentTerm {
+	if r.state == LEADER && r.logTerm(atleast) == r.persistent.currentTerm {
 		r.commitIndex = max(r.commitIndex, uint64(atleast))
 	}
 
@@ -647,7 +651,7 @@ func (r *Replica) advanceCommitIndex() {
 // TODO Assumes caller already holds lock on Replica
 func (r *Replica) newCommit(old uint64) {
 	for i := old; i < r.commitIndex; i++ {
-		committed := r.log[i]
+		committed := r.persistent.log[i]
 		sequenceNumber := committed.Data.SequenceNumber
 		clientID := committed.Data.ClientID
 		commandID := uniqueCommand{clientID: clientID, sequenceNumber: sequenceNumber}
@@ -663,7 +667,7 @@ func (r *Replica) newCommit(old uint64) {
 			}(response)
 		}
 
-		r.commands[commandID] = committed.Data
+		r.persistent.commands[commandID] = committed.Data
 	}
 }
 
@@ -676,22 +680,22 @@ func (r *Replica) startElection() {
 
 	// We are now a candidate. See Raft Paper Figure 2 -> Rules for Servers -> Candidates.
 	// #C1 Increment currentTerm.
-	r.currentTerm++
+	r.persistent.currentTerm++
 
 	var buffer bytes.Buffer
-	buffer.WriteString(fmt.Sprintf(STORETERM, r.currentTerm))
+	buffer.WriteString(fmt.Sprintf(STORETERM, r.persistent.currentTerm))
 
 	// #C2 Vote for self.
-	r.votedFor = r.id
+	r.persistent.votedFor = r.id
 
-	buffer.WriteString(fmt.Sprintf(STOREVOTEDFOR, r.votedFor))
+	buffer.WriteString(fmt.Sprintf(STOREVOTEDFOR, r.persistent.votedFor))
 
 	// Write to stable storage
 	// TODO Assumes successful
 	r.save(buffer.String())
 
 	if logLevel >= INFO {
-		logLocal(fmt.Sprintf("Starting election for term %d", r.currentTerm))
+		logLocal(fmt.Sprintf("Starting election for term %d", r.persistent.currentTerm))
 	}
 
 	// #C3 Reset election timer.
@@ -700,7 +704,7 @@ func (r *Replica) startElection() {
 	ctx, cancel := context.WithTimeout(context.Background(), TCPHEARTBEAT*time.Millisecond)
 
 	// #C4 Send RequestVote RPCs to all other servers.
-	req := r.conf.RequestVoteFuture(ctx, &pb.RequestVoteRequest{CandidateID: r.id, Term: r.currentTerm, LastLogTerm: r.logTerm(len(r.log)), LastLogIndex: uint64(len(r.log))})
+	req := r.conf.RequestVoteFuture(ctx, &pb.RequestVoteRequest{CandidateID: r.id, Term: r.persistent.currentTerm, LastLogTerm: r.logTerm(len(r.persistent.log)), LastLogIndex: uint64(len(r.persistent.log))})
 
 	go func() {
 		defer cancel()
@@ -724,14 +728,14 @@ func (r *Replica) handleRequestVoteResponse(response *pb.RequestVoteResponse) {
 	defer r.Unlock()
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if response.Term > r.currentTerm {
+	if response.Term > r.persistent.currentTerm {
 		r.becomeFollower(response.Term)
 
 		return
 	}
 
 	// Ignore late response
-	if response.Term < r.currentTerm {
+	if response.Term < r.persistent.currentTerm {
 		return
 	}
 
@@ -743,7 +747,7 @@ func (r *Replica) handleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		// We have received at least a quorum of votes.
 		// We are the leader for this term. See Raft Paper Figure 2 -> Rules for Servers -> Leaders.
 		if logLevel >= INFO {
-			logLocal(fmt.Sprintf("Elected leader for term %d", r.currentTerm))
+			logLocal(fmt.Sprintf("Elected leader for term %d", r.persistent.currentTerm))
 		}
 
 		r.state = LEADER
@@ -751,7 +755,7 @@ func (r *Replica) handleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		r.seenLeader = true
 
 		for id := range r.nextIndex {
-			r.nextIndex[id] = len(r.log) + 1
+			r.nextIndex[id] = len(r.persistent.log) + 1
 		}
 
 		// #L1 Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
@@ -774,7 +778,7 @@ func (q *aeqrpc) sendRequest(r *Replica) {
 	defer r.Unlock()
 
 	if logLevel >= DEBUG {
-		logLocal(fmt.Sprintf("Sending AppendEntries for term %d", r.currentTerm))
+		logLocal(fmt.Sprintf("Sending AppendEntries for term %d", r.persistent.currentTerm))
 	}
 
 	var buffer bytes.Buffer
@@ -783,9 +787,9 @@ LOOP:
 	for i := MAXENTRIES; i > 0; i-- {
 		select {
 		case entry := <-r.queue:
-			r.log = append(r.log, entry)
+			r.persistent.log = append(r.persistent.log, entry)
 
-			buffer.WriteString(fmt.Sprintf(STORECOMMAND, r.currentTerm, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
+			buffer.WriteString(fmt.Sprintf(STORECOMMAND, r.persistent.currentTerm, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
 		default:
 			break LOOP
 		}
@@ -809,14 +813,14 @@ LOOP:
 		}
 	}
 
-	if len(r.log) > nextIndex {
-		maxEntries := int(min(uint64(nextIndex+MAXENTRIES), uint64(len(r.log))))
+	if len(r.persistent.log) > nextIndex {
+		maxEntries := int(min(uint64(nextIndex+MAXENTRIES), uint64(len(r.persistent.log))))
 
 		if !r.batch {
 			maxEntries = nextIndex + 1
 		}
 
-		entries = r.log[nextIndex:maxEntries]
+		entries = r.persistent.log[nextIndex:maxEntries]
 	}
 
 	if logLevel >= DEBUG {
@@ -825,7 +829,7 @@ LOOP:
 
 	req := &pb.AppendEntriesRequest{
 		LeaderID:     r.id,
-		Term:         r.currentTerm,
+		Term:         r.persistent.currentTerm,
 		PrevLogIndex: uint64(nextIndex),
 		PrevLogTerm:  r.logTerm(nextIndex),
 		CommitIndex:  r.commitIndex,
@@ -858,7 +862,7 @@ func (q *aenoqrpc) sendRequest(r *Replica) {
 	defer r.Unlock()
 
 	if logLevel >= DEBUG {
-		logLocal(fmt.Sprintf("Sending AppendEntries for term %d", r.currentTerm))
+		logLocal(fmt.Sprintf("Sending AppendEntries for term %d", r.persistent.currentTerm))
 	}
 
 	var buffer bytes.Buffer
@@ -867,9 +871,9 @@ LOOP:
 	for i := MAXENTRIES; i > 0; i-- {
 		select {
 		case entry := <-r.queue:
-			r.log = append(r.log, entry)
+			r.persistent.log = append(r.persistent.log, entry)
 
-			buffer.WriteString(fmt.Sprintf(STORECOMMAND, r.currentTerm, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
+			buffer.WriteString(fmt.Sprintf(STORECOMMAND, r.persistent.currentTerm, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
 		default:
 			break LOOP
 		}
@@ -885,14 +889,14 @@ LOOP:
 
 		nextIndex := r.nextIndex[id] - 1
 
-		if len(r.log) > nextIndex {
-			maxEntries := int(min(uint64(nextIndex+MAXENTRIES), uint64(len(r.log))))
+		if len(r.persistent.log) > nextIndex {
+			maxEntries := int(min(uint64(nextIndex+MAXENTRIES), uint64(len(r.persistent.log))))
 
 			if !r.batch {
 				maxEntries = nextIndex + 1
 			}
 
-			entries = r.log[nextIndex:maxEntries]
+			entries = r.persistent.log[nextIndex:maxEntries]
 		}
 
 		if logLevel >= DEBUG {
@@ -901,7 +905,7 @@ LOOP:
 
 		req := &pb.AppendEntriesRequest{
 			LeaderID:     r.id,
-			Term:         r.currentTerm,
+			Term:         r.persistent.currentTerm,
 			PrevLogIndex: uint64(nextIndex),
 			PrevLogTerm:  r.logTerm(nextIndex),
 			CommitIndex:  r.commitIndex,
@@ -934,14 +938,14 @@ func (q *aeqrpc) handleResponse(r *Replica, response *pb.AppendEntriesResponse) 
 	}()
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if response.Term > r.currentTerm {
+	if response.Term > r.persistent.currentTerm {
 		r.becomeFollower(response.Term)
 
 		return
 	}
 
 	// Ignore late response
-	if response.Term < r.currentTerm {
+	if response.Term < r.persistent.currentTerm {
 		return
 	}
 
@@ -970,14 +974,14 @@ func (q *aenoqrpc) handleResponse(r *Replica, response *pb.AppendEntriesResponse
 	}()
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if response.Term > r.currentTerm {
+	if response.Term > r.persistent.currentTerm {
 		r.becomeFollower(response.Term)
 
 		return
 	}
 
 	// Ignore late response
-	if response.Term < r.currentTerm {
+	if response.Term < r.persistent.currentTerm {
 		return
 	}
 
@@ -996,20 +1000,20 @@ func (q *aenoqrpc) handleResponse(r *Replica, response *pb.AppendEntriesResponse
 func (r *Replica) becomeFollower(term uint64) {
 	r.state = FOLLOWER
 
-	if r.currentTerm != term {
+	if r.persistent.currentTerm != term {
 		if logLevel >= INFO {
-			logLocal(fmt.Sprintf("Become follower as we transition from term %d to %d", r.currentTerm, term))
+			logLocal(fmt.Sprintf("Become follower as we transition from term %d to %d", r.persistent.currentTerm, term))
 		}
 
-		r.currentTerm = term
+		r.persistent.currentTerm = term
 
 		var buffer bytes.Buffer
-		buffer.WriteString(fmt.Sprintf(STORETERM, r.currentTerm))
+		buffer.WriteString(fmt.Sprintf(STORETERM, r.persistent.currentTerm))
 
-		if r.votedFor != NONE {
-			r.votedFor = NONE
+		if r.persistent.votedFor != NONE {
+			r.persistent.votedFor = NONE
 
-			buffer.WriteString(fmt.Sprintf(STOREVOTEDFOR, r.votedFor))
+			buffer.WriteString(fmt.Sprintf(STOREVOTEDFOR, r.persistent.votedFor))
 		}
 
 		// Write to stable storage
