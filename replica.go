@@ -222,7 +222,8 @@ func (r *Replica) Init(id uint64, nodes []string, recover bool, slowQuorum bool,
 			grpc.WithBlock(),
 			grpc.WithBackoffMaxDelay(time.Second),
 			grpc.WithInsecure(),
-			grpc.WithTimeout(TCPCONNECT*time.Millisecond)))
+			grpc.WithTimeout(TCPCONNECT*time.Millisecond)),
+		pb.WithSelfAddr(nodes[id-1]))
 
 	if err != nil {
 		return err
@@ -234,7 +235,7 @@ func (r *Replica) Init(id uint64, nodes []string, recover bool, slowQuorum bool,
 		return err
 	}
 
-	n := len(nodes) + 1
+	n := len(nodes)
 
 	sq := n / 2
 
@@ -248,7 +249,14 @@ func (r *Replica) Init(id uint64, nodes []string, recover bool, slowQuorum bool,
 		FQ: n / 2,
 	}
 
-	conf, err := mgr.NewConfiguration(mgr.NodeIDs(), qspec)
+	// mgr.NodeIDs excluding self.
+	var peers []uint32
+
+	for _, node := range mgr.Nodes(true) {
+		peers = append(peers, node.ID())
+	}
+
+	conf, err := mgr.NewConfiguration(peers, qspec)
 
 	if err != nil {
 		return err
