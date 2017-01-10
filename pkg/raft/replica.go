@@ -434,7 +434,7 @@ func recoverFromStable(id uint64, recover bool) (*persistent, error) {
 		}
 
 		// TODO Close if we were to implement graceful shutdown.
-		p.recoverFile, err = os.OpenFile(recoverFile, os.O_APPEND|os.O_WRONLY, 0666)
+		p.recoverFile, err = os.OpenFile(recoverFile, os.O_APPEND|os.O_WRONLY, 0600)
 
 		return p, err
 	}
