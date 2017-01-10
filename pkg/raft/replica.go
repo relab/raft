@@ -50,20 +50,11 @@ const (
 	// How long we wait for an answer.
 	TCPCONNECT   = 5000
 	TCPHEARTBEAT = 2000
-
-	// Raft RPC timeouts.
-	HEARTBEAT = 250
-	ELECTION  = 2000
 )
 
 // NONE represents no server.
 // This must be a value which cannot be returned from idutil.IDFromAddress(address).
 const NONE = 0
-
-// MAXENTRIES is the maximum number of entries a AppendEntries RPC can carry at once.
-// It should be greater than the expected throughput of the system.
-// It is used to stabilize the system, giving greater throughput at the potential cost of latency.
-const MAXENTRIES = 10000 / (1000 / HEARTBEAT)
 
 // BUFFERSIZE is the initial buffer size used for maps and buffered channels
 // that directly depend on the number of requests being serviced.
@@ -129,8 +120,8 @@ func lookupTables(raftOrder []string, nodeOrder []uint32) (map[uint32]uint64, ma
 	return raftID, nodeID, nil
 }
 
-func randomTimeout() time.Duration {
-	return time.Duration(ELECTION+rand.Intn(ELECTION*2-ELECTION)) * time.Millisecond
+func randomTimeout(base time.Duration) time.Duration {
+	return time.Duration(rand.Int63n(base.Nanoseconds()) + base.Nanoseconds())
 }
 
 // Config contains the configuration need to start a Replica.
@@ -139,10 +130,13 @@ type Config struct {
 
 	Nodes []string
 
-	Recover    bool
-	Batch      bool
-	QRPC       bool
-	SlowQuorum bool
+	Recover          bool
+	Batch            bool
+	QRPC             bool
+	SlowQuorum       bool
+	ElectionTimeout  time.Duration
+	HeartbeatTimeout time.Duration
+	MaxAppendEntries int
 }
 
 func (r *Replica) save(buffer string) {
@@ -191,7 +185,8 @@ type Replica struct {
 
 	pending map[uniqueCommand]chan<- *pb.ClientCommandRequest
 
-	queue chan *pb.Entry
+	maxAppendEntries int
+	queue            chan *pb.Entry
 
 	batch bool
 	qrpc  bool
@@ -243,7 +238,7 @@ func NewReplica(cfg *Config) (*Replica, error) {
 	}
 
 	// TODO Timeouts should be in config.
-	electionTimeout := randomTimeout()
+	electionTimeout := randomTimeout(cfg.ElectionTimeout)
 
 	heartbeat := NewTimer(0)
 	heartbeat.Stop()
@@ -282,14 +277,15 @@ func NewReplica(cfg *Config) (*Replica, error) {
 		nextIndex:        nextIndex,
 		matchIndex:       matchIndex,
 		electionTimeout:  electionTimeout,
-		heartbeatTimeout: HEARTBEAT * time.Millisecond,
+		heartbeatTimeout: cfg.HeartbeatTimeout,
 		// TODO Fix Timer. Create new Timer instead of reusing.
-		election:   NewTimer(electionTimeout),
-		heartbeat:  heartbeat,
-		pending:    make(map[uniqueCommand]chan<- *pb.ClientCommandRequest, BUFFERSIZE),
-		queue:      make(chan *pb.Entry, BUFFERSIZE),
-		persistent: persistent,
-		aeHandler:  aeHandler,
+		election:         NewTimer(electionTimeout),
+		heartbeat:        heartbeat,
+		pending:          make(map[uniqueCommand]chan<- *pb.ClientCommandRequest, BUFFERSIZE),
+		maxAppendEntries: cfg.MaxAppendEntries,
+		queue:            make(chan *pb.Entry, BUFFERSIZE),
+		persistent:       persistent,
+		aeHandler:        aeHandler,
 		// TODO Fix logging.
 		logLocal: func(message string) {
 			log.Printf("%d: %s", cfg.ID, message)
@@ -301,6 +297,8 @@ func NewReplica(cfg *Config) (*Replica, error) {
 			log.Printf("%d -> %d: %s", cfg.ID, to, message)
 		},
 	}
+
+	r.logLocal(fmt.Sprintf("ElectionTimeout: %v", r.electionTimeout))
 
 	// Makes sure no RPCs are processed until the replica is ready.
 	r.Lock()
@@ -715,7 +713,7 @@ func (r *Replica) startElection() {
 	defer r.Unlock()
 
 	r.state = CANDIDATE
-	r.electionTimeout = randomTimeout()
+	r.electionTimeout = randomTimeout(r.electionTimeout)
 
 	// We are now a candidate. See Raft Paper Figure 2 -> Rules for Servers -> Candidates.
 	// #C1 Increment currentTerm.
@@ -823,7 +821,7 @@ func (q *aeqrpc) sendRequest(r *Replica) {
 	var buffer bytes.Buffer
 
 LOOP:
-	for i := MAXENTRIES; i > 0; i-- {
+	for i := r.maxAppendEntries; i > 0; i-- {
 		select {
 		case entry := <-r.queue:
 			r.persistent.log = append(r.persistent.log, entry)
@@ -853,7 +851,7 @@ LOOP:
 	}
 
 	if len(r.persistent.log) > nextIndex {
-		maxEntries := int(min(uint64(nextIndex+MAXENTRIES), uint64(len(r.persistent.log))))
+		maxEntries := int(min(uint64(nextIndex+r.maxAppendEntries), uint64(len(r.persistent.log))))
 
 		if !r.batch {
 			maxEntries = nextIndex + 1
@@ -907,7 +905,7 @@ func (q *aenoqrpc) sendRequest(r *Replica) {
 	var buffer bytes.Buffer
 
 LOOP:
-	for i := MAXENTRIES; i > 0; i-- {
+	for i := r.maxAppendEntries; i > 0; i-- {
 		select {
 		case entry := <-r.queue:
 			r.persistent.log = append(r.persistent.log, entry)
@@ -929,7 +927,7 @@ LOOP:
 		nextIndex := r.nextIndex[id] - 1
 
 		if len(r.persistent.log) > nextIndex {
-			maxEntries := int(min(uint64(nextIndex+MAXENTRIES), uint64(len(r.persistent.log))))
+			maxEntries := int(min(uint64(nextIndex+r.maxAppendEntries), uint64(len(r.persistent.log))))
 
 			if !r.batch {
 				maxEntries = nextIndex + 1

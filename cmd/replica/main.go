@@ -29,6 +29,9 @@ func main() {
 	var slowQuorum = flag.Bool("slowquorum", false, "set quorum size to the number of servers")
 	var batch = flag.Bool("batch", true, "enable batching")
 	var qrpc = flag.Bool("qrpc", false, "enable QRPC")
+	var electionTimeout = flag.Duration("election", 2*time.Second, "How long servers wait before starting an election")
+	var heartbeatTimeout = flag.Duration("heartbeat", 250*time.Millisecond, "How often a heartbeat should be sent")
+	var maxAppendEntries = flag.Int("maxappend", 5000, "Max entries per AppendEntries message")
 
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
@@ -61,6 +64,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *maxAppendEntries < 1 {
+		fmt.Print("-maxappend must be atleast 1\n\n")
+		flag.Usage()
+		os.Exit(1)
+	}
+
 	if *bench {
 		log.SetOutput(ioutil.Discard)
 		silentLogger := log.New(ioutil.Discard, "", log.LstdFlags)
@@ -69,12 +78,15 @@ func main() {
 	}
 
 	r, err := raft.NewReplica(&raft.Config{
-		ID:         *id,
-		Nodes:      nodes,
-		Recover:    *recover,
-		Batch:      *batch,
-		QRPC:       *qrpc,
-		SlowQuorum: *slowQuorum,
+		ID:               *id,
+		Nodes:            nodes,
+		Recover:          *recover,
+		Batch:            *batch,
+		QRPC:             *qrpc,
+		SlowQuorum:       *slowQuorum,
+		ElectionTimeout:  *electionTimeout,
+		HeartbeatTimeout: *heartbeatTimeout,
+		MaxAppendEntries: *maxAppendEntries,
 	})
 
 	if err != nil {
