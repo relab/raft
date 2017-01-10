@@ -68,11 +68,21 @@ func main() {
 		grpc.EnableTracing = false
 	}
 
-	rs := &raft.Replica{}
-	rs.Lock()
+	r, err := raft.NewReplica(&raft.Config{
+		ID:         *id,
+		Nodes:      nodes,
+		Recover:    *recover,
+		Batch:      *batch,
+		QRPC:       *qrpc,
+		SlowQuorum: *slowQuorum,
+	})
+
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	s := grpc.NewServer()
-	pb.RegisterRaftServer(s, rs)
+	pb.RegisterRaftServer(s, r)
 
 	l, err := net.Listen("tcp", nodes[*id-1])
 
@@ -84,25 +94,24 @@ func main() {
 		err := s.Serve(l)
 
 		if err != nil {
-			log.Println(err)
+			log.Fatal(err)
 		}
 	}()
 
-	// Wait for the server to start
-	<-time.After(500 * time.Millisecond)
-
-	if err := rs.Init(*id, nodes, *recover, *slowQuorum, *batch, *qrpc); err != nil {
-		log.Fatal(err)
-	}
-
 	if *cpuprofile != "" {
-		go rs.Run()
+		go func() {
+			if err := r.Run(); err != nil {
+				log.Fatal(err)
+			}
+		}()
 
 		reader := bufio.NewReader(os.Stdin)
 		reader.ReadLine()
 
 		pprof.StopCPUProfile()
 	} else {
-		rs.Run()
+		if err := r.Run(); err != nil {
+			log.Fatal(err)
+		}
 	}
 }

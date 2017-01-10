@@ -65,6 +65,10 @@ const NONE = 0
 // It is used to stabilize the system, giving greater throughput at the potential cost of latency.
 const MAXENTRIES = 10000 / (1000 / HEARTBEAT)
 
+// BUFFERSIZE is the initial buffer size used for maps and buffered channels
+// that directly depend on the number of requests being serviced.
+const BUFFERSIZE = 10000
+
 // How events are persisted to stable storage.
 const (
 	STOREFILE     = "%d.storage"
@@ -128,6 +132,18 @@ func randomTimeout() time.Duration {
 	return time.Duration(ELECTION+rand.Intn(ELECTION*2-ELECTION)) * time.Millisecond
 }
 
+// Config contains the configuration need to start a Replica.
+type Config struct {
+	ID uint64
+
+	Nodes []string
+
+	Recover    bool
+	Batch      bool
+	QRPC       bool
+	SlowQuorum bool
+}
+
 func (r *Replica) save(buffer string) {
 	r.persistent.recoverFile.WriteString(buffer)
 	r.persistent.recoverFile.Sync()
@@ -152,8 +168,10 @@ type Replica struct {
 
 	state State
 
+	qs   *QuorumSpec
 	conf *pb.Configuration
 
+	addrs []string
 	nodes map[uint64]*pb.Node
 
 	raftID map[uint32]uint64
@@ -198,114 +216,136 @@ func (r *Replica) logTerm(index int) uint64 {
 	return r.persistent.log[index-1].Term
 }
 
-// Init initializes a Replica.
-// This must always be run before Run.
-func (r *Replica) Init(id uint64, nodes []string, recover bool, slowQuorum bool, batch bool, qrpc bool) error {
-	defer r.Unlock()
-
-	r.id = id
-	r.batch = batch
-
-	if qrpc {
-		r.aeHandler = &aeqrpc{}
-	} else {
-		r.aeHandler = &aenoqrpc{}
-	}
-
-	mgr, err := pb.NewManager(nodes,
-		pb.WithGrpcDialOptions(
-			grpc.WithBlock(),
-			grpc.WithBackoffMaxDelay(time.Second),
-			grpc.WithInsecure(),
-			grpc.WithTimeout(TCPCONNECT*time.Millisecond)),
-		pb.WithSelfAddr(nodes[id-1]))
-
-	if err != nil {
-		return err
-	}
-
-	r.raftID, r.nodeID, err = lookupTables(nodes, mgr.NodeIDs())
-
-	if err != nil {
-		return err
-	}
-
-	n := len(nodes)
-
+func newQuorumSpec(peers int, slow bool) *QuorumSpec {
+	n := peers + 1
 	sq := n / 2
 
-	if slowQuorum {
+	if slow {
 		sq = n - 1
 	}
 
-	qspec := &QuorumSpec{
+	return &QuorumSpec{
 		N:  n,
 		SQ: sq,
 		FQ: n / 2,
 	}
+}
+
+// NewReplica returns a new Replica given a configuration.
+func NewReplica(cfg *Config) (*Replica, error) {
+	var aeHandler appendEntriesHandler
+
+	if cfg.QRPC {
+		aeHandler = &aeqrpc{}
+	} else {
+		aeHandler = &aenoqrpc{}
+	}
+
+	// TODO Timeouts should be in config.
+	electionTimeout := randomTimeout()
+
+	heartbeat := NewTimer(0)
+	heartbeat.Stop()
+
+	// Recover from stable storage. TODO Cleanup.
+	persistent, err := recoverFromStable(cfg.ID, cfg.Recover)
+
+	if err != nil {
+		return nil, err
+	}
+
+	nextIndex := make(map[uint64]int, len(cfg.Nodes))
+	matchIndex := make(map[uint64]int, len(cfg.Nodes))
+
+	for i := range cfg.Nodes {
+		id := uint64(i + 1)
+
+		// Exclude self.
+		if id == cfg.ID {
+			continue
+		}
+
+		// Initialized per Raft specification.
+		nextIndex[id] = 1
+		matchIndex[id] = 0
+	}
+
+	// TODO Order, i.e., lookup tables before nodes.
+	r := &Replica{
+		id:               cfg.ID,
+		batch:            cfg.Batch,
+		qrpc:             cfg.QRPC,
+		addrs:            cfg.Nodes,
+		nodes:            make(map[uint64]*pb.Node, len(cfg.Nodes)),
+		qs:               newQuorumSpec(len(cfg.Nodes), cfg.SlowQuorum),
+		nextIndex:        nextIndex,
+		matchIndex:       matchIndex,
+		electionTimeout:  electionTimeout,
+		heartbeatTimeout: HEARTBEAT * time.Millisecond,
+		// TODO Fix Timer. Create new Timer instead of reusing.
+		election:   NewTimer(electionTimeout),
+		heartbeat:  heartbeat,
+		pending:    make(map[uniqueCommand]chan<- *pb.ClientCommandRequest, BUFFERSIZE),
+		queue:      make(chan *pb.Entry, BUFFERSIZE),
+		persistent: persistent,
+		aeHandler:  aeHandler,
+		// TODO Fix logging.
+		logLocal: func(message string) {
+			log.Printf("%d: %s", cfg.ID, message)
+		},
+		logFrom: func(from uint64, message string) {
+			log.Printf("%d <- %d: %s", cfg.ID, from, message)
+		},
+		logTo: func(to uint64, message string) {
+			log.Printf("%d -> %d: %s", cfg.ID, to, message)
+		},
+	}
+
+	// Makes sure no RPCs are processed until the replica is ready.
+	r.Lock()
+
+	return r, nil
+}
+
+func (r *Replica) connect() error {
+	opts := []pb.ManagerOption{
+		pb.WithGrpcDialOptions(
+			grpc.WithBlock(),
+			grpc.WithInsecure(),
+			grpc.WithTimeout(TCPCONNECT*time.Millisecond),
+			grpc.WithBackoffMaxDelay(time.Second)),
+		pb.WithSelfAddr(r.addrs[r.id-1]),
+	}
+
+	// TODO In main? We really only want the conf and nodes.
+	mgr, err := pb.NewManager(r.addrs, opts...)
+
+	if err != nil {
+		return err
+	}
 
 	// mgr.NodeIDs excluding self.
-	var peers []uint32
+	var peerIDs []uint32
 
 	for _, node := range mgr.Nodes(true) {
-		peers = append(peers, node.ID())
+		peerIDs = append(peerIDs, node.ID())
 	}
 
-	conf, err := mgr.NewConfiguration(peers, qspec)
+	r.conf, err = mgr.NewConfiguration(peerIDs, r.qs)
 
 	if err != nil {
 		return err
 	}
 
-	r.conf = conf
+	r.raftID, r.nodeID, err = lookupTables(r.addrs, peerIDs)
 
-	r.logLocal = func(message string) {
-		log.Printf("%d: %s", r.id, message)
+	if err != nil {
+		return err
 	}
 
-	r.logFrom = func(from uint64, message string) {
-		log.Printf("%d <- %d: %s", r.id, from, message)
-	}
-
-	r.logTo = func(to uint64, message string) {
-		log.Printf("%d -> %d: %s", r.id, to, message)
-	}
-
-	r.nodes = make(map[uint64]*pb.Node, n-1)
-
-	for _, node := range mgr.Nodes(false) {
+	for _, node := range mgr.Nodes(true) {
 		r.nodes[r.raftID[node.ID()]] = node
 	}
-
-	r.electionTimeout = randomTimeout()
-	r.heartbeatTimeout = HEARTBEAT * time.Millisecond
-
-	if logLevel >= INFO {
-		r.logLocal(fmt.Sprintf("Timeout set to %v", r.electionTimeout))
-	}
-
-	r.election = NewTimer(r.electionTimeout)
-	r.heartbeat = NewTimer(0)
-	r.heartbeat.Stop()
-
-	r.nextIndex = make(map[uint64]int, n-1)
-	r.matchIndex = make(map[uint64]int, n-1)
-
-	for id := range r.nodes {
-		// Initialized to leader last log index + 1.
-		r.nextIndex[id] = 1
-		r.matchIndex[id] = 0
-	}
-
-	r.pending = make(map[uniqueCommand]chan<- *pb.ClientCommandRequest)
-	// Initializes r.commands.
-	r.persistent, err = recoverFromStable(r.id, recover)
-
-	if err != nil {
-		return err
-	}
-
-	r.queue = make(chan *pb.Entry, 10000)
 
 	return nil
 }
@@ -411,9 +451,15 @@ func recoverFromStable(id uint64, recover bool) (*persistent, error) {
 }
 
 // Run handles timeouts.
-// Always call Init before this method.
 // All RPCs are handled by Gorums.
-func (r *Replica) Run() {
+func (r *Replica) Run() error {
+	if err := r.connect(); err != nil {
+		return err
+	}
+
+	// Replica is ready.
+	r.Unlock()
+
 	for {
 		select {
 		case <-r.election.C:
