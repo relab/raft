@@ -1,7 +1,7 @@
 CMD_PKGS := $(shell go list ./... | grep -ve "vendor" | grep "cmd")
 
 .PHONY: all
-all: build test
+all: install test
 
 .PHONY: autocomplete
 autocomplete:
@@ -20,10 +20,10 @@ protocgorums:
 proto: protocgorums
 	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. raftpb/raft.proto
 
-.PHONY: build
-build: proto
+.PHONY: install
+install: proto
 	@for pkg in $(CMD_PKGS); do \
-		! go build $$pkg; \
+		! go install $$pkg; \
 		echo $$pkg; \
 	done
 
@@ -33,4 +33,4 @@ test: proto
 
 .PHONY: clean
 clean:
-	@rm -f replica throughput latency *.storage
+	go clean -i $(CMD_PKGS)
