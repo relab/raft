@@ -396,7 +396,7 @@ func (r *Replica) connect() error {
 		return err
 	}
 
-	peerIDs := mgr.NodeIDs(false)
+	peerIDs := mgr.NodeIDs()
 
 	r.conf, err = mgr.NewConfiguration(peerIDs, r.qs)
 
@@ -410,7 +410,7 @@ func (r *Replica) connect() error {
 		return err
 	}
 
-	for _, node := range mgr.Nodes(false) {
+	for _, node := range mgr.Nodes() {
 		r.nodes[r.raftID[node.ID()]] = node
 	}
 

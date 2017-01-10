@@ -60,8 +60,8 @@ func (mgr *ManagerWithLeader) next(leaderHint uint32) {
 		}
 	}
 
-	mgr.current = (mgr.current + 1) % len(mgr.NodeIDs(false))
-	mgr.leader, _ = mgr.Node(mgr.NodeIDs(false)[mgr.current])
+	mgr.current = (mgr.current + 1) % len(mgr.NodeIDs())
+	mgr.leader, _ = mgr.Node(mgr.NodeIDs()[mgr.current])
 }
 
 // ClientCommand invokes the ClientCommand RPC on the cluster's leader.
@@ -139,8 +139,8 @@ func (cr *clientRequester) Setup() error {
 
 	mwl := &ManagerWithLeader{
 		Manager: mgr,
-		leader:  mgr.Nodes(false)[0],
-		nodes:   len(mgr.NodeIDs(false)),
+		leader:  mgr.Nodes()[0],
+		nodes:   len(mgr.NodeIDs()),
 	}
 
 	cr.mgr = mwl

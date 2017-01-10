@@ -65,7 +65,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	client = mgr.Nodes(false)[0].RaftClient
+	client = mgr.Nodes()[0].RaftClient
 
 	count := 0
 
