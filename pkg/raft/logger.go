@@ -2,6 +2,21 @@ package raft
 
 import "log"
 
+// LogLevel sets the level of log verbosity.
+// TODO Remove or at least make configuration.
+type LogLevel int
+
+// Log verbosity levels.
+const (
+	OFF LogLevel = iota
+	INFO
+	DEBUG
+	TRACE
+)
+
+const logLevel = DEBUG
+
+// Logger wraps a stdlib Logger with a server id.
 type Logger struct {
 	id uint64
 	*log.Logger
