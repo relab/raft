@@ -263,8 +263,8 @@ func NewReplica(cfg *Config) (*Replica, error) {
 		return nil, err
 	}
 
-	nextIndex := make(map[uint64]int, len(cfg.Nodes))
-	matchIndex := make(map[uint64]int, len(cfg.Nodes))
+	nextIndex := make(map[uint64]int, len(cfg.Nodes)-1)
+	matchIndex := make(map[uint64]int, len(cfg.Nodes)-1)
 
 	for i := range cfg.Nodes {
 		id := uint64(i + 1)
@@ -295,8 +295,8 @@ func NewReplica(cfg *Config) (*Replica, error) {
 		id:               cfg.ID,
 		batch:            cfg.Batch,
 		qrpc:             cfg.QRPC,
-		nodes:            make(map[uint64]*pb.Node, len(cfg.Nodes)),
 		addrs:            nodes,
+		nodes:            make(map[uint64]*pb.Node, len(cfg.Nodes)-1),
 		qs:               newQuorumSpec(len(cfg.Nodes), cfg.SlowQuorum),
 		nextIndex:        nextIndex,
 		matchIndex:       matchIndex,
