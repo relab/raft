@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/relab/raft"
-	pb "github.com/relab/raft/raftpb"
+	"github.com/relab/raft/pkg/raft"
+	pb "github.com/relab/raft/pkg/raft/raftpb"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"

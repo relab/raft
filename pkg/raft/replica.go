@@ -19,7 +19,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
-	pb "github.com/relab/raft/raftpb"
+	pb "github.com/relab/raft/pkg/raft/raftpb"
 )
 
 // LogLevel sets the level of log verbosity.
@@ -71,6 +71,7 @@ const BUFFERSIZE = 10000
 
 // How events are persisted to stable storage.
 const (
+	// TODO Should be in config. Default to tmp.
 	STOREFILE     = "%d.storage"
 	STORETERM     = "TERM,%d\n"
 	STOREVOTEDFOR = "VOTED,%d\n"

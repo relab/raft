@@ -15,7 +15,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/relab/raft/raftpb"
+	"github.com/relab/raft/pkg/raft/raftpb"
 )
 
 // Errors

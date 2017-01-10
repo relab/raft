@@ -1,3 +1,4 @@
+PKGS		 := $(shell go list ./... | grep -ve "vendor")
 CMD_PKGS := $(shell go list ./... | grep -ve "vendor" | grep "cmd")
 
 .PHONY: all
@@ -18,7 +19,7 @@ protocgorums:
 
 .PHONY: proto
 proto: protocgorums
-	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. raftpb/raft.proto
+	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. pkg/raft/raftpb/raft.proto
 
 .PHONY: install
 install: proto
@@ -29,7 +30,7 @@ install: proto
 
 .PHONY: test
 test: proto
-	go test -v
+	go test $(PKGS) -v
 
 .PHONY: clean
 clean:

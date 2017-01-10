@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/relab/raft"
-	pb "github.com/relab/raft/raftpb"
+	"github.com/relab/raft/pkg/raft"
+	pb "github.com/relab/raft/pkg/raft/raftpb"
 )
 
 /*

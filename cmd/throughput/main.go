@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/relab/raft/raftpb"
+	"github.com/relab/raft/pkg/raft/raftpb"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
