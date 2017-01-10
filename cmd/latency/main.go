@@ -20,7 +20,6 @@ import (
 
 // Errors
 var (
-	ErrRegisterClient = errors.New("Could not register client with leader.")
 	ErrClientCommand  = errors.New("Could not send command to leader.")
 	ErrSessionExpired = errors.New("Client session has expired.")
 	ErrNotLeader      = errors.New("Replica was not leader.")
