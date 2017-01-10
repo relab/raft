@@ -20,18 +20,18 @@ import (
 	"google.golang.org/grpc/grpclog"
 )
 
-var id = flag.Uint64("id", 0, "server ID")
-var cluster = flag.String("cluster", ":9201", "comma separated cluster servers")
-var bench = flag.Bool("quiet", false, "Silence log output")
-var recover = flag.Bool("recover", false, "Recover from stable storage")
-var cpuprofile = flag.String("cpuprofile", "", "Write cpu profile to file")
-var slowQuorum = flag.Bool("slowquorum", false, "set quorum size to the number of servers")
-var batch = flag.Bool("batch", true, "enable batching")
-var qrpc = flag.Bool("qrpc", false, "enable QRPC")
-
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	var id = flag.Uint64("id", 0, "server ID")
+	var cluster = flag.String("cluster", ":9201", "comma separated cluster servers")
+	var bench = flag.Bool("quiet", false, "Silence log output")
+	var recover = flag.Bool("recover", false, "Recover from stable storage")
+	var cpuprofile = flag.String("cpuprofile", "", "Write cpu profile to file")
+	var slowQuorum = flag.Bool("slowquorum", false, "set quorum size to the number of servers")
+	var batch = flag.Bool("batch", true, "enable batching")
+	var qrpc = flag.Bool("qrpc", false, "enable QRPC")
+
 	flag.Parse()
+	rand.Seed(time.Now().UnixNano())
 
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
