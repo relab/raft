@@ -89,6 +89,7 @@ func main() {
 		ElectionTimeout:  *electionTimeout,
 		HeartbeatTimeout: *heartbeatTimeout,
 		MaxAppendEntries: *maxAppendEntries,
+		Logger:           log.New(os.Stderr, "raft", log.LstdFlags),
 	})
 
 	if err != nil {

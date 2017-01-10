@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
@@ -137,6 +138,8 @@ type Config struct {
 	ElectionTimeout  time.Duration
 	HeartbeatTimeout time.Duration
 	MaxAppendEntries int
+
+	Logger *log.Logger
 }
 
 func (r *Replica) save(buffer string) {
@@ -193,10 +196,7 @@ type Replica struct {
 
 	aeHandler appendEntriesHandler
 
-	// TODO Fix logging.
-	logLocal func(string)
-	logFrom  func(uint64, string)
-	logTo    func(uint64, string)
+	logger *Logger
 }
 
 type uniqueCommand struct {
@@ -229,6 +229,10 @@ func newQuorumSpec(peers int, slow bool) *QuorumSpec {
 
 // NewReplica returns a new Replica given a configuration.
 func NewReplica(cfg *Config) (*Replica, error) {
+	if cfg.Logger == nil {
+		cfg.Logger = log.New(ioutil.Discard, "", 0)
+	}
+
 	var aeHandler appendEntriesHandler
 
 	if cfg.QRPC {
@@ -286,19 +290,10 @@ func NewReplica(cfg *Config) (*Replica, error) {
 		queue:            make(chan *pb.Entry, BUFFERSIZE),
 		persistent:       persistent,
 		aeHandler:        aeHandler,
-		// TODO Fix logging.
-		logLocal: func(message string) {
-			log.Printf("%d: %s", cfg.ID, message)
-		},
-		logFrom: func(from uint64, message string) {
-			log.Printf("%d <- %d: %s", cfg.ID, from, message)
-		},
-		logTo: func(to uint64, message string) {
-			log.Printf("%d -> %d: %s", cfg.ID, to, message)
-		},
+		logger:           &Logger{cfg.ID, cfg.Logger},
 	}
 
-	r.logLocal(fmt.Sprintf("ElectionTimeout: %v", r.electionTimeout))
+	r.logger.Printf("ElectionTimeout: %v", r.electionTimeout)
 
 	// Makes sure no RPCs are processed until the replica is ready.
 	r.Lock()
@@ -474,7 +469,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *pb.RequestVoteReques
 	defer r.Unlock()
 
 	if logLevel >= INFO {
-		r.logFrom(request.CandidateID, fmt.Sprintf("Vote requested in term %d for term %d", r.persistent.currentTerm, request.Term))
+		r.logger.from(request.CandidateID, fmt.Sprintf("Vote requested in term %d for term %d", r.persistent.currentTerm, request.Term))
 	}
 
 	// #RV1 Reply false if term < currentTerm.
@@ -492,7 +487,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *pb.RequestVoteReques
 		(request.LastLogTerm > r.logTerm(len(r.persistent.log)) ||
 			(request.LastLogTerm == r.logTerm(len(r.persistent.log)) && request.LastLogIndex >= uint64(len(r.persistent.log)))) {
 		if logLevel >= INFO {
-			r.logTo(request.CandidateID, fmt.Sprintf("Vote granted for term %d", request.Term))
+			r.logger.to(request.CandidateID, fmt.Sprintf("Vote granted for term %d", request.Term))
 		}
 
 		r.persistent.votedFor = request.CandidateID
@@ -519,7 +514,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 	defer r.Unlock()
 
 	if logLevel >= TRACE {
-		r.logFrom(request.LeaderID, fmt.Sprintf("AppendEntries = %+v", request))
+		r.logger.from(request.LeaderID, fmt.Sprintf("AppendEntries = %+v", request))
 	}
 
 	// #AE1 Reply false if term < currentTerm.
@@ -564,7 +559,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 		r.save(buffer.String())
 
 		if logLevel >= DEBUG {
-			r.logTo(request.LeaderID, fmt.Sprintf("AppendEntries persisted %d entries to stable storage", len(request.Entries)))
+			r.logger.to(request.LeaderID, fmt.Sprintf("AppendEntries persisted %d entries to stable storage", len(request.Entries)))
 		}
 
 		old := r.commitIndex
@@ -618,10 +613,10 @@ func (r *Replica) logCommand(request *pb.ClientCommandRequest) (<-chan *pb.Clien
 			request.ClientID = rand.Uint32()
 
 			if logLevel >= INFO {
-				r.logFrom(uint64(request.ClientID), fmt.Sprintf("Client request = %s", request.Command))
+				r.logger.from(uint64(request.ClientID), fmt.Sprintf("Client request = %s", request.Command))
 			}
 		} else if logLevel >= TRACE {
-			r.logFrom(uint64(request.ClientID), fmt.Sprintf("Client request = %s", request.Command))
+			r.logger.from(uint64(request.ClientID), fmt.Sprintf("Client request = %s", request.Command))
 		}
 
 		commandID := uniqueCommand{clientID: request.ClientID, sequenceNumber: request.SequenceNumber}
@@ -732,7 +727,7 @@ func (r *Replica) startElection() {
 	r.save(buffer.String())
 
 	if logLevel >= INFO {
-		r.logLocal(fmt.Sprintf("Starting election for term %d", r.persistent.currentTerm))
+		r.logger.log(fmt.Sprintf("Starting election for term %d", r.persistent.currentTerm))
 	}
 
 	// #C3 Reset election timer.
@@ -748,7 +743,7 @@ func (r *Replica) startElection() {
 		reply, err := req.Get()
 
 		if err != nil {
-			r.logLocal(fmt.Sprintf("RequestVote failed = %v", err))
+			r.logger.log(fmt.Sprintf("RequestVote failed = %v", err))
 
 			return
 		}
@@ -784,7 +779,7 @@ func (r *Replica) handleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		// We have received at least a quorum of votes.
 		// We are the leader for this term. See Raft Paper Figure 2 -> Rules for Servers -> Leaders.
 		if logLevel >= INFO {
-			r.logLocal(fmt.Sprintf("Elected leader for term %d", r.persistent.currentTerm))
+			r.logger.log(fmt.Sprintf("Elected leader for term %d", r.persistent.currentTerm))
 		}
 
 		r.state = LEADER
@@ -815,7 +810,7 @@ func (q *aeqrpc) sendRequest(r *Replica) {
 	defer r.Unlock()
 
 	if logLevel >= DEBUG {
-		r.logLocal(fmt.Sprintf("Sending AppendEntries for term %d", r.persistent.currentTerm))
+		r.logger.log(fmt.Sprintf("Sending AppendEntries for term %d", r.persistent.currentTerm))
 	}
 
 	var buffer bytes.Buffer
@@ -861,7 +856,7 @@ LOOP:
 	}
 
 	if logLevel >= DEBUG {
-		r.logLocal(fmt.Sprintf("Sending %d entries", len(entries)))
+		r.logger.log(fmt.Sprintf("Sending %d entries", len(entries)))
 	}
 
 	req := &pb.AppendEntriesRequest{
@@ -880,7 +875,7 @@ LOOP:
 		resp, err := r.conf.AppendEntries(ctx, req)
 
 		if err != nil {
-			r.logLocal(fmt.Sprintf("AppendEntries failed = %v", err))
+			r.logger.log(fmt.Sprintf("AppendEntries failed = %v", err))
 
 			// We can not return if there is a response, i.e., there is replicas that needs updating.
 			if resp.AppendEntriesResponse == nil {
@@ -899,7 +894,7 @@ func (q *aenoqrpc) sendRequest(r *Replica) {
 	defer r.Unlock()
 
 	if logLevel >= DEBUG {
-		r.logLocal(fmt.Sprintf("Sending AppendEntries for term %d", r.persistent.currentTerm))
+		r.logger.log(fmt.Sprintf("Sending AppendEntries for term %d", r.persistent.currentTerm))
 	}
 
 	var buffer bytes.Buffer
@@ -937,7 +932,7 @@ LOOP:
 		}
 
 		if logLevel >= DEBUG {
-			r.logTo(id, fmt.Sprintf("Sending %d entries", len(entries)))
+			r.logger.to(id, fmt.Sprintf("Sending %d entries", len(entries)))
 		}
 
 		req := &pb.AppendEntriesRequest{
@@ -956,7 +951,7 @@ LOOP:
 			resp, err := node.RaftClient.AppendEntries(ctx, req)
 
 			if err != nil {
-				r.logTo(r.raftID[node.ID()], fmt.Sprintf("AppendEntries failed = %v", err))
+				r.logger.to(r.raftID[node.ID()], fmt.Sprintf("AppendEntries failed = %v", err))
 
 				return
 			}
@@ -1039,7 +1034,7 @@ func (r *Replica) becomeFollower(term uint64) {
 
 	if r.persistent.currentTerm != term {
 		if logLevel >= INFO {
-			r.logLocal(fmt.Sprintf("Become follower as we transition from term %d to %d", r.persistent.currentTerm, term))
+			r.logger.log(fmt.Sprintf("Become follower as we transition from term %d to %d", r.persistent.currentTerm, term))
 		}
 
 		r.persistent.currentTerm = term
