@@ -1,13 +1,13 @@
 PKGS		 := $(shell go list ./... | grep -ve "vendor")
 CMD_PKGS := $(shell go list ./... | grep -ve "vendor" | grep "cmd")
+LIB_PKGS := $(shell go list ./... | grep -ve "vendor" | grep "pkg")
 
 .PHONY: all
 all: install test
 
 .PHONY: autocomplete
 autocomplete:
-	go install .
-	cd raftpb; go install .
+	go install $(LIB_PKGS)
 
 .PHONY: restore
 restore:
