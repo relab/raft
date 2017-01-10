@@ -93,7 +93,7 @@ func max(a, b uint64) uint64 {
 	return b
 }
 
-func lookupTables(raftOrder []string, nodeOrder []uint32) (map[uint32]uint64, map[uint64]uint32, error) {
+func lookupTables(id uint64, raftOrder []string, nodeOrder []uint32) (map[uint32]uint64, map[uint64]uint32, error) {
 	h := fnv.New32a()
 
 	raftID := make(map[uint32]uint64)
@@ -103,7 +103,14 @@ func lookupTables(raftOrder []string, nodeOrder []uint32) (map[uint32]uint64, ma
 		raftID[id] = 0
 	}
 
-	for rid, addr := range raftOrder {
+	var rid int
+
+	for _, addr := range raftOrder {
+		// Increase id to compensate gap.
+		if uint64(rid+1) == id {
+			rid++
+		}
+
 		tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
 
 		if err != nil {
@@ -116,6 +123,8 @@ func lookupTables(raftOrder []string, nodeOrder []uint32) (map[uint32]uint64, ma
 
 		raftID[nid] = uint64(rid + 1)
 		nodeID[uint64(rid+1)] = nid
+
+		rid++
 	}
 
 	return raftID, nodeID, nil
@@ -270,13 +279,24 @@ func NewReplica(cfg *Config) (*Replica, error) {
 		matchIndex[id] = 0
 	}
 
+	var nodes []string
+
+	// Remove self
+	for _, node := range cfg.Nodes {
+		if node == cfg.Nodes[cfg.ID-1] {
+			continue
+		}
+
+		nodes = append(nodes, node)
+	}
+
 	// TODO Order, i.e., lookup tables before nodes.
 	r := &Replica{
 		id:               cfg.ID,
 		batch:            cfg.Batch,
 		qrpc:             cfg.QRPC,
-		addrs:            cfg.Nodes,
 		nodes:            make(map[uint64]*pb.Node, len(cfg.Nodes)),
+		addrs:            nodes,
 		qs:               newQuorumSpec(len(cfg.Nodes), cfg.SlowQuorum),
 		nextIndex:        nextIndex,
 		matchIndex:       matchIndex,
@@ -308,7 +328,6 @@ func (r *Replica) connect() error {
 			grpc.WithInsecure(),
 			grpc.WithTimeout(TCPCONNECT*time.Millisecond),
 			grpc.WithBackoffMaxDelay(time.Second)),
-		pb.WithSelfAddr(r.addrs[r.id-1]),
 	}
 
 	// TODO In main? We really only want the conf and nodes.
@@ -318,7 +337,7 @@ func (r *Replica) connect() error {
 		return err
 	}
 
-	peerIDs := mgr.NodeIDs(true)
+	peerIDs := mgr.NodeIDs(false)
 
 	r.conf, err = mgr.NewConfiguration(peerIDs, r.qs)
 
@@ -326,13 +345,13 @@ func (r *Replica) connect() error {
 		return err
 	}
 
-	r.raftID, r.nodeID, err = lookupTables(r.addrs, peerIDs)
+	r.raftID, r.nodeID, err = lookupTables(r.id, r.addrs, peerIDs)
 
 	if err != nil {
 		return err
 	}
 
-	for _, node := range mgr.Nodes(true) {
+	for _, node := range mgr.Nodes(false) {
 		r.nodes[r.raftID[node.ID()]] = node
 	}
 
