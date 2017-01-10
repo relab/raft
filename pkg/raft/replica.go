@@ -325,12 +325,7 @@ func (r *Replica) connect() error {
 		return err
 	}
 
-	// mgr.NodeIDs excluding self.
-	var peerIDs []uint32
-
-	for _, node := range mgr.Nodes(true) {
-		peerIDs = append(peerIDs, node.ID())
-	}
+	peerIDs := mgr.NodeIDs(true)
 
 	r.conf, err = mgr.NewConfiguration(peerIDs, r.qs)
 
