@@ -163,7 +163,7 @@ LOOP:
 			resp, err := node.RaftClient.AppendEntries(ctx, req)
 
 			if err != nil {
-				r.logger.to(r.raftID[node.ID()], fmt.Sprintf("AppendEntries failed = %v", err))
+				r.logger.to(id, fmt.Sprintf("AppendEntries failed = %v", err))
 
 				return
 			}

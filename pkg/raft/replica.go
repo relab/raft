@@ -103,9 +103,6 @@ type Replica struct {
 	addrs []string
 	nodes map[uint64]*pb.Node
 
-	raftID map[uint32]uint64
-	nodeID map[uint64]uint32
-
 	commitIndex uint64
 
 	nextIndex  map[uint64]int
@@ -184,7 +181,7 @@ func NewReplica(cfg *Config) (*Replica, error) {
 		nodes = append(nodes, node)
 	}
 
-	// TODO Order, i.e., lookup tables before nodes.
+	// TODO Order.
 	r := &Replica{
 		id:               cfg.ID,
 		batch:            cfg.Batch,
@@ -396,22 +393,23 @@ func (r *Replica) connect() error {
 		return err
 	}
 
-	peerIDs := mgr.NodeIDs()
-
-	r.conf, err = mgr.NewConfiguration(peerIDs, r.qs)
+	r.conf, err = mgr.NewConfiguration(mgr.NodeIDs(), r.qs)
 
 	if err != nil {
 		return err
 	}
 
-	r.raftID, r.nodeID, err = lookupTables(r.id, r.addrs, peerIDs)
+	var rid uint64
 
-	if err != nil {
-		return err
-	}
+	for i, node := range mgr.Nodes() {
+		// Increase id to compensate gap.
+		if rid+1 == uint64(i) {
+			rid++
+		}
 
-	for _, node := range mgr.Nodes() {
-		r.nodes[r.raftID[node.ID()]] = node
+		r.nodes[rid] = node
+
+		rid++
 	}
 
 	return nil
