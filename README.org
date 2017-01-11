@@ -31,12 +31,13 @@ git config --global url."git@github.com:".insteadOf "https://github.com/"
 go get github.com/relab/raft
 
 # Install the binaries.
-## For running a raft replica.
-go install github.com/relab/raft/cmd/replica
-## For testing throughput.
-go install github.com/relab/raft/cmd/throughput
-## For testing latency.
-go install github.com/relab/raft/cmd/latency
+make install
+
+# Running tests.
+make test
+
+# Removing the binaries.
+make clean
 #+END_SRC
 
 *** For details on the specific programs:

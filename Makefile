@@ -22,14 +22,14 @@ proto: protocgorums
 	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. pkg/raft/raftpb/raft.proto
 
 .PHONY: install
-install: proto
+install:
 	@for pkg in $(CMD_PKGS); do \
 		! go install $$pkg; \
 		echo $$pkg; \
 	done
 
 .PHONY: test
-test: proto
+test:
 	go test $(PKGS) -v
 
 .PHONY: clean
