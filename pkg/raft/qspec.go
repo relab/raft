@@ -2,17 +2,17 @@ package raft
 
 import pb "github.com/relab/raft/pkg/raft/raftpb"
 
-// QuorumSpec holds information about the quorum size of the current configuration
-// and allows us to invoke QRPCs.
+// QuorumSpec holds information about the quorum size of the current
+// configuration and allows us to invoke QRPCs.
 type QuorumSpec struct {
-	N  int
-	SQ int
-	FQ int
+	N    int
+	Q    int
+	MajQ int
 }
 
-// RequestVoteQF gathers RequestVoteResponses
-// and delivers a reply when a higher term is seen or a quorum of votes is received.
-func (qspec *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.RequestVoteResponse) (*pb.RequestVoteResponse, bool) {
+// RequestVoteQF gathers RequestVoteResponses and delivers a reply when a higher
+// term is seen or a quorum of votes is received.
+func (qs *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.RequestVoteResponse) (*pb.RequestVoteResponse, bool) {
 	votes := 0
 	response := *replies[len(replies)-1]
 
@@ -27,7 +27,7 @@ func (qspec *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb
 
 	}
 
-	if votes >= qspec.FQ {
+	if votes >= qs.MajQ {
 		response.VoteGranted = true
 
 		return &response, true
@@ -36,51 +36,59 @@ func (qspec *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb
 	return nil, false
 }
 
-// AppendEntriesQF gathers AppendEntriesResponses
-// and calculates the log entries replicated, depending on the quorum configuration.
-func (qspec *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*pb.AppendEntriesResponse) (*pb.AppendEntriesResponse, bool) {
-	numSuccess := 0
-	maxMatchIndex := uint64(0)
-	response := *replies[len(replies)-1]
-	response.Success = false
-	response.FollowerID = nil
+// AppendEntriesQF gathers AppendEntriesResponses and calculates the log entries
+// replicated, depending on the quorum configuration.
+func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*pb.AppendEntriesResponse) (*pb.AppendEntriesResponse, bool) {
+	last := replies[len(replies)-1]
 
-	if response.Term > req.Term {
-		return &response, true
+	// Abort.
+	if last.Term > req.Term {
+		return last, true
 	}
 
-	for _, reply := range replies {
-		if reply.MatchIndex < response.MatchIndex {
-			response.MatchIndex = reply.MatchIndex
+	reply, successful := qs.combine(replies)
+	reply.Term = req.Term
+
+	// The request was successful if we received a quorum, or a response
+	// from all the servers.
+	done := reply.Success || len(replies) == qs.N
+
+	// done will be false until successful >= qs.Q or we receive a response
+	// from every server. This makes sure a request that times out will be
+	// able to proceed with only a majority quorum. Note that we don't allow
+	// the cluster to proceed until every server that responds is
+	// successful. This cause all servers to stay up-to-date.
+	if len(replies) == successful {
+		reply.Success = successful >= qs.MajQ
+	}
+
+	return reply, done
+}
+
+func (qs *QuorumSpec) combine(replies []*pb.AppendEntriesResponse) (*pb.AppendEntriesResponse, int) {
+	successful := 0
+	minMatch := ^uint64(0) // Largest uint64.
+	reply := &pb.AppendEntriesResponse{}
+
+	for _, r := range replies {
+		if r.MatchIndex < minMatch {
+			minMatch = r.MatchIndex
 		}
 
-		if reply.Success {
-			maxMatchIndex = reply.MatchIndex
-			numSuccess++
-			response.FollowerID = append(response.FollowerID, reply.FollowerID[0])
+		if r.Success {
+			reply.MatchIndex = r.MatchIndex
+			reply.FollowerID = append(reply.FollowerID, r.FollowerID...)
+			successful++
 		}
 	}
 
-	if numSuccess >= qspec.SQ {
-		response.MatchIndex = maxMatchIndex
-		response.Success = true
+	// If there were enough successful responses, we have a quorum.
+	reply.Success = successful >= qs.Q
 
-		return &response, true
+	// If we don't have a quorum, set match index to the lowest seen.
+	if !reply.Success {
+		reply.MatchIndex = minMatch
 	}
 
-	// Majority quorum.
-	quorum := numSuccess >= qspec.FQ
-
-	// If we have a majority and all the replicas that responded were successful.
-	if quorum && len(replies) == numSuccess {
-		response.Success = true
-	} else {
-		// This is not needed but makes it clear that FollowerID should
-		// not be used when AppendEntries fail.
-		response.FollowerID = nil
-	}
-
-	// Wait for more replies but leave the response in the case of a timeout.
-	// We do this so that the cluster can proceed even if some replicas are down.
-	return &response, false
+	return reply, successful
 }

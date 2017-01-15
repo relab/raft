@@ -74,7 +74,8 @@ var appendEntriesCommonQFTests = []AETestCase{
 		},
 		true,
 		&pb.AppendEntriesResponse{
-			Term: 6,
+			FollowerID: []uint64{10},
+			Term:       6,
 		},
 	},
 	{
@@ -112,7 +113,7 @@ var appendEntriesCommonQFTests = []AETestCase{
 				Success:    false,
 			},
 		},
-		false,
+		true,
 		&pb.AppendEntriesResponse{
 			Term:       5,
 			MatchIndex: 100,
@@ -136,7 +137,7 @@ var appendEntriesCommonQFTests = []AETestCase{
 				Success:    false,
 			},
 		},
-		false,
+		true,
 		&pb.AppendEntriesResponse{
 			Term:       5,
 			MatchIndex: 50,
@@ -242,8 +243,9 @@ var appendEntriesSlowQFTests = []AETestCase{
 				Success:    false,
 			},
 		},
-		false,
+		true,
 		&pb.AppendEntriesResponse{
+			FollowerID: []uint64{10},
 			Term:       5,
 			MatchIndex: 50,
 			Success:    false,
@@ -256,16 +258,12 @@ var qspecs = []struct {
 	spec pb.QuorumSpec
 }{
 	{
-		"QuorumSpec N3 FQ1",
-		&raft.QuorumSpec{N: 3, FQ: 1},
+		"QuorumSpec N3 Q=MajQ",
+		&raft.QuorumSpec{N: 2, MajQ: 1, Q: 1},
 	},
 	{
-		"QuorumSpec N3 FQ1 SQ1",
-		&raft.QuorumSpec{N: 3, FQ: 1, SQ: 1},
-	},
-	{
-		"QuorumSpec N3 FQ1 SQ2",
-		&raft.QuorumSpec{N: 3, FQ: 1, SQ: 2},
+		"QuorumSpec N3 Q=N",
+		&raft.QuorumSpec{N: 2, MajQ: 1, Q: 2},
 	},
 }
 
@@ -288,7 +286,7 @@ func TestRequestVoteQF(t *testing.T) {
 }
 
 func TestAppendEntriesFastQF(t *testing.T) {
-	qspec := qspecs[1]
+	qspec := qspecs[0]
 
 	for _, test := range append(appendEntriesCommonQFTests, appendEntriesFastQFTests...) {
 		t.Run(qspec.name+"-"+test.name, func(t *testing.T) {
@@ -306,7 +304,7 @@ func TestAppendEntriesFastQF(t *testing.T) {
 }
 
 func TestAppendEntriesSlowQF(t *testing.T) {
-	qspec := qspecs[2]
+	qspec := qspecs[1]
 
 	for _, test := range append(appendEntriesCommonQFTests, appendEntriesSlowQFTests...) {
 		t.Run(qspec.name+"-"+test.name, func(t *testing.T) {

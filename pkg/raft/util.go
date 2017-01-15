@@ -34,8 +34,8 @@ func newQuorumSpec(peers int, slow bool) *QuorumSpec {
 	}
 
 	return &QuorumSpec{
-		N:  n,
-		SQ: sq,
-		FQ: n / 2,
+		N:    n - 1,
+		Q:    sq,
+		MajQ: n / 2,
 	}
 }
