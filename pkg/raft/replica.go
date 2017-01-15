@@ -399,11 +399,11 @@ func (r *Replica) connect() error {
 		return err
 	}
 
-	var rid uint64
+	var rid uint64 = 1
 
 	for i, node := range mgr.Nodes() {
 		// Increase id to compensate gap.
-		if rid+1 == uint64(i) {
+		if r.id == uint64(i+1) {
 			rid++
 		}
 
