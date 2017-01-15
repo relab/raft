@@ -205,7 +205,7 @@ func (q *aeqrpc) handleResponse(r *Replica, response *pb.AppendEntriesResponse) 
 
 		// If AppendEntries was not successful reset all.
 		for id := range r.nodes {
-			r.nextIndex[id] = int(response.MatchIndex)
+			r.nextIndex[id] = int(max(1, response.MatchIndex))
 		}
 	}
 }
