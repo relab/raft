@@ -47,6 +47,7 @@ func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*p
 	}
 
 	reply, successful := qs.combine(replies)
+	// If the request has not aborted, every response has Term = req.Term.
 	reply.Term = req.Term
 
 	// The request was successful if we received a quorum, or a response

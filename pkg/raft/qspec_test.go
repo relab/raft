@@ -8,16 +8,6 @@ import (
 	pb "github.com/relab/raft/pkg/raft/raftpb"
 )
 
-/*
-Note that it follows from the Raft specification that a response to a request
-sent in term RequestTerm, will always contain a Term >= RequestTerm. This is the
-reason there are no tests with Term < RequestTerm, as a follower is required to
-update its Term to RequestTerm if its current term is lower. Also note that a
-RequestTerm will always be the same for all responses to a given quorum call,
-this follows from the fact that the field is set directly from the request
-received.
-*/
-
 var requestVoteQFTests = []struct {
 	name    string
 	request *pb.RequestVoteRequest
