@@ -62,6 +62,15 @@ func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*p
 		reply.Success = successful >= qs.MajQ
 	}
 
+	// If an AppendEntries is unsuccessful every nodes next index must be
+	// reset to the lowest seen match index. Setting the FollowerID to nil
+	// is not strictly need here but it allows us to know that the reply
+	// came from a quorum call. A direct reply always has exactly one
+	// FollowerID.
+	if !reply.Success {
+		reply.FollowerID = nil
+	}
+
 	return reply, done
 }
 

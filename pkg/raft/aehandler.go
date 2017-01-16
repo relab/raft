@@ -11,7 +11,6 @@ import (
 
 type appendEntriesHandler interface {
 	sendRequest(*Replica)
-	handleResponse(*Replica, *pb.AppendEntriesResponse)
 }
 
 type aeqrpc struct{}
@@ -95,7 +94,7 @@ LOOP:
 			}
 		}
 
-		r.aeHandler.handleResponse(r, resp.AppendEntriesResponse)
+		r.handleAppendEntriesResponse(resp.AppendEntriesResponse)
 	}(req)
 
 	r.heartbeat.Reset(r.heartbeatTimeout)
@@ -167,76 +166,10 @@ LOOP:
 
 				return
 			}
-			r.aeHandler.handleResponse(r, resp)
+
+			r.handleAppendEntriesResponse(resp)
 		}(node, req)
 	}
 
 	r.heartbeat.Reset(r.heartbeatTimeout)
-}
-
-func (q *aeqrpc) handleResponse(r *Replica, response *pb.AppendEntriesResponse) {
-	r.Lock()
-	defer func() {
-		r.Unlock()
-		r.advanceCommitIndex()
-	}()
-
-	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if response.Term > r.persistent.currentTerm {
-		r.becomeFollower(response.Term)
-
-		return
-	}
-
-	// Ignore late response
-	if response.Term < r.persistent.currentTerm {
-		return
-	}
-
-	if r.state == Leader {
-		if response.Success {
-			for _, id := range response.FollowerID {
-				r.matchIndex[id] = int(response.MatchIndex)
-				r.nextIndex[id] = r.matchIndex[id] + 1
-			}
-
-			return
-		}
-
-		// If AppendEntries was not successful reset all.
-		for id := range r.nodes {
-			r.nextIndex[id] = int(max(1, response.MatchIndex))
-		}
-	}
-}
-
-func (q *aenoqrpc) handleResponse(r *Replica, response *pb.AppendEntriesResponse) {
-	r.Lock()
-	defer func() {
-		r.Unlock()
-		r.advanceCommitIndex()
-	}()
-
-	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if response.Term > r.persistent.currentTerm {
-		r.becomeFollower(response.Term)
-
-		return
-	}
-
-	// Ignore late response
-	if response.Term < r.persistent.currentTerm {
-		return
-	}
-
-	if r.state == Leader {
-		if response.Success {
-			r.matchIndex[response.FollowerID[0]] = int(response.MatchIndex)
-			r.nextIndex[response.FollowerID[0]] = r.matchIndex[response.FollowerID[0]] + 1
-
-			return
-		}
-
-		r.nextIndex[response.FollowerID[0]] = int(max(1, response.MatchIndex))
-	}
 }

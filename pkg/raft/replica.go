@@ -599,6 +599,47 @@ func (r *Replica) handleRequestVoteResponse(response *pb.RequestVoteResponse) {
 	// This will happened if we don't receive enough replies in time. Or we lose the election but don't see a higher term number.
 }
 
+func (r *Replica) handleAppendEntriesResponse(response *pb.AppendEntriesResponse) {
+	r.Lock()
+	defer func() {
+		r.Unlock()
+		r.advanceCommitIndex()
+	}()
+
+	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
+	if response.Term > r.persistent.currentTerm {
+		r.becomeFollower(response.Term)
+
+		return
+	}
+
+	// Ignore late response
+	if response.Term < r.persistent.currentTerm {
+		return
+	}
+
+	if r.state == Leader {
+		if response.Success {
+			for _, id := range response.FollowerID {
+				r.matchIndex[id] = int(response.MatchIndex)
+				r.nextIndex[id] = r.matchIndex[id] + 1
+			}
+
+			return
+		}
+
+		// TODO noqrpc
+		if len(response.FollowerID) == 1 {
+			r.nextIndex[response.FollowerID[0]] = int(max(1, response.MatchIndex))
+		}
+
+		// If AppendEntries was not successful reset all.
+		for id := range r.nodes {
+			r.nextIndex[id] = int(max(1, response.MatchIndex))
+		}
+	}
+}
+
 func (r *Replica) becomeFollower(term uint64) {
 	r.state = Follower
 

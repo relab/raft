@@ -245,7 +245,6 @@ var appendEntriesSlowQFTests = []AETestCase{
 		},
 		true,
 		&pb.AppendEntriesResponse{
-			FollowerID: []uint64{10},
 			Term:       5,
 			MatchIndex: 50,
 			Success:    false,
