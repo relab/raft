@@ -22,32 +22,7 @@ package raftpb
 import proto "github.com/gogo/protobuf/proto"
 import fmt "fmt"
 import math "math"
-import _ "github.com/relab/gorums"
-
-import strconv "strconv"
-
-import (
-	"bytes"
-	"encoding/binary"
-	"hash/fnv"
-	"log"
-	"net"
-	"sort"
-	"sync"
-	"time"
-
-	"golang.org/x/net/trace"
-
-	"google.golang.org/grpc/codes"
-)
-
-import (
-	context "golang.org/x/net/context"
-	grpc "google.golang.org/grpc"
-)
-
-import strings "strings"
-import reflect "reflect"
+import _ "github.com/gogo/protobuf/gogoproto"
 
 import io "io"
 
@@ -81,6 +56,9 @@ var Status_value = map[string]int32{
 	"SESSION_EXPIRED": -2,
 }
 
+func (x Status) String() string {
+	return proto.EnumName(Status_name, int32(x))
+}
 func (Status) EnumDescriptor() ([]byte, []int) { return fileDescriptorRaft, []int{0} }
 
 type Entry struct {
@@ -89,8 +67,16 @@ type Entry struct {
 }
 
 func (m *Entry) Reset()                    { *m = Entry{} }
+func (m *Entry) String() string            { return proto.CompactTextString(m) }
 func (*Entry) ProtoMessage()               {}
 func (*Entry) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{0} }
+
+func (m *Entry) GetTerm() uint64 {
+	if m != nil {
+		return m.Term
+	}
+	return 0
+}
 
 func (m *Entry) GetData() *ClientCommandRequest {
 	if m != nil {
@@ -107,8 +93,37 @@ type RequestVoteRequest struct {
 }
 
 func (m *RequestVoteRequest) Reset()                    { *m = RequestVoteRequest{} }
+func (m *RequestVoteRequest) String() string            { return proto.CompactTextString(m) }
 func (*RequestVoteRequest) ProtoMessage()               {}
 func (*RequestVoteRequest) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{1} }
+
+func (m *RequestVoteRequest) GetCandidateID() uint64 {
+	if m != nil {
+		return m.CandidateID
+	}
+	return 0
+}
+
+func (m *RequestVoteRequest) GetTerm() uint64 {
+	if m != nil {
+		return m.Term
+	}
+	return 0
+}
+
+func (m *RequestVoteRequest) GetLastLogIndex() uint64 {
+	if m != nil {
+		return m.LastLogIndex
+	}
+	return 0
+}
+
+func (m *RequestVoteRequest) GetLastLogTerm() uint64 {
+	if m != nil {
+		return m.LastLogTerm
+	}
+	return 0
+}
 
 type RequestVoteResponse struct {
 	Term        uint64 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
@@ -116,8 +131,23 @@ type RequestVoteResponse struct {
 }
 
 func (m *RequestVoteResponse) Reset()                    { *m = RequestVoteResponse{} }
+func (m *RequestVoteResponse) String() string            { return proto.CompactTextString(m) }
 func (*RequestVoteResponse) ProtoMessage()               {}
 func (*RequestVoteResponse) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{2} }
+
+func (m *RequestVoteResponse) GetTerm() uint64 {
+	if m != nil {
+		return m.Term
+	}
+	return 0
+}
+
+func (m *RequestVoteResponse) GetVoteGranted() bool {
+	if m != nil {
+		return m.VoteGranted
+	}
+	return false
+}
 
 type AppendEntriesRequest struct {
 	LeaderID     uint64   `protobuf:"varint,1,opt,name=leaderID,proto3" json:"leaderID,omitempty"`
@@ -129,8 +159,44 @@ type AppendEntriesRequest struct {
 }
 
 func (m *AppendEntriesRequest) Reset()                    { *m = AppendEntriesRequest{} }
+func (m *AppendEntriesRequest) String() string            { return proto.CompactTextString(m) }
 func (*AppendEntriesRequest) ProtoMessage()               {}
 func (*AppendEntriesRequest) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{3} }
+
+func (m *AppendEntriesRequest) GetLeaderID() uint64 {
+	if m != nil {
+		return m.LeaderID
+	}
+	return 0
+}
+
+func (m *AppendEntriesRequest) GetTerm() uint64 {
+	if m != nil {
+		return m.Term
+	}
+	return 0
+}
+
+func (m *AppendEntriesRequest) GetPrevLogIndex() uint64 {
+	if m != nil {
+		return m.PrevLogIndex
+	}
+	return 0
+}
+
+func (m *AppendEntriesRequest) GetPrevLogTerm() uint64 {
+	if m != nil {
+		return m.PrevLogTerm
+	}
+	return 0
+}
+
+func (m *AppendEntriesRequest) GetCommitIndex() uint64 {
+	if m != nil {
+		return m.CommitIndex
+	}
+	return 0
+}
 
 func (m *AppendEntriesRequest) GetEntries() []*Entry {
 	if m != nil {
@@ -147,8 +213,37 @@ type AppendEntriesResponse struct {
 }
 
 func (m *AppendEntriesResponse) Reset()                    { *m = AppendEntriesResponse{} }
+func (m *AppendEntriesResponse) String() string            { return proto.CompactTextString(m) }
 func (*AppendEntriesResponse) ProtoMessage()               {}
 func (*AppendEntriesResponse) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{4} }
+
+func (m *AppendEntriesResponse) GetFollowerID() []uint64 {
+	if m != nil {
+		return m.FollowerID
+	}
+	return nil
+}
+
+func (m *AppendEntriesResponse) GetTerm() uint64 {
+	if m != nil {
+		return m.Term
+	}
+	return 0
+}
+
+func (m *AppendEntriesResponse) GetMatchIndex() uint64 {
+	if m != nil {
+		return m.MatchIndex
+	}
+	return 0
+}
+
+func (m *AppendEntriesResponse) GetSuccess() bool {
+	if m != nil {
+		return m.Success
+	}
+	return false
+}
 
 type ClientCommandRequest struct {
 	ClientID       uint32 `protobuf:"varint,1,opt,name=clientID,proto3" json:"clientID,omitempty"`
@@ -157,8 +252,30 @@ type ClientCommandRequest struct {
 }
 
 func (m *ClientCommandRequest) Reset()                    { *m = ClientCommandRequest{} }
+func (m *ClientCommandRequest) String() string            { return proto.CompactTextString(m) }
 func (*ClientCommandRequest) ProtoMessage()               {}
 func (*ClientCommandRequest) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{5} }
+
+func (m *ClientCommandRequest) GetClientID() uint32 {
+	if m != nil {
+		return m.ClientID
+	}
+	return 0
+}
+
+func (m *ClientCommandRequest) GetSequenceNumber() uint64 {
+	if m != nil {
+		return m.SequenceNumber
+	}
+	return 0
+}
+
+func (m *ClientCommandRequest) GetCommand() string {
+	if m != nil {
+		return m.Command
+	}
+	return ""
+}
 
 type ClientCommandResponse struct {
 	Status     Status `protobuf:"varint,1,opt,name=status,proto3,enum=raftpb.Status" json:"status,omitempty"`
@@ -168,8 +285,37 @@ type ClientCommandResponse struct {
 }
 
 func (m *ClientCommandResponse) Reset()                    { *m = ClientCommandResponse{} }
+func (m *ClientCommandResponse) String() string            { return proto.CompactTextString(m) }
 func (*ClientCommandResponse) ProtoMessage()               {}
 func (*ClientCommandResponse) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{6} }
+
+func (m *ClientCommandResponse) GetStatus() Status {
+	if m != nil {
+		return m.Status
+	}
+	return OK
+}
+
+func (m *ClientCommandResponse) GetResponse() string {
+	if m != nil {
+		return m.Response
+	}
+	return ""
+}
+
+func (m *ClientCommandResponse) GetLeaderHint() uint32 {
+	if m != nil {
+		return m.LeaderHint
+	}
+	return 0
+}
+
+func (m *ClientCommandResponse) GetClientID() uint32 {
+	if m != nil {
+		return m.ClientID
+	}
+	return 0
+}
 
 func init() {
 	proto.RegisterType((*Entry)(nil), "raftpb.Entry")
@@ -181,1631 +327,6 @@ func init() {
 	proto.RegisterType((*ClientCommandResponse)(nil), "raftpb.ClientCommandResponse")
 	proto.RegisterEnum("raftpb.Status", Status_name, Status_value)
 }
-func (x Status) String() string {
-	s, ok := Status_name[int32(x)]
-	if ok {
-		return s
-	}
-	return strconv.Itoa(int(x))
-}
-func (this *Entry) VerboseEqual(that interface{}) error {
-	if that == nil {
-		if this == nil {
-			return nil
-		}
-		return fmt.Errorf("that == nil && this != nil")
-	}
-
-	that1, ok := that.(*Entry)
-	if !ok {
-		that2, ok := that.(Entry)
-		if ok {
-			that1 = &that2
-		} else {
-			return fmt.Errorf("that is not of type *Entry")
-		}
-	}
-	if that1 == nil {
-		if this == nil {
-			return nil
-		}
-		return fmt.Errorf("that is type *Entry but is nil && this != nil")
-	} else if this == nil {
-		return fmt.Errorf("that is type *Entry but is not nil && this == nil")
-	}
-	if this.Term != that1.Term {
-		return fmt.Errorf("Term this(%v) Not Equal that(%v)", this.Term, that1.Term)
-	}
-	if !this.Data.Equal(that1.Data) {
-		return fmt.Errorf("Data this(%v) Not Equal that(%v)", this.Data, that1.Data)
-	}
-	return nil
-}
-func (this *Entry) Equal(that interface{}) bool {
-	if that == nil {
-		if this == nil {
-			return true
-		}
-		return false
-	}
-
-	that1, ok := that.(*Entry)
-	if !ok {
-		that2, ok := that.(Entry)
-		if ok {
-			that1 = &that2
-		} else {
-			return false
-		}
-	}
-	if that1 == nil {
-		if this == nil {
-			return true
-		}
-		return false
-	} else if this == nil {
-		return false
-	}
-	if this.Term != that1.Term {
-		return false
-	}
-	if !this.Data.Equal(that1.Data) {
-		return false
-	}
-	return true
-}
-func (this *RequestVoteRequest) VerboseEqual(that interface{}) error {
-	if that == nil {
-		if this == nil {
-			return nil
-		}
-		return fmt.Errorf("that == nil && this != nil")
-	}
-
-	that1, ok := that.(*RequestVoteRequest)
-	if !ok {
-		that2, ok := that.(RequestVoteRequest)
-		if ok {
-			that1 = &that2
-		} else {
-			return fmt.Errorf("that is not of type *RequestVoteRequest")
-		}
-	}
-	if that1 == nil {
-		if this == nil {
-			return nil
-		}
-		return fmt.Errorf("that is type *RequestVoteRequest but is nil && this != nil")
-	} else if this == nil {
-		return fmt.Errorf("that is type *RequestVoteRequest but is not nil && this == nil")
-	}
-	if this.CandidateID != that1.CandidateID {
-		return fmt.Errorf("CandidateID this(%v) Not Equal that(%v)", this.CandidateID, that1.CandidateID)
-	}
-	if this.Term != that1.Term {
-		return fmt.Errorf("Term this(%v) Not Equal that(%v)", this.Term, that1.Term)
-	}
-	if this.LastLogIndex != that1.LastLogIndex {
-		return fmt.Errorf("LastLogIndex this(%v) Not Equal that(%v)", this.LastLogIndex, that1.LastLogIndex)
-	}
-	if this.LastLogTerm != that1.LastLogTerm {
-		return fmt.Errorf("LastLogTerm this(%v) Not Equal that(%v)", this.LastLogTerm, that1.LastLogTerm)
-	}
-	return nil
-}
-func (this *RequestVoteRequest) Equal(that interface{}) bool {
-	if that == nil {
-		if this == nil {
-			return true
-		}
-		return false
-	}
-
-	that1, ok := that.(*RequestVoteRequest)
-	if !ok {
-		that2, ok := that.(RequestVoteRequest)
-		if ok {
-			that1 = &that2
-		} else {
-			return false
-		}
-	}
-	if that1 == nil {
-		if this == nil {
-			return true
-		}
-		return false
-	} else if this == nil {
-		return false
-	}
-	if this.CandidateID != that1.CandidateID {
-		return false
-	}
-	if this.Term != that1.Term {
-		return false
-	}
-	if this.LastLogIndex != that1.LastLogIndex {
-		return false
-	}
-	if this.LastLogTerm != that1.LastLogTerm {
-		return false
-	}
-	return true
-}
-func (this *RequestVoteResponse) VerboseEqual(that interface{}) error {
-	if that == nil {
-		if this == nil {
-			return nil
-		}
-		return fmt.Errorf("that == nil && this != nil")
-	}
-
-	that1, ok := that.(*RequestVoteResponse)
-	if !ok {
-		that2, ok := that.(RequestVoteResponse)
-		if ok {
-			that1 = &that2
-		} else {
-			return fmt.Errorf("that is not of type *RequestVoteResponse")
-		}
-	}
-	if that1 == nil {
-		if this == nil {
-			return nil
-		}
-		return fmt.Errorf("that is type *RequestVoteResponse but is nil && this != nil")
-	} else if this == nil {
-		return fmt.Errorf("that is type *RequestVoteResponse but is not nil && this == nil")
-	}
-	if this.Term != that1.Term {
-		return fmt.Errorf("Term this(%v) Not Equal that(%v)", this.Term, that1.Term)
-	}
-	if this.VoteGranted != that1.VoteGranted {
-		return fmt.Errorf("VoteGranted this(%v) Not Equal that(%v)", this.VoteGranted, that1.VoteGranted)
-	}
-	return nil
-}
-func (this *RequestVoteResponse) Equal(that interface{}) bool {
-	if that == nil {
-		if this == nil {
-			return true
-		}
-		return false
-	}
-
-	that1, ok := that.(*RequestVoteResponse)
-	if !ok {
-		that2, ok := that.(RequestVoteResponse)
-		if ok {
-			that1 = &that2
-		} else {
-			return false
-		}
-	}
-	if that1 == nil {
-		if this == nil {
-			return true
-		}
-		return false
-	} else if this == nil {
-		return false
-	}
-	if this.Term != that1.Term {
-		return false
-	}
-	if this.VoteGranted != that1.VoteGranted {
-		return false
-	}
-	return true
-}
-func (this *AppendEntriesRequest) VerboseEqual(that interface{}) error {
-	if that == nil {
-		if this == nil {
-			return nil
-		}
-		return fmt.Errorf("that == nil && this != nil")
-	}
-
-	that1, ok := that.(*AppendEntriesRequest)
-	if !ok {
-		that2, ok := that.(AppendEntriesRequest)
-		if ok {
-			that1 = &that2
-		} else {
-			return fmt.Errorf("that is not of type *AppendEntriesRequest")
-		}
-	}
-	if that1 == nil {
-		if this == nil {
-			return nil
-		}
-		return fmt.Errorf("that is type *AppendEntriesRequest but is nil && this != nil")
-	} else if this == nil {
-		return fmt.Errorf("that is type *AppendEntriesRequest but is not nil && this == nil")
-	}
-	if this.LeaderID != that1.LeaderID {
-		return fmt.Errorf("LeaderID this(%v) Not Equal that(%v)", this.LeaderID, that1.LeaderID)
-	}
-	if this.Term != that1.Term {
-		return fmt.Errorf("Term this(%v) Not Equal that(%v)", this.Term, that1.Term)
-	}
-	if this.PrevLogIndex != that1.PrevLogIndex {
-		return fmt.Errorf("PrevLogIndex this(%v) Not Equal that(%v)", this.PrevLogIndex, that1.PrevLogIndex)
-	}
-	if this.PrevLogTerm != that1.PrevLogTerm {
-		return fmt.Errorf("PrevLogTerm this(%v) Not Equal that(%v)", this.PrevLogTerm, that1.PrevLogTerm)
-	}
-	if this.CommitIndex != that1.CommitIndex {
-		return fmt.Errorf("CommitIndex this(%v) Not Equal that(%v)", this.CommitIndex, that1.CommitIndex)
-	}
-	if len(this.Entries) != len(that1.Entries) {
-		return fmt.Errorf("Entries this(%v) Not Equal that(%v)", len(this.Entries), len(that1.Entries))
-	}
-	for i := range this.Entries {
-		if !this.Entries[i].Equal(that1.Entries[i]) {
-			return fmt.Errorf("Entries this[%v](%v) Not Equal that[%v](%v)", i, this.Entries[i], i, that1.Entries[i])
-		}
-	}
-	return nil
-}
-func (this *AppendEntriesRequest) Equal(that interface{}) bool {
-	if that == nil {
-		if this == nil {
-			return true
-		}
-		return false
-	}
-
-	that1, ok := that.(*AppendEntriesRequest)
-	if !ok {
-		that2, ok := that.(AppendEntriesRequest)
-		if ok {
-			that1 = &that2
-		} else {
-			return false
-		}
-	}
-	if that1 == nil {
-		if this == nil {
-			return true
-		}
-		return false
-	} else if this == nil {
-		return false
-	}
-	if this.LeaderID != that1.LeaderID {
-		return false
-	}
-	if this.Term != that1.Term {
-		return false
-	}
-	if this.PrevLogIndex != that1.PrevLogIndex {
-		return false
-	}
-	if this.PrevLogTerm != that1.PrevLogTerm {
-		return false
-	}
-	if this.CommitIndex != that1.CommitIndex {
-		return false
-	}
-	if len(this.Entries) != len(that1.Entries) {
-		return false
-	}
-	for i := range this.Entries {
-		if !this.Entries[i].Equal(that1.Entries[i]) {
-			return false
-		}
-	}
-	return true
-}
-func (this *AppendEntriesResponse) VerboseEqual(that interface{}) error {
-	if that == nil {
-		if this == nil {
-			return nil
-		}
-		return fmt.Errorf("that == nil && this != nil")
-	}
-
-	that1, ok := that.(*AppendEntriesResponse)
-	if !ok {
-		that2, ok := that.(AppendEntriesResponse)
-		if ok {
-			that1 = &that2
-		} else {
-			return fmt.Errorf("that is not of type *AppendEntriesResponse")
-		}
-	}
-	if that1 == nil {
-		if this == nil {
-			return nil
-		}
-		return fmt.Errorf("that is type *AppendEntriesResponse but is nil && this != nil")
-	} else if this == nil {
-		return fmt.Errorf("that is type *AppendEntriesResponse but is not nil && this == nil")
-	}
-	if len(this.FollowerID) != len(that1.FollowerID) {
-		return fmt.Errorf("FollowerID this(%v) Not Equal that(%v)", len(this.FollowerID), len(that1.FollowerID))
-	}
-	for i := range this.FollowerID {
-		if this.FollowerID[i] != that1.FollowerID[i] {
-			return fmt.Errorf("FollowerID this[%v](%v) Not Equal that[%v](%v)", i, this.FollowerID[i], i, that1.FollowerID[i])
-		}
-	}
-	if this.Term != that1.Term {
-		return fmt.Errorf("Term this(%v) Not Equal that(%v)", this.Term, that1.Term)
-	}
-	if this.MatchIndex != that1.MatchIndex {
-		return fmt.Errorf("MatchIndex this(%v) Not Equal that(%v)", this.MatchIndex, that1.MatchIndex)
-	}
-	if this.Success != that1.Success {
-		return fmt.Errorf("Success this(%v) Not Equal that(%v)", this.Success, that1.Success)
-	}
-	return nil
-}
-func (this *AppendEntriesResponse) Equal(that interface{}) bool {
-	if that == nil {
-		if this == nil {
-			return true
-		}
-		return false
-	}
-
-	that1, ok := that.(*AppendEntriesResponse)
-	if !ok {
-		that2, ok := that.(AppendEntriesResponse)
-		if ok {
-			that1 = &that2
-		} else {
-			return false
-		}
-	}
-	if that1 == nil {
-		if this == nil {
-			return true
-		}
-		return false
-	} else if this == nil {
-		return false
-	}
-	if len(this.FollowerID) != len(that1.FollowerID) {
-		return false
-	}
-	for i := range this.FollowerID {
-		if this.FollowerID[i] != that1.FollowerID[i] {
-			return false
-		}
-	}
-	if this.Term != that1.Term {
-		return false
-	}
-	if this.MatchIndex != that1.MatchIndex {
-		return false
-	}
-	if this.Success != that1.Success {
-		return false
-	}
-	return true
-}
-func (this *ClientCommandRequest) VerboseEqual(that interface{}) error {
-	if that == nil {
-		if this == nil {
-			return nil
-		}
-		return fmt.Errorf("that == nil && this != nil")
-	}
-
-	that1, ok := that.(*ClientCommandRequest)
-	if !ok {
-		that2, ok := that.(ClientCommandRequest)
-		if ok {
-			that1 = &that2
-		} else {
-			return fmt.Errorf("that is not of type *ClientCommandRequest")
-		}
-	}
-	if that1 == nil {
-		if this == nil {
-			return nil
-		}
-		return fmt.Errorf("that is type *ClientCommandRequest but is nil && this != nil")
-	} else if this == nil {
-		return fmt.Errorf("that is type *ClientCommandRequest but is not nil && this == nil")
-	}
-	if this.ClientID != that1.ClientID {
-		return fmt.Errorf("ClientID this(%v) Not Equal that(%v)", this.ClientID, that1.ClientID)
-	}
-	if this.SequenceNumber != that1.SequenceNumber {
-		return fmt.Errorf("SequenceNumber this(%v) Not Equal that(%v)", this.SequenceNumber, that1.SequenceNumber)
-	}
-	if this.Command != that1.Command {
-		return fmt.Errorf("Command this(%v) Not Equal that(%v)", this.Command, that1.Command)
-	}
-	return nil
-}
-func (this *ClientCommandRequest) Equal(that interface{}) bool {
-	if that == nil {
-		if this == nil {
-			return true
-		}
-		return false
-	}
-
-	that1, ok := that.(*ClientCommandRequest)
-	if !ok {
-		that2, ok := that.(ClientCommandRequest)
-		if ok {
-			that1 = &that2
-		} else {
-			return false
-		}
-	}
-	if that1 == nil {
-		if this == nil {
-			return true
-		}
-		return false
-	} else if this == nil {
-		return false
-	}
-	if this.ClientID != that1.ClientID {
-		return false
-	}
-	if this.SequenceNumber != that1.SequenceNumber {
-		return false
-	}
-	if this.Command != that1.Command {
-		return false
-	}
-	return true
-}
-func (this *ClientCommandResponse) VerboseEqual(that interface{}) error {
-	if that == nil {
-		if this == nil {
-			return nil
-		}
-		return fmt.Errorf("that == nil && this != nil")
-	}
-
-	that1, ok := that.(*ClientCommandResponse)
-	if !ok {
-		that2, ok := that.(ClientCommandResponse)
-		if ok {
-			that1 = &that2
-		} else {
-			return fmt.Errorf("that is not of type *ClientCommandResponse")
-		}
-	}
-	if that1 == nil {
-		if this == nil {
-			return nil
-		}
-		return fmt.Errorf("that is type *ClientCommandResponse but is nil && this != nil")
-	} else if this == nil {
-		return fmt.Errorf("that is type *ClientCommandResponse but is not nil && this == nil")
-	}
-	if this.Status != that1.Status {
-		return fmt.Errorf("Status this(%v) Not Equal that(%v)", this.Status, that1.Status)
-	}
-	if this.Response != that1.Response {
-		return fmt.Errorf("Response this(%v) Not Equal that(%v)", this.Response, that1.Response)
-	}
-	if this.LeaderHint != that1.LeaderHint {
-		return fmt.Errorf("LeaderHint this(%v) Not Equal that(%v)", this.LeaderHint, that1.LeaderHint)
-	}
-	if this.ClientID != that1.ClientID {
-		return fmt.Errorf("ClientID this(%v) Not Equal that(%v)", this.ClientID, that1.ClientID)
-	}
-	return nil
-}
-func (this *ClientCommandResponse) Equal(that interface{}) bool {
-	if that == nil {
-		if this == nil {
-			return true
-		}
-		return false
-	}
-
-	that1, ok := that.(*ClientCommandResponse)
-	if !ok {
-		that2, ok := that.(ClientCommandResponse)
-		if ok {
-			that1 = &that2
-		} else {
-			return false
-		}
-	}
-	if that1 == nil {
-		if this == nil {
-			return true
-		}
-		return false
-	} else if this == nil {
-		return false
-	}
-	if this.Status != that1.Status {
-		return false
-	}
-	if this.Response != that1.Response {
-		return false
-	}
-	if this.LeaderHint != that1.LeaderHint {
-		return false
-	}
-	if this.ClientID != that1.ClientID {
-		return false
-	}
-	return true
-}
-
-//  Reference Gorums specific imports to suppress errors if they are not otherwise used.
-var _ = codes.OK
-
-/* 'gorums' plugin for protoc-gen-go - generated from: config_qc_tmpl */
-
-// AppendEntriesReply encapsulates the reply from a AppendEntries quorum call.
-// It contains the id of each node of the quorum that replied and a single reply.
-type AppendEntriesReply struct {
-	NodeIDs []uint32
-	*AppendEntriesResponse
-}
-
-func (r AppendEntriesReply) String() string {
-	return fmt.Sprintf("node ids: %v | answer: %v", r.NodeIDs, r.AppendEntriesResponse)
-}
-
-// AppendEntries invokes a AppendEntries quorum call on configuration c
-// and returns the result as a AppendEntriesReply.
-func (c *Configuration) AppendEntries(ctx context.Context, args *AppendEntriesRequest) (*AppendEntriesReply, error) {
-	return c.mgr.appendEntries(ctx, c, args)
-}
-
-// RequestVoteReply encapsulates the reply from a RequestVote quorum call.
-// It contains the id of each node of the quorum that replied and a single reply.
-type RequestVoteReply struct {
-	NodeIDs []uint32
-	*RequestVoteResponse
-}
-
-func (r RequestVoteReply) String() string {
-	return fmt.Sprintf("node ids: %v | answer: %v", r.NodeIDs, r.RequestVoteResponse)
-}
-
-// RequestVoteFuture is a reference to an asynchronous RequestVote quorum call invocation.
-type RequestVoteFuture struct {
-	reply *RequestVoteReply
-	err   error
-	c     chan struct{}
-}
-
-// RequestVoteFuture asynchronously invokes a RequestVote quorum call
-// on configuration c and returns a RequestVoteFuture which can be used to
-// inspect the quorum call reply and error when available.
-func (c *Configuration) RequestVoteFuture(ctx context.Context, args *RequestVoteRequest) *RequestVoteFuture {
-	f := new(RequestVoteFuture)
-	f.c = make(chan struct{}, 1)
-	go func() {
-		defer close(f.c)
-		f.reply, f.err = c.mgr.requestVote(ctx, c, args)
-	}()
-	return f
-}
-
-// Get returns the reply and any error associated with the RequestVoteFuture.
-// The method blocks until a reply or error is available.
-func (f *RequestVoteFuture) Get() (*RequestVoteReply, error) {
-	<-f.c
-	return f.reply, f.err
-}
-
-// Done reports if a reply and/or error is available for the RequestVoteFuture.
-func (f *RequestVoteFuture) Done() bool {
-	select {
-	case <-f.c:
-		return true
-	default:
-		return false
-	}
-}
-
-/* 'gorums' plugin for protoc-gen-go - generated from: mgr_qc_tmpl */
-
-type appendEntriesReply struct {
-	nid   uint32
-	reply *AppendEntriesResponse
-	err   error
-}
-
-func (m *Manager) appendEntries(ctx context.Context, c *Configuration, args *AppendEntriesRequest) (r *AppendEntriesReply, err error) {
-	var ti traceInfo
-	if m.opts.trace {
-		ti.tr = trace.New("gorums."+c.tstring()+".Sent", "AppendEntries")
-		defer ti.tr.Finish()
-
-		ti.firstLine.cid = c.id
-		if deadline, ok := ctx.Deadline(); ok {
-			ti.firstLine.deadline = deadline.Sub(time.Now())
-		}
-		ti.tr.LazyLog(&ti.firstLine, false)
-
-		defer func() {
-			ti.tr.LazyLog(&qcresult{
-				ids:   r.NodeIDs,
-				reply: r.AppendEntriesResponse,
-				err:   err,
-			}, false)
-			if err != nil {
-				ti.tr.SetError()
-			}
-		}()
-	}
-
-	replyChan := make(chan appendEntriesReply, c.n)
-	newCtx, cancel := context.WithCancel(ctx)
-
-	if m.opts.trace {
-		ti.tr.LazyLog(&payload{sent: true, msg: args}, false)
-	}
-
-	for _, n := range c.nodes {
-		go callGRPCAppendEntries(newCtx, n, args, replyChan)
-	}
-
-	var (
-		replyValues = make([]*AppendEntriesResponse, 0, c.n)
-		reply       = &AppendEntriesReply{NodeIDs: make([]uint32, 0, c.n)}
-		errCount    int
-		quorum      bool
-	)
-
-	for {
-		select {
-		case r := <-replyChan:
-			reply.NodeIDs = append(reply.NodeIDs, r.nid)
-			if r.err != nil {
-				errCount++
-				break
-			}
-			if m.opts.trace {
-				ti.tr.LazyLog(&payload{sent: false, id: r.nid, msg: r.reply}, false)
-			}
-			replyValues = append(replyValues, r.reply)
-			if reply.AppendEntriesResponse, quorum = c.qspec.AppendEntriesQF(args, replyValues); quorum {
-
-				cancel()
-				return reply, nil
-			}
-		case <-newCtx.Done():
-			return reply, QuorumCallError{ctx.Err().Error(), errCount, len(replyValues)}
-		}
-
-		if errCount+len(replyValues) == c.n {
-			cancel()
-			return reply, QuorumCallError{"incomplete call", errCount, len(replyValues)}
-		}
-	}
-}
-
-func callGRPCAppendEntries(ctx context.Context, node *Node, args *AppendEntriesRequest, replyChan chan<- appendEntriesReply) {
-	reply := new(AppendEntriesResponse)
-	start := time.Now()
-	err := grpc.Invoke(
-		ctx,
-		"/raftpb.Raft/AppendEntries",
-		args,
-		reply,
-		node.conn,
-	)
-	switch grpc.Code(err) { // nil -> codes.OK
-	case codes.OK, codes.Canceled:
-		node.setLatency(time.Since(start))
-	default:
-		node.setLastErr(err)
-	}
-	replyChan <- appendEntriesReply{node.id, reply, err}
-}
-
-type requestVoteReply struct {
-	nid   uint32
-	reply *RequestVoteResponse
-	err   error
-}
-
-func (m *Manager) requestVote(ctx context.Context, c *Configuration, args *RequestVoteRequest) (r *RequestVoteReply, err error) {
-	var ti traceInfo
-	if m.opts.trace {
-		ti.tr = trace.New("gorums."+c.tstring()+".Sent", "RequestVote")
-		defer ti.tr.Finish()
-
-		ti.firstLine.cid = c.id
-		if deadline, ok := ctx.Deadline(); ok {
-			ti.firstLine.deadline = deadline.Sub(time.Now())
-		}
-		ti.tr.LazyLog(&ti.firstLine, false)
-
-		defer func() {
-			ti.tr.LazyLog(&qcresult{
-				ids:   r.NodeIDs,
-				reply: r.RequestVoteResponse,
-				err:   err,
-			}, false)
-			if err != nil {
-				ti.tr.SetError()
-			}
-		}()
-	}
-
-	replyChan := make(chan requestVoteReply, c.n)
-	newCtx, cancel := context.WithCancel(ctx)
-
-	if m.opts.trace {
-		ti.tr.LazyLog(&payload{sent: true, msg: args}, false)
-	}
-
-	for _, n := range c.nodes {
-		go callGRPCRequestVote(newCtx, n, args, replyChan)
-	}
-
-	var (
-		replyValues = make([]*RequestVoteResponse, 0, c.n)
-		reply       = &RequestVoteReply{NodeIDs: make([]uint32, 0, c.n)}
-		errCount    int
-		quorum      bool
-	)
-
-	for {
-		select {
-		case r := <-replyChan:
-			reply.NodeIDs = append(reply.NodeIDs, r.nid)
-			if r.err != nil {
-				errCount++
-				break
-			}
-			if m.opts.trace {
-				ti.tr.LazyLog(&payload{sent: false, id: r.nid, msg: r.reply}, false)
-			}
-			replyValues = append(replyValues, r.reply)
-			if reply.RequestVoteResponse, quorum = c.qspec.RequestVoteQF(args, replyValues); quorum {
-
-				cancel()
-				return reply, nil
-			}
-		case <-newCtx.Done():
-			return reply, QuorumCallError{ctx.Err().Error(), errCount, len(replyValues)}
-		}
-
-		if errCount+len(replyValues) == c.n {
-			cancel()
-			return reply, QuorumCallError{"incomplete call", errCount, len(replyValues)}
-		}
-	}
-}
-
-func callGRPCRequestVote(ctx context.Context, node *Node, args *RequestVoteRequest, replyChan chan<- requestVoteReply) {
-	reply := new(RequestVoteResponse)
-	start := time.Now()
-	err := grpc.Invoke(
-		ctx,
-		"/raftpb.Raft/RequestVote",
-		args,
-		reply,
-		node.conn,
-	)
-	switch grpc.Code(err) { // nil -> codes.OK
-	case codes.OK, codes.Canceled:
-		node.setLatency(time.Since(start))
-	default:
-		node.setLastErr(err)
-	}
-	replyChan <- requestVoteReply{node.id, reply, err}
-}
-
-/* 'gorums' plugin for protoc-gen-go - generated from: node_tmpl */
-
-// Node encapsulates the state of a node on which a remote procedure call
-// can be made.
-type Node struct {
-	// Only assigned at creation.
-	id   uint32
-	self bool
-	addr string
-	conn *grpc.ClientConn
-
-	RaftClient RaftClient
-
-	sync.Mutex
-	lastErr error
-	latency time.Duration
-}
-
-func (n *Node) connect(opts ...grpc.DialOption) error {
-	var err error
-	n.conn, err = grpc.Dial(n.addr, opts...)
-	if err != nil {
-		return fmt.Errorf("dialing node failed: %v", err)
-	}
-
-	n.RaftClient = NewRaftClient(n.conn)
-
-	return nil
-}
-
-func (n *Node) close() error {
-	// TODO: Log error, mainly care about the connection error below.
-	// We should log this error, but we currently don't have access to the
-	// logger in the manager.
-
-	if err := n.conn.Close(); err != nil {
-		return fmt.Errorf("conn close error: %v", err)
-	}
-	return nil
-}
-
-/* 'gorums' plugin for protoc-gen-go - generated from: qspec_tmpl */
-
-// QuorumSpec is the interface that wraps every quorum function.
-type QuorumSpec interface {
-	// AppendEntriesQF is the quorum function for the AppendEntries
-	// quorum call method.
-	AppendEntriesQF(req *AppendEntriesRequest, replies []*AppendEntriesResponse) (*AppendEntriesResponse, bool)
-
-	// RequestVoteQF is the quorum function for the RequestVote
-	// quorum call method.
-	RequestVoteQF(req *RequestVoteRequest, replies []*RequestVoteResponse) (*RequestVoteResponse, bool)
-}
-
-/* Static resources */
-
-/* config.go */
-
-// A Configuration represents a static set of nodes on which quorum remote
-// procedure calls may be invoked.
-type Configuration struct {
-	id    uint32
-	nodes []*Node
-	n     int
-	mgr   *Manager
-	qspec QuorumSpec
-}
-
-// ID reports the identifier for the configuration.
-func (c *Configuration) ID() uint32 {
-	return c.id
-}
-
-// NodeIDs returns a slice containing the local ids of all the nodes in the
-// configuration. IDs are returned in the same order as they were provided in
-// the creation of the Configuration.
-func (c *Configuration) NodeIDs() []uint32 {
-	ids := make([]uint32, len(c.nodes))
-	for i, node := range c.nodes {
-		ids[i] = node.ID()
-	}
-	return ids
-}
-
-// Size returns the number of nodes in the configuration.
-func (c *Configuration) Size() int {
-	return c.n
-}
-
-func (c *Configuration) String() string {
-	return fmt.Sprintf("configuration %d", c.id)
-}
-
-func (c *Configuration) tstring() string {
-	return fmt.Sprintf("config-%d", c.id)
-}
-
-// Equal returns a boolean reporting whether a and b represents the same
-// configuration.
-func Equal(a, b *Configuration) bool { return a.id == b.id }
-
-// NewTestConfiguration returns a new configuration with quorum size q and
-// node size n. No other fields are set. Configurations returned from this
-// constructor should only be used when testing quorum functions.
-func NewTestConfiguration(q, n int) *Configuration {
-	return &Configuration{
-		nodes: make([]*Node, n),
-	}
-}
-
-/* errors.go */
-
-// A NodeNotFoundError reports that a specified node could not be found.
-type NodeNotFoundError uint32
-
-func (e NodeNotFoundError) Error() string {
-	return fmt.Sprintf("node not found: %d", e)
-}
-
-// A ConfigNotFoundError reports that a specified configuration could not be
-// found.
-type ConfigNotFoundError uint32
-
-func (e ConfigNotFoundError) Error() string {
-	return fmt.Sprintf("configuration not found: %d", e)
-}
-
-// An IllegalConfigError reports that a specified configuration could not be
-// created.
-type IllegalConfigError string
-
-func (e IllegalConfigError) Error() string {
-	return "illegal configuration: " + string(e)
-}
-
-// ManagerCreationError returns an error reporting that a Manager could not be
-// created due to err.
-func ManagerCreationError(err error) error {
-	return fmt.Errorf("could not create manager: %s", err.Error())
-}
-
-// A QuorumCallError is used to report that a quorum call failed.
-type QuorumCallError struct {
-	Reason               string
-	ErrCount, ReplyCount int
-}
-
-func (e QuorumCallError) Error() string {
-	return fmt.Sprintf(
-		"quorum call error: %s (errors: %d, replies: %d)",
-		e.Reason, e.ErrCount, e.ReplyCount,
-	)
-}
-
-/* level.go */
-
-// LevelNotSet is the zero value level used to indicate that no level (and
-// thereby no reply) has been set for a correctable quorum call.
-const LevelNotSet = -1
-
-/* mgr.go */
-
-// Manager manages a pool of node configurations on which quorum remote
-// procedure calls can be made.
-type Manager struct {
-	sync.Mutex
-	nodes    []*Node
-	lookup   map[uint32]*Node
-	configs  map[uint32]*Configuration
-	eventLog trace.EventLog
-
-	closeOnce sync.Once
-	logger    *log.Logger
-	opts      managerOptions
-}
-
-// NewManager attempts to connect to the given set of node addresses and if
-// successful returns a new Manager containing connections to those nodes.
-func NewManager(nodeAddrs []string, opts ...ManagerOption) (*Manager, error) {
-	if len(nodeAddrs) == 0 {
-		return nil, fmt.Errorf("could not create manager: no nodes provided")
-	}
-
-	m := &Manager{
-		lookup:  make(map[uint32]*Node),
-		configs: make(map[uint32]*Configuration),
-	}
-
-	for _, opt := range opts {
-		opt(&m.opts)
-	}
-
-	for _, naddr := range nodeAddrs {
-		node, err2 := m.createNode(naddr)
-		if err2 != nil {
-			return nil, ManagerCreationError(err2)
-		}
-		m.lookup[node.id] = node
-		m.nodes = append(m.nodes, node)
-	}
-
-	if m.opts.trace {
-		title := strings.Join(nodeAddrs, ",")
-		m.eventLog = trace.NewEventLog("gorums.Manager", title)
-	}
-
-	err := m.connectAll()
-	if err != nil {
-		return nil, ManagerCreationError(err)
-	}
-
-	if m.opts.logger != nil {
-		m.logger = m.opts.logger
-	}
-
-	if m.eventLog != nil {
-		m.eventLog.Printf("ready")
-	}
-
-	return m, nil
-}
-
-func (m *Manager) createNode(addr string) (*Node, error) {
-	m.Lock()
-	defer m.Unlock()
-
-	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
-	if err != nil {
-		return nil, fmt.Errorf("create node %s error: %v", addr, err)
-	}
-
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(tcpAddr.String()))
-	id := h.Sum32()
-
-	if _, found := m.lookup[id]; found {
-		return nil, fmt.Errorf("create node %s error: node already exists", addr)
-	}
-
-	node := &Node{
-		id:      id,
-		addr:    tcpAddr.String(),
-		latency: -1 * time.Second,
-	}
-
-	return node, nil
-}
-
-func (m *Manager) connectAll() error {
-	if m.opts.noConnect {
-		return nil
-	}
-
-	if m.eventLog != nil {
-		m.eventLog.Printf("connecting")
-	}
-
-	for _, node := range m.nodes {
-		err := node.connect(m.opts.grpcDialOpts...)
-		if err != nil {
-			if m.eventLog != nil {
-				m.eventLog.Errorf("connect failed, error connecting to node %s, error: %v", node.addr, err)
-			}
-			return fmt.Errorf("connect node %s error: %v", node.addr, err)
-		}
-	}
-	return nil
-}
-
-func (m *Manager) closeNodeConns() {
-	for _, node := range m.nodes {
-		err := node.close()
-		if err == nil {
-			continue
-		}
-		if m.logger != nil {
-			m.logger.Printf("node %d: error closing: %v", node.id, err)
-		}
-	}
-}
-
-// Close closes all node connections and any client streams.
-func (m *Manager) Close() {
-	m.closeOnce.Do(func() {
-		if m.eventLog != nil {
-			m.eventLog.Printf("closing")
-		}
-		m.closeNodeConns()
-	})
-}
-
-// NodeIDs returns the identifier of each available node. IDs are returned in
-// the same order as they were provided in the creation of the Manager.
-func (m *Manager) NodeIDs() []uint32 {
-	m.Lock()
-	defer m.Unlock()
-	ids := make([]uint32, 0, len(m.nodes))
-	for _, node := range m.nodes {
-		ids = append(ids, node.ID())
-	}
-	return ids
-}
-
-// Node returns the node with the given identifier if present.
-func (m *Manager) Node(id uint32) (node *Node, found bool) {
-	m.Lock()
-	defer m.Unlock()
-	node, found = m.lookup[id]
-	return node, found
-}
-
-// Nodes returns a slice of each available node. IDs are returned in the same
-// order as they were provided in the creation of the Manager.
-func (m *Manager) Nodes() []*Node {
-	m.Lock()
-	defer m.Unlock()
-	return m.nodes
-}
-
-// ConfigurationIDs returns the identifier of each available
-// configuration.
-func (m *Manager) ConfigurationIDs() []uint32 {
-	m.Lock()
-	defer m.Unlock()
-	ids := make([]uint32, 0, len(m.configs))
-	for id := range m.configs {
-		ids = append(ids, id)
-	}
-	return ids
-}
-
-// Configuration returns the configuration with the given global
-// identifier if present.
-func (m *Manager) Configuration(id uint32) (config *Configuration, found bool) {
-	m.Lock()
-	defer m.Unlock()
-	config, found = m.configs[id]
-	return config, found
-}
-
-// Configurations returns a slice of each available configuration.
-func (m *Manager) Configurations() []*Configuration {
-	m.Lock()
-	defer m.Unlock()
-	configs := make([]*Configuration, 0, len(m.configs))
-	for _, conf := range m.configs {
-		configs = append(configs, conf)
-	}
-	return configs
-}
-
-// Size returns the number of nodes and configurations in the Manager.
-func (m *Manager) Size() (nodes, configs int) {
-	m.Lock()
-	defer m.Unlock()
-	return len(m.nodes), len(m.configs)
-}
-
-// AddNode attempts to dial to the provide node address. The node is
-// added to the Manager's pool of nodes if a connection was established.
-func (m *Manager) AddNode(addr string) error {
-	panic("not implemented")
-}
-
-// NewConfiguration returns a new configuration given quorum specification and
-// a timeout.
-func (m *Manager) NewConfiguration(ids []uint32, qspec QuorumSpec) (*Configuration, error) {
-	m.Lock()
-	defer m.Unlock()
-
-	if len(ids) == 0 {
-		return nil, IllegalConfigError("need at least one node")
-	}
-
-	var cnodes []*Node
-	for _, nid := range ids {
-		node, found := m.lookup[nid]
-		if !found {
-			return nil, NodeNotFoundError(nid)
-		}
-		cnodes = append(cnodes, node)
-	}
-
-	// Node ids are sorted ensure a globally consistent configuration id.
-	sort.Sort(idSlice(ids))
-
-	h := fnv.New32a()
-	for _, id := range ids {
-		binary.Write(h, binary.LittleEndian, id)
-	}
-	cid := h.Sum32()
-
-	conf, found := m.configs[cid]
-	if found {
-		return conf, nil
-	}
-
-	c := &Configuration{
-		id:    cid,
-		nodes: cnodes,
-		n:     len(cnodes),
-		mgr:   m,
-		qspec: qspec,
-	}
-	m.configs[cid] = c
-
-	return c, nil
-}
-
-type idSlice []uint32
-
-func (p idSlice) Len() int           { return len(p) }
-func (p idSlice) Less(i, j int) bool { return p[i] < p[j] }
-func (p idSlice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
-
-/* node_func.go */
-
-// ID returns the ID of m.
-func (n *Node) ID() uint32 {
-	return n.id
-}
-
-// Address returns network address of m.
-func (n *Node) Address() string {
-	return n.addr
-}
-
-func (n *Node) String() string {
-	n.Lock()
-	defer n.Unlock()
-	return fmt.Sprintf(
-		"node %d | addr: %s | latency: %v",
-		n.id, n.addr, n.latency,
-	)
-}
-
-func (n *Node) setLastErr(err error) {
-	n.Lock()
-	defer n.Unlock()
-	n.lastErr = err
-}
-
-// LastErr returns the last error encountered (if any) when invoking a remote
-// procedure call on this node.
-func (n *Node) LastErr() error {
-	n.Lock()
-	defer n.Unlock()
-	return n.lastErr
-}
-
-func (n *Node) setLatency(lat time.Duration) {
-	n.Lock()
-	defer n.Unlock()
-	n.latency = lat
-}
-
-// Latency returns the latency of the last successful remote procedure call
-// made to this node.
-func (n *Node) Latency() time.Duration {
-	n.Lock()
-	defer n.Unlock()
-	return n.latency
-}
-
-type lessFunc func(n1, n2 *Node) bool
-
-// MultiSorter implements the Sort interface, sorting the nodes within.
-type MultiSorter struct {
-	nodes []*Node
-	less  []lessFunc
-}
-
-// Sort sorts the argument slice according to the less functions passed to
-// OrderedBy.
-func (ms *MultiSorter) Sort(nodes []*Node) {
-	ms.nodes = nodes
-	sort.Sort(ms)
-}
-
-// OrderedBy returns a Sorter that sorts using the less functions, in order.
-// Call its Sort method to sort the data.
-func OrderedBy(less ...lessFunc) *MultiSorter {
-	return &MultiSorter{
-		less: less,
-	}
-}
-
-// Len is part of sort.Interface.
-func (ms *MultiSorter) Len() int {
-	return len(ms.nodes)
-}
-
-// Swap is part of sort.Interface.
-func (ms *MultiSorter) Swap(i, j int) {
-	ms.nodes[i], ms.nodes[j] = ms.nodes[j], ms.nodes[i]
-}
-
-// Less is part of sort.Interface. It is implemented by looping along the
-// less functions until it finds a comparison that is either Less or
-// !Less. Note that it can call the less functions twice per call. We
-// could change the functions to return -1, 0, 1 and reduce the
-// number of calls for greater efficiency: an exercise for the reader.
-func (ms *MultiSorter) Less(i, j int) bool {
-	p, q := ms.nodes[i], ms.nodes[j]
-	// Try all but the last comparison.
-	var k int
-	for k = 0; k < len(ms.less)-1; k++ {
-		less := ms.less[k]
-		switch {
-		case less(p, q):
-			// p < q, so we have a decision.
-			return true
-		case less(q, p):
-			// p > q, so we have a decision.
-			return false
-		}
-		// p == q; try the next comparison.
-	}
-	// All comparisons to here said "equal", so just return whatever
-	// the final comparison reports.
-	return ms.less[k](p, q)
-}
-
-// ID sorts nodes by their identifier in increasing order.
-var ID = func(n1, n2 *Node) bool {
-	return n1.id < n2.id
-}
-
-// Latency sorts nodes by latency in increasing order. Latencies less then
-// zero (sentinel value) are considered greater than any positive latency.
-var Latency = func(n1, n2 *Node) bool {
-	if n1.latency < 0 {
-		return false
-	}
-	return n1.latency < n2.latency
-
-}
-
-// Error sorts nodes by their LastErr() status in increasing order. A
-// node with LastErr() != nil is larger than a node with LastErr() == nil.
-var Error = func(n1, n2 *Node) bool {
-	if n1.lastErr != nil && n2.lastErr == nil {
-		return false
-	}
-	return true
-}
-
-/* opts.go */
-
-type managerOptions struct {
-	grpcDialOpts []grpc.DialOption
-	logger       *log.Logger
-	noConnect    bool
-	trace        bool
-	selfAddr     string
-	selfID       uint32
-}
-
-// ManagerOption provides a way to set different options on a new Manager.
-type ManagerOption func(*managerOptions)
-
-// WithGrpcDialOptions returns a ManagerOption which sets any gRPC dial options
-// the Manager should use when initially connecting to each node in its
-// pool.
-func WithGrpcDialOptions(opts ...grpc.DialOption) ManagerOption {
-	return func(o *managerOptions) {
-		o.grpcDialOpts = opts
-	}
-}
-
-// WithLogger returns a ManagerOption which sets an optional error logger for
-// the Manager.
-func WithLogger(logger *log.Logger) ManagerOption {
-	return func(o *managerOptions) {
-		o.logger = logger
-	}
-}
-
-// WithNoConnect returns a ManagerOption which instructs the Manager not to
-// connect to any of its nodes. Mainly used for testing purposes.
-func WithNoConnect() ManagerOption {
-	return func(o *managerOptions) {
-		o.noConnect = true
-	}
-}
-
-// WithTracing controls whether to trace qourum calls for this Manager instance
-// using the golang.org/x/net/trace package. Tracing is currently only supported
-// for regular quorum calls.
-func WithTracing() ManagerOption {
-	return func(o *managerOptions) {
-		o.trace = true
-	}
-}
-
-/* trace.go */
-
-type traceInfo struct {
-	tr        trace.Trace
-	firstLine firstLine
-}
-
-type firstLine struct {
-	deadline time.Duration
-	cid      uint32
-}
-
-func (f *firstLine) String() string {
-	var line bytes.Buffer
-	io.WriteString(&line, "QC: to config")
-	fmt.Fprintf(&line, "%v deadline:", f.cid)
-	if f.deadline != 0 {
-		fmt.Fprint(&line, f.deadline)
-	} else {
-		io.WriteString(&line, "none")
-	}
-	return line.String()
-}
-
-type payload struct {
-	sent bool
-	id   uint32
-	msg  interface{}
-}
-
-func (p payload) String() string {
-	if p.sent {
-		return fmt.Sprintf("sent: %v", p.msg)
-	}
-	return fmt.Sprintf("recv from %d: %v", p.id, p.msg)
-}
-
-type qcresult struct {
-	ids   []uint32
-	reply interface{}
-	err   error
-}
-
-func (q qcresult) String() string {
-	var out bytes.Buffer
-	io.WriteString(&out, "recv QC reply: ")
-	fmt.Fprintf(&out, "ids: %v, ", q.ids)
-	fmt.Fprintf(&out, "reply: %v ", q.reply)
-	if q.err != nil {
-		fmt.Fprintf(&out, ", error: %v", q.err)
-	}
-	return out.String()
-}
-
-/* util.go */
-
-func contains(addr string, addrs []string) (found bool, index int) {
-	for i, a := range addrs {
-		if addr == a {
-			return true, i
-		}
-	}
-	return false, -1
-}
-
-func appendIfNotPresent(set []uint32, x uint32) []uint32 {
-	for _, y := range set {
-		if y == x {
-			return set
-		}
-	}
-	return append(set, x)
-}
-
-// Reference imports to suppress errors if they are not otherwise used.
-var _ context.Context
-var _ grpc.ClientConn
-
-// This is a compile-time assertion to ensure that this generated file
-// is compatible with the grpc package it is being compiled against.
-const _ = grpc.SupportPackageIsVersion4
-
-// Client API for Raft service
-
-type RaftClient interface {
-	RequestVote(ctx context.Context, in *RequestVoteRequest, opts ...grpc.CallOption) (*RequestVoteResponse, error)
-	AppendEntries(ctx context.Context, in *AppendEntriesRequest, opts ...grpc.CallOption) (*AppendEntriesResponse, error)
-	ClientCommand(ctx context.Context, in *ClientCommandRequest, opts ...grpc.CallOption) (*ClientCommandResponse, error)
-}
-
-type raftClient struct {
-	cc *grpc.ClientConn
-}
-
-func NewRaftClient(cc *grpc.ClientConn) RaftClient {
-	return &raftClient{cc}
-}
-
-func (c *raftClient) RequestVote(ctx context.Context, in *RequestVoteRequest, opts ...grpc.CallOption) (*RequestVoteResponse, error) {
-	out := new(RequestVoteResponse)
-	err := grpc.Invoke(ctx, "/raftpb.Raft/RequestVote", in, out, c.cc, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *raftClient) AppendEntries(ctx context.Context, in *AppendEntriesRequest, opts ...grpc.CallOption) (*AppendEntriesResponse, error) {
-	out := new(AppendEntriesResponse)
-	err := grpc.Invoke(ctx, "/raftpb.Raft/AppendEntries", in, out, c.cc, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *raftClient) ClientCommand(ctx context.Context, in *ClientCommandRequest, opts ...grpc.CallOption) (*ClientCommandResponse, error) {
-	out := new(ClientCommandResponse)
-	err := grpc.Invoke(ctx, "/raftpb.Raft/ClientCommand", in, out, c.cc, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// Server API for Raft service
-
-type RaftServer interface {
-	RequestVote(context.Context, *RequestVoteRequest) (*RequestVoteResponse, error)
-	AppendEntries(context.Context, *AppendEntriesRequest) (*AppendEntriesResponse, error)
-	ClientCommand(context.Context, *ClientCommandRequest) (*ClientCommandResponse, error)
-}
-
-func RegisterRaftServer(s *grpc.Server, srv RaftServer) {
-	s.RegisterService(&_Raft_serviceDesc, srv)
-}
-
-func _Raft_RequestVote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RequestVoteRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RaftServer).RequestVote(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/raftpb.Raft/RequestVote",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RaftServer).RequestVote(ctx, req.(*RequestVoteRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Raft_AppendEntries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AppendEntriesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RaftServer).AppendEntries(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/raftpb.Raft/AppendEntries",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RaftServer).AppendEntries(ctx, req.(*AppendEntriesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Raft_ClientCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ClientCommandRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RaftServer).ClientCommand(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/raftpb.Raft/ClientCommand",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RaftServer).ClientCommand(ctx, req.(*ClientCommandRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-var _Raft_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "raftpb.Raft",
-	HandlerType: (*RaftServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "RequestVote",
-			Handler:    _Raft_RequestVote_Handler,
-		},
-		{
-			MethodName: "AppendEntries",
-			Handler:    _Raft_AppendEntries_Handler,
-		},
-		{
-			MethodName: "ClientCommand",
-			Handler:    _Raft_ClientCommand_Handler,
-		},
-	},
-	Streams:  []grpc.StreamDesc{},
-	Metadata: "pkg/raft/raftpb/raft.proto",
-}
-
 func (m *Entry) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
@@ -2259,102 +780,6 @@ func sovRaft(x uint64) (n int) {
 }
 func sozRaft(x uint64) (n int) {
 	return sovRaft(uint64((x << 1) ^ uint64((int64(x) >> 63))))
-}
-func (this *Entry) String() string {
-	if this == nil {
-		return "nil"
-	}
-	s := strings.Join([]string{`&Entry{`,
-		`Term:` + fmt.Sprintf("%v", this.Term) + `,`,
-		`Data:` + strings.Replace(fmt.Sprintf("%v", this.Data), "ClientCommandRequest", "ClientCommandRequest", 1) + `,`,
-		`}`,
-	}, "")
-	return s
-}
-func (this *RequestVoteRequest) String() string {
-	if this == nil {
-		return "nil"
-	}
-	s := strings.Join([]string{`&RequestVoteRequest{`,
-		`CandidateID:` + fmt.Sprintf("%v", this.CandidateID) + `,`,
-		`Term:` + fmt.Sprintf("%v", this.Term) + `,`,
-		`LastLogIndex:` + fmt.Sprintf("%v", this.LastLogIndex) + `,`,
-		`LastLogTerm:` + fmt.Sprintf("%v", this.LastLogTerm) + `,`,
-		`}`,
-	}, "")
-	return s
-}
-func (this *RequestVoteResponse) String() string {
-	if this == nil {
-		return "nil"
-	}
-	s := strings.Join([]string{`&RequestVoteResponse{`,
-		`Term:` + fmt.Sprintf("%v", this.Term) + `,`,
-		`VoteGranted:` + fmt.Sprintf("%v", this.VoteGranted) + `,`,
-		`}`,
-	}, "")
-	return s
-}
-func (this *AppendEntriesRequest) String() string {
-	if this == nil {
-		return "nil"
-	}
-	s := strings.Join([]string{`&AppendEntriesRequest{`,
-		`LeaderID:` + fmt.Sprintf("%v", this.LeaderID) + `,`,
-		`Term:` + fmt.Sprintf("%v", this.Term) + `,`,
-		`PrevLogIndex:` + fmt.Sprintf("%v", this.PrevLogIndex) + `,`,
-		`PrevLogTerm:` + fmt.Sprintf("%v", this.PrevLogTerm) + `,`,
-		`CommitIndex:` + fmt.Sprintf("%v", this.CommitIndex) + `,`,
-		`Entries:` + strings.Replace(fmt.Sprintf("%v", this.Entries), "Entry", "Entry", 1) + `,`,
-		`}`,
-	}, "")
-	return s
-}
-func (this *AppendEntriesResponse) String() string {
-	if this == nil {
-		return "nil"
-	}
-	s := strings.Join([]string{`&AppendEntriesResponse{`,
-		`FollowerID:` + fmt.Sprintf("%v", this.FollowerID) + `,`,
-		`Term:` + fmt.Sprintf("%v", this.Term) + `,`,
-		`MatchIndex:` + fmt.Sprintf("%v", this.MatchIndex) + `,`,
-		`Success:` + fmt.Sprintf("%v", this.Success) + `,`,
-		`}`,
-	}, "")
-	return s
-}
-func (this *ClientCommandRequest) String() string {
-	if this == nil {
-		return "nil"
-	}
-	s := strings.Join([]string{`&ClientCommandRequest{`,
-		`ClientID:` + fmt.Sprintf("%v", this.ClientID) + `,`,
-		`SequenceNumber:` + fmt.Sprintf("%v", this.SequenceNumber) + `,`,
-		`Command:` + fmt.Sprintf("%v", this.Command) + `,`,
-		`}`,
-	}, "")
-	return s
-}
-func (this *ClientCommandResponse) String() string {
-	if this == nil {
-		return "nil"
-	}
-	s := strings.Join([]string{`&ClientCommandResponse{`,
-		`Status:` + fmt.Sprintf("%v", this.Status) + `,`,
-		`Response:` + fmt.Sprintf("%v", this.Response) + `,`,
-		`LeaderHint:` + fmt.Sprintf("%v", this.LeaderHint) + `,`,
-		`ClientID:` + fmt.Sprintf("%v", this.ClientID) + `,`,
-		`}`,
-	}, "")
-	return s
-}
-func valueToStringRaft(v interface{}) string {
-	rv := reflect.ValueOf(v)
-	if rv.IsNil() {
-		return "nil"
-	}
-	pv := reflect.Indirect(rv).Interface()
-	return fmt.Sprintf("*%v", pv)
 }
 func (m *Entry) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
@@ -3380,47 +1805,41 @@ var (
 func init() { proto.RegisterFile("pkg/raft/raftpb/raft.proto", fileDescriptorRaft) }
 
 var fileDescriptorRaft = []byte{
-	// 660 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0x7c, 0x54, 0x4f, 0x4f, 0x13, 0x41,
-	0x14, 0xef, 0xd0, 0xa5, 0x94, 0x57, 0x8b, 0x64, 0x84, 0xb8, 0xa9, 0x38, 0x69, 0x36, 0x06, 0x1b,
-	0x63, 0x8a, 0xa9, 0x9f, 0x00, 0xa1, 0xc1, 0x06, 0x04, 0x32, 0x25, 0xc4, 0x1b, 0x99, 0xee, 0x0e,
-	0xa5, 0xb1, 0xfb, 0xc7, 0xdd, 0x29, 0xea, 0x8d, 0x8b, 0x77, 0x6e, 0x5e, 0x3d, 0xf2, 0x05, 0xf8,
-	0x0e, 0x1e, 0xb9, 0xe9, 0x91, 0xae, 0x17, 0x8f, 0x7e, 0x02, 0x34, 0x3b, 0x3b, 0xbb, 0xec, 0xd6,
-	0x62, 0x0f, 0xdd, 0x7d, 0xbf, 0x37, 0xfb, 0x7e, 0xef, 0xf7, 0x7b, 0x33, 0x03, 0x35, 0xef, 0x5d,
-	0x7f, 0xcd, 0x67, 0xc7, 0x42, 0xfe, 0x79, 0x3d, 0xf9, 0x68, 0x7a, 0xbe, 0x2b, 0x5c, 0x5c, 0x8a,
-	0xa1, 0xda, 0x93, 0xfe, 0x40, 0x9c, 0x8c, 0x7a, 0x4d, 0xd3, 0xb5, 0xd7, 0x7c, 0x3e, 0x64, 0xbd,
-	0xb5, 0xbe, 0xeb, 0x8f, 0xec, 0x40, 0x3d, 0xe2, 0xd5, 0xc6, 0x1b, 0x98, 0x6d, 0x3b, 0xc2, 0xff,
-	0x84, 0x31, 0x68, 0x82, 0xfb, 0xb6, 0x8e, 0xea, 0xa8, 0xa1, 0x51, 0xf9, 0x8e, 0x5f, 0x80, 0x66,
-	0x31, 0xc1, 0xf4, 0x99, 0x3a, 0x6a, 0x54, 0x5a, 0x2b, 0xcd, 0xb8, 0x72, 0x73, 0x63, 0x38, 0xe0,
-	0x8e, 0xd8, 0x70, 0x6d, 0x9b, 0x39, 0x16, 0xe5, 0xef, 0x47, 0x3c, 0x10, 0x54, 0xae, 0x34, 0xce,
-	0x11, 0x60, 0x85, 0x1c, 0xba, 0x82, 0xab, 0x57, 0x5c, 0x87, 0x8a, 0xc9, 0x1c, 0x6b, 0x60, 0x31,
-	0xc1, 0x3b, 0x9b, 0x8a, 0x23, 0x0b, 0xa5, 0xf4, 0x33, 0x19, 0x7a, 0x03, 0xee, 0x0d, 0x59, 0x20,
-	0x76, 0xdc, 0x7e, 0xc7, 0xb1, 0xf8, 0x47, 0xbd, 0x28, 0x73, 0x39, 0x2c, 0xaa, 0xac, 0xe2, 0x83,
-	0xe8, 0x73, 0x2d, 0xae, 0x9c, 0x81, 0x8c, 0x6d, 0x78, 0x90, 0xeb, 0x28, 0xf0, 0x5c, 0x27, 0xe0,
-	0x53, 0xf5, 0xd6, 0xa1, 0x72, 0xea, 0x0a, 0xbe, 0xe5, 0x33, 0x47, 0x70, 0x4b, 0xf2, 0x95, 0x69,
-	0x16, 0x32, 0xbe, 0x23, 0x58, 0x5a, 0xf7, 0x3c, 0xee, 0x58, 0x91, 0x6b, 0x03, 0x1e, 0x24, 0x0a,
-	0x6b, 0x50, 0x1e, 0x72, 0x66, 0x71, 0x3f, 0x95, 0x97, 0xc6, 0x77, 0x69, 0xf3, 0x7c, 0x7e, 0x3a,
-	0xa9, 0x2d, 0x8b, 0x45, 0xed, 0xa8, 0x38, 0xab, 0x2d, 0x03, 0x49, 0x5f, 0x5d, 0xdb, 0x1e, 0x88,
-	0xb8, 0xc8, 0xac, 0xf2, 0xf5, 0x16, 0xc2, 0x4f, 0x61, 0x8e, 0xc7, 0x9d, 0xea, 0xa5, 0x7a, 0xb1,
-	0x51, 0x69, 0x55, 0x93, 0x29, 0xca, 0xb1, 0xd3, 0x24, 0x6b, 0x7c, 0x46, 0xb0, 0x3c, 0xa1, 0x4c,
-	0x39, 0x45, 0x00, 0x8e, 0xdd, 0xe1, 0xd0, 0xfd, 0xa0, 0xc4, 0x15, 0x1b, 0x1a, 0xcd, 0x20, 0xa9,
-	0xbc, 0x62, 0x46, 0x1e, 0x01, 0xb0, 0x99, 0x30, 0x4f, 0xe2, 0xbe, 0xe2, 0xce, 0x33, 0x08, 0xd6,
-	0x61, 0x2e, 0x18, 0x99, 0x26, 0x0f, 0x02, 0xd9, 0x74, 0x99, 0x26, 0xa1, 0x21, 0x60, 0x69, 0xda,
-	0xfe, 0x8a, 0x0c, 0x36, 0x25, 0xae, 0x0c, 0xae, 0xd2, 0x34, 0xc6, 0xab, 0xb0, 0x10, 0x44, 0xcb,
-	0x1c, 0x93, 0xef, 0x8e, 0xec, 0x1e, 0xf7, 0x95, 0xd5, 0x13, 0x68, 0xc4, 0x6a, 0xc6, 0x55, 0x65,
-	0xb3, 0xf3, 0x34, 0x09, 0x8d, 0x2f, 0x08, 0x96, 0x27, 0x68, 0x95, 0xfa, 0x55, 0x28, 0x05, 0x82,
-	0x89, 0x51, 0x20, 0x59, 0x17, 0x5a, 0x0b, 0x89, 0x7f, 0x5d, 0x89, 0x52, 0x95, 0x8d, 0xfa, 0xf3,
-	0xd5, 0x37, 0x92, 0x7d, 0x9e, 0xa6, 0x71, 0xe4, 0x46, 0xbc, 0x19, 0x5e, 0x0f, 0x1c, 0x21, 0xa9,
-	0xab, 0x34, 0x83, 0xe4, 0xb4, 0x69, 0x79, 0x6d, 0xcf, 0xb6, 0xa0, 0x14, 0x33, 0xe1, 0x12, 0xcc,
-	0xec, 0x6d, 0x2f, 0x16, 0xf0, 0x43, 0x80, 0xdd, 0xbd, 0x83, 0xa3, 0x9d, 0xf6, 0xfa, 0x66, 0x9b,
-	0x2e, 0xfe, 0x49, 0x7e, 0x08, 0xaf, 0xc0, 0xfd, 0x6e, 0xbb, 0xdb, 0xed, 0xec, 0xed, 0x1e, 0xb5,
-	0xdf, 0xee, 0x77, 0x68, 0x7b, 0x73, 0xf1, 0x26, 0xcd, 0xb6, 0x6e, 0x10, 0x68, 0x94, 0x1d, 0x0b,
-	0xbc, 0x0f, 0x95, 0xcc, 0x81, 0xc0, 0xb5, 0x44, 0xd0, 0xbf, 0xe7, 0xb6, 0xf6, 0x68, 0x6a, 0x2e,
-	0x56, 0x65, 0x94, 0xbf, 0x5e, 0xea, 0xe8, 0xe2, 0x52, 0x47, 0xf8, 0x10, 0xaa, 0xb9, 0xad, 0x83,
-	0xd3, 0xab, 0x62, 0xda, 0x59, 0xa9, 0x3d, 0xbe, 0x23, 0x9b, 0xd4, 0x3d, 0x4b, 0xea, 0xee, 0x40,
-	0x35, 0x37, 0x14, 0xfc, 0xdf, 0x2b, 0xe8, 0xb6, 0xee, 0xd4, 0x49, 0xbe, 0x7a, 0x7e, 0x35, 0x26,
-	0x85, 0x1f, 0x63, 0x52, 0xb8, 0x1e, 0x13, 0x74, 0x16, 0x12, 0x74, 0x11, 0x12, 0xf4, 0x2d, 0x24,
-	0xe8, 0x2a, 0x24, 0xe8, 0x3a, 0x24, 0xe8, 0x57, 0x48, 0x0a, 0xbf, 0x43, 0x82, 0xce, 0x7f, 0x92,
-	0x42, 0xaf, 0x24, 0xef, 0xc7, 0x97, 0x7f, 0x03, 0x00, 0x00, 0xff, 0xff, 0x76, 0xd3, 0x77, 0x43,
-	0x6b, 0x05, 0x00, 0x00,
+	// 561 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0x74, 0x54, 0xcf, 0x6e, 0xd3, 0x30,
+	0x1c, 0x5e, 0xda, 0x2c, 0xeb, 0x7e, 0x5d, 0x4b, 0x65, 0x36, 0x51, 0x55, 0x53, 0x54, 0xe5, 0x30,
+	0x2a, 0x24, 0x5a, 0x54, 0x9e, 0x60, 0xac, 0x11, 0x54, 0xdb, 0x5a, 0xe4, 0x4e, 0x88, 0xdb, 0x94,
+	0x26, 0x6e, 0x17, 0xd1, 0xc4, 0x21, 0x76, 0x06, 0x3c, 0x00, 0x12, 0x47, 0x6e, 0x3c, 0x00, 0x2f,
+	0xc3, 0x91, 0x1b, 0x57, 0xd4, 0x07, 0x01, 0x14, 0xdb, 0x09, 0x6e, 0xb5, 0xf5, 0xd0, 0xfa, 0xfb,
+	0x7e, 0xb1, 0xbf, 0x3f, 0xb1, 0x0a, 0x9d, 0xe4, 0xdd, 0x72, 0x90, 0x7a, 0x0b, 0x2e, 0xbe, 0x92,
+	0xb9, 0xf8, 0xe9, 0x27, 0x29, 0xe5, 0x14, 0x59, 0x92, 0xea, 0x3c, 0x5d, 0x86, 0xfc, 0x26, 0x9b,
+	0xf7, 0x7d, 0x1a, 0x0d, 0x96, 0x74, 0x49, 0x07, 0x62, 0x3c, 0xcf, 0x16, 0x02, 0x09, 0x20, 0x56,
+	0x72, 0x9b, 0x73, 0x09, 0xbb, 0x6e, 0xcc, 0xd3, 0x4f, 0x08, 0x81, 0xc9, 0x49, 0x1a, 0xb5, 0x8d,
+	0xae, 0xd1, 0x33, 0xb1, 0x58, 0xa3, 0x67, 0x60, 0x06, 0x1e, 0xf7, 0xda, 0x95, 0xae, 0xd1, 0xab,
+	0x0f, 0x8f, 0xfb, 0x52, 0xa2, 0x7f, 0xb6, 0x0a, 0x49, 0xcc, 0xcf, 0x68, 0x14, 0x79, 0x71, 0x80,
+	0xc9, 0xfb, 0x8c, 0x30, 0x8e, 0xc5, 0x93, 0xce, 0x57, 0x03, 0x90, 0x62, 0xde, 0x50, 0x4e, 0xd4,
+	0x12, 0x75, 0xa1, 0xee, 0x7b, 0x71, 0x10, 0x06, 0x1e, 0x27, 0xe3, 0x91, 0xd2, 0xd0, 0xa9, 0x52,
+	0xbe, 0xa2, 0xc9, 0x3b, 0x70, 0xb0, 0xf2, 0x18, 0xbf, 0xa0, 0xcb, 0x71, 0x1c, 0x90, 0x8f, 0xed,
+	0xaa, 0x98, 0x6d, 0x70, 0xf9, 0xc9, 0x0a, 0x5f, 0xe5, 0xdb, 0x4d, 0x79, 0xb2, 0x46, 0x39, 0xe7,
+	0xf0, 0x70, 0xc3, 0x11, 0x4b, 0x68, 0xcc, 0xc8, 0x9d, 0x79, 0xbb, 0x50, 0xbf, 0xa5, 0x9c, 0xbc,
+	0x4c, 0xbd, 0x98, 0x93, 0x40, 0xe8, 0xd5, 0xb0, 0x4e, 0x39, 0xbf, 0x0c, 0x38, 0x3c, 0x4d, 0x12,
+	0x12, 0x07, 0x79, 0x6b, 0x21, 0x61, 0x45, 0xc2, 0x0e, 0xd4, 0x56, 0xc4, 0x0b, 0x48, 0x5a, 0xc6,
+	0x2b, 0xf1, 0x7d, 0xd9, 0x92, 0x94, 0xdc, 0x6e, 0x67, 0xd3, 0xb9, 0xdc, 0x8e, 0xc2, 0x7a, 0x36,
+	0x8d, 0x12, 0xbd, 0xd2, 0x28, 0x0a, 0xb9, 0x3c, 0x64, 0x57, 0xf5, 0xfa, 0x9f, 0x42, 0x8f, 0x61,
+	0x8f, 0x48, 0xa7, 0x6d, 0xab, 0x5b, 0xed, 0xd5, 0x87, 0x8d, 0xe2, 0x2d, 0x8a, 0xd7, 0x8e, 0x8b,
+	0xa9, 0xf3, 0xd9, 0x80, 0xa3, 0xad, 0x64, 0xaa, 0x29, 0x1b, 0x60, 0x41, 0x57, 0x2b, 0xfa, 0x41,
+	0x85, 0xab, 0xf6, 0x4c, 0xac, 0x31, 0x65, 0xbc, 0xaa, 0x16, 0xcf, 0x06, 0x88, 0x3c, 0xee, 0xdf,
+	0x48, 0x5f, 0xd2, 0xb9, 0xc6, 0xa0, 0x36, 0xec, 0xb1, 0xcc, 0xf7, 0x09, 0x63, 0xc2, 0x74, 0x0d,
+	0x17, 0xd0, 0xe1, 0x70, 0x78, 0xd7, 0xfd, 0xca, 0x0b, 0xf6, 0x05, 0xaf, 0x0a, 0x6e, 0xe0, 0x12,
+	0xa3, 0x13, 0x68, 0xb2, 0xfc, 0xb1, 0xd8, 0x27, 0x93, 0x2c, 0x9a, 0x93, 0x54, 0x55, 0xbd, 0xc5,
+	0xe6, 0xaa, 0xbe, 0x3c, 0x55, 0x98, 0xdd, 0xc7, 0x05, 0x74, 0xbe, 0x19, 0x70, 0xb4, 0x25, 0xab,
+	0xd2, 0x9f, 0x80, 0xc5, 0xb8, 0xc7, 0x33, 0x26, 0x54, 0x9b, 0xc3, 0x66, 0xd1, 0xdf, 0x4c, 0xb0,
+	0x58, 0x4d, 0x73, 0x7f, 0xa9, 0xda, 0x23, 0xd4, 0xf7, 0x71, 0x89, 0xf3, 0x36, 0xe4, 0x65, 0x78,
+	0x15, 0xc6, 0x5c, 0x48, 0x37, 0xb0, 0xc6, 0x6c, 0x64, 0x33, 0x37, 0xb3, 0x3d, 0xb9, 0x04, 0x4b,
+	0x2a, 0x21, 0x0b, 0x2a, 0xd3, 0xf3, 0xd6, 0x0e, 0x7a, 0x04, 0x30, 0x99, 0x5e, 0x5d, 0x5f, 0xb8,
+	0xa7, 0x23, 0x17, 0xb7, 0xfe, 0x16, 0x1f, 0x03, 0x1d, 0xc3, 0x83, 0x99, 0x3b, 0x9b, 0x8d, 0xa7,
+	0x93, 0x6b, 0xf7, 0xed, 0xeb, 0x31, 0x76, 0x47, 0xad, 0x3f, 0xe5, 0xb4, 0x63, 0x7e, 0xf9, 0x6e,
+	0xef, 0xbc, 0x38, 0xf8, 0xb1, 0xb6, 0x8d, 0x9f, 0x6b, 0xdb, 0xf8, 0xbd, 0xb6, 0x8d, 0xb9, 0x25,
+	0xfe, 0x04, 0x9e, 0xff, 0x0b, 0x00, 0x00, 0xff, 0xff, 0x28, 0x40, 0xdf, 0x58, 0x59, 0x04, 0x00,
+	0x00,
 }

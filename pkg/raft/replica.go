@@ -15,6 +15,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
+	gorums "github.com/relab/raft/pkg/raft/gorumspb"
 	pb "github.com/relab/raft/pkg/raft/raftpb"
 )
 
@@ -78,7 +79,7 @@ type persistent struct {
 	currentTerm uint64
 	votedFor    uint64
 	log         []*pb.Entry
-	commands    map[uniqueCommand]*pb.ClientCommandRequest
+	commands map[uniqueCommand]*pb.ClientCommandRequest
 
 	recoverFile *os.File
 }
@@ -98,10 +99,10 @@ type Replica struct {
 	state State
 
 	qs   *QuorumSpec
-	conf *pb.Configuration
+	conf *gorums.Configuration
 
 	addrs []string
-	nodes map[uint64]*pb.Node
+	nodes map[uint64]*gorums.Node
 
 	commitIndex uint64
 
@@ -187,7 +188,7 @@ func NewReplica(cfg *Config) (*Replica, error) {
 		batch:            cfg.Batch,
 		qrpc:             cfg.QRPC,
 		addrs:            nodes,
-		nodes:            make(map[uint64]*pb.Node, len(nodes)),
+		nodes:            make(map[uint64]*gorums.Node, len(nodes)),
 		qs:               newQuorumSpec(len(nodes), cfg.SlowQuorum),
 		nextIndex:        nextIndex,
 		matchIndex:       matchIndex,
@@ -378,8 +379,8 @@ func (r *Replica) ClientCommand(ctx context.Context, request *pb.ClientCommandRe
 }
 
 func (r *Replica) connect() error {
-	opts := []pb.ManagerOption{
-		pb.WithGrpcDialOptions(
+	opts := []gorums.ManagerOption{
+		gorums.WithGrpcDialOptions(
 			grpc.WithBlock(),
 			grpc.WithInsecure(),
 			grpc.WithTimeout(TCPConnect*time.Millisecond),
@@ -387,7 +388,7 @@ func (r *Replica) connect() error {
 	}
 
 	// TODO In main? We really only want the conf and nodes.
-	mgr, err := pb.NewManager(r.addrs, opts...)
+	mgr, err := gorums.NewManager(r.addrs, opts...)
 
 	if err != nil {
 		return err

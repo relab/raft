@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/relab/raft/pkg/raft"
-	pb "github.com/relab/raft/pkg/raft/raftpb"
+	gorums "github.com/relab/raft/pkg/raft/gorumspb"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
@@ -91,7 +91,7 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	pb.RegisterRaftServer(s, r)
+	gorums.RegisterRaftServer(s, r)
 
 	l, err := net.Listen("tcp", nodes[*id-1])
 

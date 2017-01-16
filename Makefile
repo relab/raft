@@ -19,7 +19,8 @@ protocgorums:
 
 .PHONY: proto
 proto: protocgorums
-	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. pkg/raft/raftpb/raft.proto
+	protoc -I ../../../:. --gogofast_out=. pkg/raft/raftpb/raft.proto
+	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. pkg/raft/gorumspb/gorums.proto
 
 .PHONY: install
 install:

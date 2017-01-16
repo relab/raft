@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	gorums "github.com/relab/raft/pkg/raft/gorumspb"
 	pb "github.com/relab/raft/pkg/raft/raftpb"
 )
 
@@ -155,7 +156,7 @@ LOOP:
 			Entries:      entries,
 		}
 
-		go func(node *pb.Node, req *pb.AppendEntriesRequest) {
+		go func(node *gorums.Node, req *pb.AppendEntriesRequest) {
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
 			defer cancel()
 

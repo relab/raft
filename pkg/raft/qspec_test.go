@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/relab/raft/pkg/raft"
+	gorums "github.com/relab/raft/pkg/raft/gorumspb"
 	pb "github.com/relab/raft/pkg/raft/raftpb"
 )
 
@@ -244,7 +245,7 @@ var appendEntriesSlowQFTests = []AETestCase{
 
 var qspecs = []struct {
 	name string
-	spec pb.QuorumSpec
+	spec gorums.QuorumSpec
 }{
 	{
 		"QuorumSpec N3 Q=MajQ",

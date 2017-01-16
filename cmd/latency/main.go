@@ -15,7 +15,8 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/relab/raft/pkg/raft/raftpb"
+	gorums "github.com/relab/raft/pkg/raft/gorumspb"
+	pb "github.com/relab/raft/pkg/raft/raftpb"
 )
 
 // Errors
@@ -36,12 +37,12 @@ var rate = flag.Int("rate", 15, "How many requests each client sends per second"
 var timeout = flag.Duration("time", time.Second*30, "How long to measure in `seconds`")
 var nodes Nodes
 
-// ManagerWithLeader is a *raftpb.Manager containing information about which replica is currently the leader.
+// ManagerWithLeader is a *gorums.Manager containing information about which replica is currently the leader.
 type ManagerWithLeader struct {
-	*raftpb.Manager
+	*gorums.Manager
 
 	this   sync.Mutex
-	leader *raftpb.Node
+	leader *gorums.Node
 
 	nodes   int
 	current int
@@ -74,7 +75,7 @@ func (mgr *ManagerWithLeader) ClientCommand(command string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), t)
 	defer cancel()
 
-	reply, err := mgr.leader.RaftClient.ClientCommand(ctx, &raftpb.ClientCommandRequest{Command: command, ClientID: mgr.clientID, SequenceNumber: mgr.sequenceNumber})
+	reply, err := mgr.leader.RaftClient.ClientCommand(ctx, &pb.ClientCommandRequest{Command: command, ClientID: mgr.clientID, SequenceNumber: mgr.sequenceNumber})
 
 	if err != nil {
 		mgr.next(0)
@@ -83,9 +84,9 @@ func (mgr *ManagerWithLeader) ClientCommand(command string) error {
 	}
 
 	switch reply.Status {
-	case raftpb.OK:
+	case pb.OK:
 		return nil
-	case raftpb.SESSION_EXPIRED:
+	case pb.SESSION_EXPIRED:
 		return ErrSessionExpired
 	}
 
@@ -130,8 +131,8 @@ type clientRequester struct {
 }
 
 func (cr *clientRequester) Setup() error {
-	mgr, err := raftpb.NewManager(cr.addrs,
-		raftpb.WithGrpcDialOptions(cr.dialOpts...))
+	mgr, err := gorums.NewManager(cr.addrs,
+		gorums.WithGrpcDialOptions(cr.dialOpts...))
 
 	if err != nil {
 		return err
@@ -150,7 +151,7 @@ func (cr *clientRequester) Setup() error {
 	defer cancel()
 
 	for {
-		reply, err := mwl.leader.RaftClient.ClientCommand(ctx, &raftpb.ClientCommandRequest{Command: "REGISTER", SequenceNumber: 0})
+		reply, err := mwl.leader.RaftClient.ClientCommand(ctx, &pb.ClientCommandRequest{Command: "REGISTER", SequenceNumber: 0})
 
 		if err != nil {
 			log.Printf("Error sending ClientCommand to %v: %v", mwl.leader.ID(), err)
@@ -166,10 +167,10 @@ func (cr *clientRequester) Setup() error {
 		}
 
 		switch reply.Status {
-		case raftpb.OK:
+		case pb.OK:
 			mwl.clientID = reply.ClientID
 			return nil
-		case raftpb.SESSION_EXPIRED:
+		case pb.SESSION_EXPIRED:
 			return ErrSessionExpired
 		}
 

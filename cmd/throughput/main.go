@@ -8,13 +8,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/relab/raft/pkg/raft/raftpb"
+	gorums "github.com/relab/raft/pkg/raft/gorumspb"
+	pb "github.com/relab/raft/pkg/raft/raftpb"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
 
-var client raftpb.RaftClient
+var client gorums.RaftClient
 
 var counter chan interface{}
 var seq chan uint64
@@ -54,8 +55,8 @@ func main() {
 		}
 	}()
 
-	mgr, err := raftpb.NewManager([]string{*leader},
-		raftpb.WithGrpcDialOptions(
+	mgr, err := gorums.NewManager([]string{*leader},
+		gorums.WithGrpcDialOptions(
 			grpc.WithInsecure(),
 			grpc.WithBlock(),
 			grpc.WithTimeout(time.Second),
@@ -103,13 +104,13 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 
-		reply, err := client.ClientCommand(ctx, &raftpb.ClientCommandRequest{Command: "REGISTER", SequenceNumber: 0})
+		reply, err := client.ClientCommand(ctx, &pb.ClientCommandRequest{Command: "REGISTER", SequenceNumber: 0})
 
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		if reply.Status != raftpb.OK {
+		if reply.Status != pb.OK {
 			log.Fatal("Not leader!")
 		}
 
@@ -149,9 +150,9 @@ func sendCommand(clientID uint32) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	reply, err := client.ClientCommand(ctx, &raftpb.ClientCommandRequest{Command: "xxxxxxxxxxxxxxxx", SequenceNumber: <-seq, ClientID: clientID})
+	reply, err := client.ClientCommand(ctx, &pb.ClientCommandRequest{Command: "xxxxxxxxxxxxxxxx", SequenceNumber: <-seq, ClientID: clientID})
 
-	if err == nil && reply.Status == raftpb.OK {
+	if err == nil && reply.Status == pb.OK {
 		counter <- struct{}{}
 	}
 }
