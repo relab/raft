@@ -60,12 +60,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	if !*qrpc && len(nodes) != 3 {
-		fmt.Print("only 3 nodes is supported with QRPC enabled\n\n")
-		flag.Usage()
-		os.Exit(1)
-	}
-
 	if *maxAppendEntries < 1 {
 		fmt.Print("-maxappend must be atleast 1\n\n")
 		flag.Usage()
