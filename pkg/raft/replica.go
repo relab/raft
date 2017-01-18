@@ -534,7 +534,12 @@ func (r *Replica) startElection() {
 	ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
 
 	// #C4 Send RequestVote RPCs to all other servers.
-	req := r.conf.RequestVoteFuture(ctx, &pb.RequestVoteRequest{CandidateID: r.id, Term: r.persistent.currentTerm, LastLogTerm: r.logTerm(len(r.persistent.log)), LastLogIndex: uint64(len(r.persistent.log))})
+	req := r.conf.RequestVoteFuture(ctx, &pb.RequestVoteRequest{
+		CandidateID:  r.id,
+		Term:         r.persistent.currentTerm,
+		LastLogTerm:  r.logTerm(len(r.persistent.log)),
+		LastLogIndex: uint64(len(r.persistent.log)),
+	})
 
 	go func() {
 		defer cancel()
