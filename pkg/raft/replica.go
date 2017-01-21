@@ -8,7 +8,6 @@ import (
 	"log"
 	"math/rand"
 	"os"
-	"sort"
 	"sync"
 	"time"
 
@@ -107,8 +106,8 @@ type Replica struct {
 
 	commitIndex uint64
 
-	nextIndex  map[uint64]int
-	matchIndex map[uint64]int
+	nextIndex  int
+	matchIndex int
 
 	baselineTimeout  time.Duration
 	electionTimeout  time.Duration
@@ -128,8 +127,6 @@ type Replica struct {
 	batch bool
 	qrpc  bool
 
-	aeHandler appendEntriesHandler
-
 	logger *Logger
 }
 
@@ -137,14 +134,6 @@ type Replica struct {
 func NewReplica(cfg *Config) (*Replica, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = log.New(ioutil.Discard, "", 0)
-	}
-
-	var aeHandler appendEntriesHandler
-
-	if cfg.QRPC {
-		aeHandler = &aeqrpc{}
-	} else {
-		aeHandler = &aenoqrpc{}
 	}
 
 	electionTimeout := randomTimeout(cfg.ElectionTimeout)
@@ -157,22 +146,6 @@ func NewReplica(cfg *Config) (*Replica, error) {
 
 	if err != nil {
 		return nil, err
-	}
-
-	nextIndex := make(map[uint64]int, len(cfg.Nodes)-1)
-	matchIndex := make(map[uint64]int, len(cfg.Nodes)-1)
-
-	for i := range cfg.Nodes {
-		id := uint64(i + 1)
-
-		// Exclude self.
-		if id == cfg.ID {
-			continue
-		}
-
-		// Initialized per Raft specification.
-		nextIndex[id] = 1
-		matchIndex[id] = 0
 	}
 
 	var nodes []string
@@ -190,12 +163,10 @@ func NewReplica(cfg *Config) (*Replica, error) {
 	r := &Replica{
 		id:               cfg.ID,
 		batch:            cfg.Batch,
-		qrpc:             cfg.QRPC,
 		addrs:            nodes,
 		nodes:            make(map[uint64]*gorums.Node, len(nodes)),
-		qs:               newQuorumSpec(len(nodes), cfg.SlowQuorum),
-		nextIndex:        nextIndex,
-		matchIndex:       matchIndex,
+		qs:               newQuorumSpec(len(nodes)),
+		nextIndex:        1,
 		baselineTimeout:  cfg.ElectionTimeout,
 		electionTimeout:  electionTimeout,
 		heartbeatTimeout: cfg.HeartbeatTimeout,
@@ -208,7 +179,6 @@ func NewReplica(cfg *Config) (*Replica, error) {
 		maxAppendEntries: cfg.MaxAppendEntries,
 		queue:            make(chan *pb.Entry, BufferSize),
 		persistent:       persistent,
-		aeHandler:        aeHandler,
 		logger:           &Logger{cfg.ID, cfg.Logger},
 	}
 
@@ -240,7 +210,7 @@ func (r *Replica) Run() error {
 			r.startElection()
 
 		case <-r.heartbeat.C:
-			r.aeHandler.sendRequest(r)
+			r.sendAppendEntries()
 		}
 	}
 }
@@ -320,9 +290,8 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 	// #AE1 Reply false if term < currentTerm.
 	if request.Term < r.persistent.currentTerm {
 		return &pb.AppendEntriesResponse{
-			FollowerID: []uint64{r.id},
-			Success:    false,
-			Term:       request.Term,
+			Success: false,
+			Term:    request.Term,
 		}, nil
 	}
 
@@ -373,7 +342,6 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 	}
 
 	return &pb.AppendEntriesResponse{
-		FollowerID: []uint64{r.id},
 		Term:       request.Term,
 		MatchIndex: uint64(len(r.persistent.log)),
 		Success:    success,
@@ -385,7 +353,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 func (r *Replica) ClientCommand(ctx context.Context, request *pb.ClientCommandRequest) (*pb.ClientCommandResponse, error) {
 	if response, isLeader := r.logCommand(request); isLeader {
 		if !r.batch {
-			r.aeHandler.sendRequest(r)
+			r.sendAppendEntries()
 		}
 
 		select {
@@ -483,20 +451,10 @@ func (r *Replica) advanceCommitIndex() {
 	r.Lock()
 	defer r.Unlock()
 
-	matchIndexes := []int{len(r.persistent.log)}
-
-	for _, i := range r.matchIndex {
-		matchIndexes = append(matchIndexes, i)
-	}
-
-	sort.Ints(matchIndexes)
-
-	atleast := matchIndexes[(len(r.matchIndex)+1)/2]
-
 	old := r.commitIndex
 
-	if r.state == Leader && r.logTerm(atleast) == r.persistent.currentTerm {
-		r.commitIndex = max(r.commitIndex, uint64(atleast))
+	if r.state == Leader && r.logTerm(r.matchIndex) == r.persistent.currentTerm {
+		r.commitIndex = max(r.commitIndex, uint64(r.matchIndex))
 	}
 
 	if r.commitIndex > old {
@@ -575,8 +533,8 @@ func (r *Replica) startElection() {
 	})
 
 	go func() {
-		defer cancel()
 		reply, err := req.Get()
+		cancel()
 
 		if err != nil {
 			r.logger.log(fmt.Sprintf("RequestVote failed = %v", err))
@@ -635,10 +593,7 @@ func (r *Replica) handleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		r.state = Leader
 		r.leader = r.id
 		r.seenLeader = true
-
-		for id := range r.nextIndex {
-			r.nextIndex[id] = len(r.persistent.log) + 1
-		}
+		r.nextIndex = len(r.persistent.log) + 1
 
 		// #L1 Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
 		r.heartbeat.Reset(0)
@@ -651,6 +606,83 @@ func (r *Replica) handleRequestVoteResponse(response *pb.RequestVoteResponse) {
 
 	// #C7 If election timeout elapses: start new election.
 	// This will happened if we don't receive enough replies in time. Or we lose the election but don't see a higher term number.
+}
+
+func (r *Replica) sendAppendEntries() {
+	r.Lock()
+	defer r.Unlock()
+
+	if logLevel >= DEBUG {
+		r.logger.log(fmt.Sprintf("Sending AppendEntries for term %d", r.persistent.currentTerm))
+	}
+
+	var buffer bytes.Buffer
+
+LOOP:
+	for i := r.maxAppendEntries; i > 0; i-- {
+		select {
+		case entry := <-r.queue:
+			r.persistent.log = append(r.persistent.log, entry)
+
+			buffer.WriteString(fmt.Sprintf(STORECOMMAND, r.persistent.currentTerm, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
+		default:
+			break LOOP
+		}
+	}
+
+	// Write to stable storage
+	// TODO Assumes successful
+	r.save(buffer.String())
+
+	// #L1
+	entries := []*pb.Entry{}
+
+	next := r.nextIndex - 1
+
+	if len(r.persistent.log) > next {
+		maxEntries := int(min(uint64(next+r.maxAppendEntries), uint64(len(r.persistent.log))))
+
+		if !r.batch {
+			maxEntries = next + 1
+		}
+
+		entries = r.persistent.log[next:maxEntries]
+	}
+
+	if logLevel >= DEBUG {
+		r.logger.log(fmt.Sprintf("Sending %d entries", len(entries)))
+	}
+
+	req := &pb.AppendEntriesRequest{
+		LeaderID:     r.id,
+		Term:         r.persistent.currentTerm,
+		PrevLogIndex: uint64(next),
+		PrevLogTerm:  r.logTerm(next),
+		CommitIndex:  r.commitIndex,
+		Entries:      entries,
+	}
+
+	go func(req *pb.AppendEntriesRequest) {
+		ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
+
+		resp, err := r.conf.AppendEntries(ctx, req)
+
+		if err != nil {
+			r.logger.log(fmt.Sprintf("AppendEntries failed = %v", err))
+
+			if resp.AppendEntriesResponse == nil {
+				return
+			}
+		}
+
+		if !resp.AppendEntriesResponse.Success {
+			cancel()
+		}
+
+		r.handleAppendEntriesResponse(resp.AppendEntriesResponse)
+	}(req)
+
+	r.heartbeat.Reset(r.heartbeatTimeout)
 }
 
 func (r *Replica) handleAppendEntriesResponse(response *pb.AppendEntriesResponse) {
@@ -674,23 +706,14 @@ func (r *Replica) handleAppendEntriesResponse(response *pb.AppendEntriesResponse
 
 	if r.state == Leader {
 		if response.Success {
-			for _, id := range response.FollowerID {
-				r.matchIndex[id] = int(response.MatchIndex)
-				r.nextIndex[id] = r.matchIndex[id] + 1
-			}
+			r.matchIndex = int(response.MatchIndex)
+			r.nextIndex = r.matchIndex + 1
 
 			return
 		}
 
-		// TODO noqrpc
-		if len(response.FollowerID) == 1 {
-			r.nextIndex[response.FollowerID[0]] = int(max(1, response.MatchIndex))
-		}
-
-		// If AppendEntries was not successful reset all.
-		for id := range r.nodes {
-			r.nextIndex[id] = int(max(1, response.MatchIndex))
-		}
+		// If AppendEntries was not successful lower match index.
+		r.nextIndex = int(max(1, response.MatchIndex))
 	}
 }
 

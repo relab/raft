@@ -185,7 +185,6 @@ func (m *Manager) appendEntries(ctx context.Context, c *Configuration, args *raf
 			replyValues = append(replyValues, r.reply)
 			if reply.AppendEntriesResponse, quorum = c.qspec.AppendEntriesQF(args, replyValues); quorum {
 
-				cancel()
 				return reply, nil
 			}
 		case <-newCtx.Done():
@@ -280,7 +279,6 @@ func (m *Manager) requestVote(ctx context.Context, c *Configuration, args *raftp
 			replyValues = append(replyValues, r.reply)
 			if reply.RequestVoteResponse, quorum = c.qspec.RequestVoteQF(args, replyValues); quorum {
 
-				cancel()
 				return reply, nil
 			}
 		case <-newCtx.Done():

@@ -27,9 +27,7 @@ func main() {
 		bench            = flag.Bool("quiet", false, "Silence log output")
 		recover          = flag.Bool("recover", false, "Recover from stable storage")
 		cpuprofile       = flag.String("cpuprofile", "", "Write cpu profile to file")
-		slowQuorum       = flag.Bool("slowquorum", false, "set quorum size to the number of servers")
 		batch            = flag.Bool("batch", true, "enable batching")
-		qrpc             = flag.Bool("qrpc", false, "enable QRPC")
 		electionTimeout  = flag.Duration("election", 2*time.Second, "How long servers wait before starting an election")
 		heartbeatTimeout = flag.Duration("heartbeat", 250*time.Millisecond, "How often a heartbeat should be sent")
 		maxAppendEntries = flag.Int("maxappend", 5000, "Max entries per AppendEntries message")
@@ -78,8 +76,6 @@ func main() {
 		Nodes:            nodes,
 		Recover:          *recover,
 		Batch:            *batch,
-		QRPC:             *qrpc,
-		SlowQuorum:       *slowQuorum,
 		ElectionTimeout:  *electionTimeout,
 		HeartbeatTimeout: *heartbeatTimeout,
 		MaxAppendEntries: *maxAppendEntries,
