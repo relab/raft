@@ -33,7 +33,7 @@ func (qs *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.Re
 		return &response, true
 	}
 
-	return nil, false
+	return nil, len(replies) == qs.N
 }
 
 // AppendEntriesQF gathers AppendEntriesResponses and calculates the log entries

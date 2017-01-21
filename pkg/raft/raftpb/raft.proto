@@ -16,6 +16,8 @@ message RequestVoteRequest {
   uint64 term = 2;
   uint64 lastLogIndex = 3;
   uint64 lastLogTerm = 4;
+
+  bool preVote = 5;
 }
 
 message RequestVoteResponse {

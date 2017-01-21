@@ -94,7 +94,8 @@ type Replica struct {
 
 	persistent *persistent
 
-	seenLeader bool
+	seenLeader      bool
+	heardFromLeader bool
 
 	state State
 
@@ -109,11 +110,15 @@ type Replica struct {
 	nextIndex  map[uint64]int
 	matchIndex map[uint64]int
 
+	baselineTimeout  time.Duration
 	electionTimeout  time.Duration
 	heartbeatTimeout time.Duration
 
+	baseline  Timer
 	election  Timer
 	heartbeat Timer
+
+	preElection bool
 
 	pending map[uniqueCommand]chan<- *pb.ClientCommandRequest
 
@@ -142,7 +147,6 @@ func NewReplica(cfg *Config) (*Replica, error) {
 		aeHandler = &aenoqrpc{}
 	}
 
-	// TODO Timeouts should be in config.
 	electionTimeout := randomTimeout(cfg.ElectionTimeout)
 
 	heartbeat := NewTimer(0)
@@ -192,11 +196,14 @@ func NewReplica(cfg *Config) (*Replica, error) {
 		qs:               newQuorumSpec(len(nodes), cfg.SlowQuorum),
 		nextIndex:        nextIndex,
 		matchIndex:       matchIndex,
+		baselineTimeout:  cfg.ElectionTimeout,
 		electionTimeout:  electionTimeout,
 		heartbeatTimeout: cfg.HeartbeatTimeout,
 		// TODO Fix Timer. Create new Timer instead of reusing.
-		election:         NewTimer(electionTimeout),
+		baseline:         NewTimer(cfg.ElectionTimeout),
+		election:         NewTimer(randomTimeout(cfg.ElectionTimeout)),
 		heartbeat:        heartbeat,
+		preElection:      true,
 		pending:          make(map[uniqueCommand]chan<- *pb.ClientCommandRequest, BufferSize),
 		maxAppendEntries: cfg.MaxAppendEntries,
 		queue:            make(chan *pb.Entry, BufferSize),
@@ -225,6 +232,8 @@ func (r *Replica) Run() error {
 
 	for {
 		select {
+		case <-r.baseline.C:
+			r.heardFromLeader = false
 		case <-r.election.C:
 			// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader
 			// or granting vote to candidate: convert to candidate.
@@ -242,8 +251,14 @@ func (r *Replica) RequestVote(ctx context.Context, request *pb.RequestVoteReques
 	r.Lock()
 	defer r.Unlock()
 
+	pre := ""
+
+	if request.PreVote {
+		pre = "Pre"
+	}
+
 	if logLevel >= INFO {
-		r.logger.from(request.CandidateID, fmt.Sprintf("Vote requested in term %d for term %d", r.persistent.currentTerm, request.Term))
+		r.logger.from(request.CandidateID, fmt.Sprintf("%sVote requested in term %d for term %d", pre, r.persistent.currentTerm, request.Term))
 	}
 
 	// #RV1 Reply false if term < currentTerm.
@@ -251,8 +266,14 @@ func (r *Replica) RequestVote(ctx context.Context, request *pb.RequestVoteReques
 		return &pb.RequestVoteResponse{Term: r.persistent.currentTerm}, nil
 	}
 
+	if request.PreVote && r.heardFromLeader {
+		// We don't grant pre-votes if we have recently heard from a
+		// leader.
+		return &pb.RequestVoteResponse{Term: r.persistent.currentTerm}, nil
+	}
+
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if request.Term > r.persistent.currentTerm {
+	if request.Term > r.persistent.currentTerm && !request.PreVote {
 		r.becomeFollower(request.Term)
 	}
 
@@ -261,7 +282,11 @@ func (r *Replica) RequestVote(ctx context.Context, request *pb.RequestVoteReques
 		(request.LastLogTerm > r.logTerm(len(r.persistent.log)) ||
 			(request.LastLogTerm == r.logTerm(len(r.persistent.log)) && request.LastLogIndex >= uint64(len(r.persistent.log)))) {
 		if logLevel >= INFO {
-			r.logger.to(request.CandidateID, fmt.Sprintf("Vote granted for term %d", request.Term))
+			r.logger.to(request.CandidateID, fmt.Sprintf("%sVote granted for term %d", pre, request.Term))
+		}
+
+		if request.PreVote {
+			return &pb.RequestVoteResponse{VoteGranted: true, Term: request.Term}, nil
 		}
 
 		r.persistent.votedFor = request.CandidateID
@@ -273,6 +298,7 @@ func (r *Replica) RequestVote(ctx context.Context, request *pb.RequestVoteReques
 		// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
 		// Here we are granting a vote to a candidate so we reset the election timeout.
 		r.election.Reset(r.electionTimeout)
+		r.baseline.Reset(r.baselineTimeout)
 
 		return &pb.RequestVoteResponse{VoteGranted: true, Term: r.persistent.currentTerm}, nil
 	}
@@ -311,6 +337,7 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 
 	if success {
 		r.leader = request.LeaderID
+		r.heardFromLeader = true
 		r.seenLeader = true
 
 		index := int(request.PrevLogIndex)
@@ -383,8 +410,7 @@ func (r *Replica) connect() error {
 		gorums.WithGrpcDialOptions(
 			grpc.WithBlock(),
 			grpc.WithInsecure(),
-			grpc.WithTimeout(TCPConnect*time.Millisecond),
-			grpc.WithBackoffMaxDelay(time.Second)),
+			grpc.WithTimeout(TCPConnect*time.Millisecond)),
 	}
 
 	// TODO In main? We really only want the conf and nodes.
@@ -508,24 +534,30 @@ func (r *Replica) startElection() {
 	r.state = Candidate
 	r.electionTimeout = randomTimeout(r.electionTimeout)
 
-	// We are now a candidate. See Raft Paper Figure 2 -> Rules for Servers -> Candidates.
-	// #C1 Increment currentTerm.
-	r.persistent.currentTerm++
+	term := r.persistent.currentTerm + 1
+	pre := "pre"
 
-	var buffer bytes.Buffer
-	buffer.WriteString(fmt.Sprintf(STORETERM, r.persistent.currentTerm))
+	if !r.preElection {
+		pre = ""
+		// We are now a candidate. See Raft Paper Figure 2 -> Rules for Servers -> Candidates.
+		// #C1 Increment currentTerm.
+		r.persistent.currentTerm++
 
-	// #C2 Vote for self.
-	r.persistent.votedFor = r.id
+		var buffer bytes.Buffer
+		buffer.WriteString(fmt.Sprintf(STORETERM, r.persistent.currentTerm))
 
-	buffer.WriteString(fmt.Sprintf(STOREVOTEDFOR, r.persistent.votedFor))
+		// #C2 Vote for self.
+		r.persistent.votedFor = r.id
 
-	// Write to stable storage
-	// TODO Assumes successful
-	r.save(buffer.String())
+		buffer.WriteString(fmt.Sprintf(STOREVOTEDFOR, r.persistent.votedFor))
+
+		// Write to stable storage
+		// TODO Assumes successful
+		r.save(buffer.String())
+	}
 
 	if logLevel >= INFO {
-		r.logger.log(fmt.Sprintf("Starting election for term %d", r.persistent.currentTerm))
+		r.logger.log(fmt.Sprintf("Starting %s election for term %d", pre, term))
 	}
 
 	// #C3 Reset election timer.
@@ -536,9 +568,10 @@ func (r *Replica) startElection() {
 	// #C4 Send RequestVote RPCs to all other servers.
 	req := r.conf.RequestVoteFuture(ctx, &pb.RequestVoteRequest{
 		CandidateID:  r.id,
-		Term:         r.persistent.currentTerm,
+		Term:         term,
 		LastLogTerm:  r.logTerm(len(r.persistent.log)),
 		LastLogIndex: uint64(len(r.persistent.log)),
+		PreVote:      r.preElection,
 	})
 
 	go func() {
@@ -562,15 +595,21 @@ func (r *Replica) handleRequestVoteResponse(response *pb.RequestVoteResponse) {
 	r.Lock()
 	defer r.Unlock()
 
+	term := r.persistent.currentTerm
+
+	if r.preElection {
+		term++
+	}
+
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if response.Term > r.persistent.currentTerm {
+	if response.Term > term {
 		r.becomeFollower(response.Term)
 
 		return
 	}
 
 	// Ignore late response
-	if response.Term < r.persistent.currentTerm {
+	if response.Term < term {
 		return
 	}
 
@@ -579,6 +618,14 @@ func (r *Replica) handleRequestVoteResponse(response *pb.RequestVoteResponse) {
 	// #C5 If votes received from majority of server: become leader.
 	// Make sure we have not stepped down while waiting for replies.
 	if r.state == Candidate && response.VoteGranted {
+		if r.preElection {
+			r.preElection = false
+			// Start real election.
+			r.election.Reset(0)
+
+			return
+		}
+
 		// We have received at least a quorum of votes.
 		// We are the leader for this term. See Raft Paper Figure 2 -> Rules for Servers -> Leaders.
 		if logLevel >= INFO {
@@ -597,6 +644,7 @@ func (r *Replica) handleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		r.heartbeat.Reset(0)
 
 		r.election.Stop()
+		r.baseline.Stop()
 
 		return
 	}
@@ -648,6 +696,7 @@ func (r *Replica) handleAppendEntriesResponse(response *pb.AppendEntriesResponse
 
 func (r *Replica) becomeFollower(term uint64) {
 	r.state = Follower
+	r.preElection = true
 
 	if r.persistent.currentTerm != term {
 		if logLevel >= INFO {
@@ -671,6 +720,7 @@ func (r *Replica) becomeFollower(term uint64) {
 	}
 
 	r.election.Reset(r.electionTimeout)
+	r.baseline.Reset(r.baselineTimeout)
 	r.heartbeat.Stop()
 }
 
