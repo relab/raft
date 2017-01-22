@@ -14,8 +14,8 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
-	gorums "github.com/relab/raft/pkg/raft/gorumspb"
-	pb "github.com/relab/raft/pkg/raft/raftpb"
+	gorums "github.com/relab/raft/gorumspb"
+	pb "github.com/relab/raft/raftpb"
 )
 
 // State represents one of the Raft server states.
@@ -78,6 +78,7 @@ type persistent struct {
 	currentTerm uint64
 	votedFor    uint64
 	log         []*pb.Entry
+	// TODO Should this be here?
 	commands map[uniqueCommand]*pb.ClientCommandRequest
 
 	recoverFile *os.File
@@ -132,6 +133,8 @@ type Replica struct {
 
 // NewReplica returns a new Replica given a configuration.
 func NewReplica(cfg *Config) (*Replica, error) {
+	// TODO Validate config, i.e., make sure to sensible defaults if an
+	// option is not configured.
 	if cfg.Logger == nil {
 		cfg.Logger = log.New(ioutil.Discard, "", 0)
 	}
@@ -217,6 +220,8 @@ func (r *Replica) Run() error {
 
 // RequestVote handles a RequestVoteRequest which is invoked by candidates to gather votes.
 // See Raft paper § 5.2.
+// TODO Implements RaftServer.
+// TODO Extract function that takes a RequestVoteRequest and produces a RequestVoteResponse.
 func (r *Replica) RequestVote(ctx context.Context, request *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
 	r.Lock()
 	defer r.Unlock()
@@ -279,6 +284,8 @@ func (r *Replica) RequestVote(ctx context.Context, request *pb.RequestVoteReques
 
 // AppendEntries invoked by leader to replicate log entries, also used as a heartbeat.
 // See Raft paper § 5.3 and § 5.2.
+// TODO Implements RaftServer.
+// TODO Extract function that takes a AppendEntriesRequest and produces a AppendEntriesResponse.
 func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
 	r.Lock()
 	defer r.Unlock()
@@ -350,6 +357,8 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 
 // ClientCommand is invoked by a client to commit a command.
 // See Raft paper § 8 and the Raft PhD dissertation chapter 6.
+// TODO Implements RaftServer.
+// TODO Extract function that can be tested.
 func (r *Replica) ClientCommand(ctx context.Context, request *pb.ClientCommandRequest) (*pb.ClientCommandResponse, error) {
 	if response, isLeader := r.logCommand(request); isLeader {
 		if !r.batch {
@@ -373,12 +382,14 @@ func (r *Replica) ClientCommand(ctx context.Context, request *pb.ClientCommandRe
 	return &pb.ClientCommandResponse{Status: pb.NOT_LEADER, LeaderHint: hint}, nil
 }
 
+// TODO This is network code, should not be present.
 func (r *Replica) connect() error {
 	opts := []gorums.ManagerOption{
 		gorums.WithGrpcDialOptions(
 			grpc.WithBlock(),
 			grpc.WithInsecure(),
 			grpc.WithTimeout(TCPConnect*time.Millisecond)),
+		// TODO WithLogger?
 	}
 
 	// TODO In main? We really only want the conf and nodes.
@@ -667,6 +678,7 @@ LOOP:
 		resp, err := r.conf.AppendEntries(ctx, req)
 
 		if err != nil {
+			// TODO Better error message.
 			r.logger.log(fmt.Sprintf("AppendEntries failed = %v", err))
 
 			// Only return if there is no response.

@@ -4,9 +4,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/relab/raft/pkg/raft"
-	gorums "github.com/relab/raft/pkg/raft/gorumspb"
-	pb "github.com/relab/raft/pkg/raft/raftpb"
+	"github.com/relab/raft"
+	gorums "github.com/relab/raft/gorumspb"
+	pb "github.com/relab/raft/raftpb"
 )
 
 var requestVoteQFTests = []struct {

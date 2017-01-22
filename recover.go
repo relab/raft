@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	pb "github.com/relab/raft/pkg/raft/raftpb"
+	pb "github.com/relab/raft/raftpb"
 )
 
 // How events are persisted to stable storage.

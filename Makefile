@@ -1,6 +1,6 @@
 PKGS		 := $(shell go list ./... | grep -ve "vendor")
 CMD_PKGS := $(shell go list ./... | grep -ve "vendor" | grep "cmd")
-LIB_PKGS := $(shell go list ./... | grep -ve "vendor" | grep "pkg")
+LIB_PKGS := $(shell go list ./... | grep -ve "vendor" | grep "pb")
 
 .PHONY: all
 all: install test
@@ -19,8 +19,8 @@ protocgorums:
 
 .PHONY: proto
 proto: protocgorums
-	protoc -I ../../../:. --gogofast_out=. pkg/raft/raftpb/raft.proto
-	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. pkg/raft/gorumspb/gorums.proto
+	protoc -I ../../../:. --gogofast_out=. raftpb/raft.proto
+	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. gorumspb/gorums.proto
 
 .PHONY: install
 install:

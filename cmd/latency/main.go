@@ -15,8 +15,8 @@ import (
 
 	"google.golang.org/grpc"
 
-	gorums "github.com/relab/raft/pkg/raft/gorumspb"
-	pb "github.com/relab/raft/pkg/raft/raftpb"
+	gorums "github.com/relab/raft/gorumspb"
+	pb "github.com/relab/raft/raftpb"
 )
 
 // Errors

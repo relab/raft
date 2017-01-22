@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/relab/raft/pkg/raft"
-	gorums "github.com/relab/raft/pkg/raft/gorumspb"
+	"github.com/relab/raft"
+	gorums "github.com/relab/raft/gorumspb"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"

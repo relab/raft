@@ -1,9 +1,10 @@
 package raft
 
-import pb "github.com/relab/raft/pkg/raft/raftpb"
+import pb "github.com/relab/raft/raftpb"
 
 // QuorumSpec holds information about the quorum size of the current
 // configuration and allows us to invoke QRPCs.
+// TODO Rename so it's not confused with gorums.QuorumSpec
 type QuorumSpec struct {
 	N int
 	Q int
@@ -11,6 +12,7 @@ type QuorumSpec struct {
 
 // RequestVoteQF gathers RequestVoteResponses and delivers a reply when a higher
 // term is seen or a quorum of votes is received.
+// TODO Implements gorums.QuorumSpec interface.
 func (qs *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.RequestVoteResponse) (*pb.RequestVoteResponse, bool) {
 	// Make copy of last reply.
 	response := *replies[len(replies)-1]
@@ -44,6 +46,7 @@ func (qs *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.Re
 
 // AppendEntriesQF gathers AppendEntriesResponses and calculates the log entries
 // replicated, depending on the quorum configuration.
+// TODO Implements gorums.QuorumSpec interface.
 func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*pb.AppendEntriesResponse) (*pb.AppendEntriesResponse, bool) {
 	// Make copy of last reply.
 	response := *replies[len(replies)-1]
