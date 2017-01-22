@@ -1,6 +1,6 @@
 package raft
 
-import pb "github.com/relab/raft/raftpb"
+import pb "github.com/relab/raft/proto/messages"
 
 // QuorumSpec holds information about the quorum size of the current
 // configuration and allows us to invoke QRPCs.

@@ -19,8 +19,8 @@ protocgorums:
 
 .PHONY: proto
 proto: protocgorums
-	protoc -I ../../../:. --gogofast_out=. raftpb/raft.proto
-	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. gorumspb/gorums.proto
+	protoc -I ../../../:. --gogofast_out=. proto/messages/messages.proto
+	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. proto/gorums/gorums.proto
 
 .PHONY: install
 install:
