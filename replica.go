@@ -125,7 +125,6 @@ type Replica struct {
 	queue            chan *pb.Entry
 
 	batch bool
-	qrpc  bool
 
 	logger *Logger
 }
