@@ -38,7 +38,6 @@ const (
 )
 
 // None represents no server.
-// This must be a value which cannot be returned from idutil.IDFromAddress(address).
 const None = 0
 
 // BufferSize is the initial buffer size used for maps and buffered channels
