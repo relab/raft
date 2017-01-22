@@ -11,10 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/net/context"
-	"google.golang.org/grpc"
-
-	gorums "github.com/relab/raft/proto/gorums"
 	pb "github.com/relab/raft/proto/messages"
 )
 
@@ -98,11 +94,7 @@ type Replica struct {
 
 	state State
 
-	qs   *QuorumSpec
-	conf *gorums.Configuration
-
 	addrs []string
-	nodes map[uint64]*gorums.Node
 
 	commitIndex uint64
 
@@ -126,6 +118,9 @@ type Replica struct {
 
 	batch bool
 
+	rvreqout chan *pb.RequestVoteRequest
+	aereqout chan *pb.AppendEntriesRequest
+
 	logger *Logger
 }
 
@@ -143,6 +138,7 @@ func NewReplica(cfg *Config) (*Replica, error) {
 	heartbeat.Stop()
 
 	// Recover from stable storage. TODO Cleanup.
+	// TODO Should already be loaded through config.
 	persistent, err := recoverFromStable(cfg.ID, cfg.Recover)
 
 	if err != nil {
@@ -165,8 +161,6 @@ func NewReplica(cfg *Config) (*Replica, error) {
 		id:               cfg.ID,
 		batch:            cfg.Batch,
 		addrs:            nodes,
-		nodes:            make(map[uint64]*gorums.Node, len(nodes)),
-		qs:               newQuorumSpec(len(nodes)),
 		nextIndex:        1,
 		baselineTimeout:  cfg.ElectionTimeout,
 		electionTimeout:  electionTimeout,
@@ -180,6 +174,8 @@ func NewReplica(cfg *Config) (*Replica, error) {
 		maxAppendEntries: cfg.MaxAppendEntries,
 		queue:            make(chan *pb.Entry, BufferSize),
 		persistent:       persistent,
+		rvreqout:         make(chan *pb.RequestVoteRequest, BufferSize),
+		aereqout:         make(chan *pb.AppendEntriesRequest, BufferSize),
 		logger:           &Logger{cfg.ID, cfg.Logger},
 	}
 
@@ -191,13 +187,17 @@ func NewReplica(cfg *Config) (*Replica, error) {
 	return r, nil
 }
 
+func (r *Replica) RequestVoteRequestChan() chan *pb.RequestVoteRequest {
+	return r.rvreqout
+}
+
+func (r *Replica) AppendEntriesRequestChan() chan *pb.AppendEntriesRequest {
+	return r.aereqout
+}
+
 // Run handles timeouts.
 // All RPCs are handled by Gorums.
 func (r *Replica) Run() error {
-	if err := r.connect(); err != nil {
-		return err
-	}
-
 	// Replica is ready.
 	r.Unlock()
 
@@ -216,53 +216,49 @@ func (r *Replica) Run() error {
 	}
 }
 
-// RequestVote handles a RequestVoteRequest which is invoked by candidates to gather votes.
-// See Raft paper § 5.2.
-// TODO Implements RaftServer.
-// TODO Extract function that takes a RequestVoteRequest and produces a RequestVoteResponse.
-func (r *Replica) RequestVote(ctx context.Context, request *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
+func (r *Replica) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestVoteResponse {
 	r.Lock()
 	defer r.Unlock()
 
 	pre := ""
 
-	if request.PreVote {
+	if req.PreVote {
 		pre = "Pre"
 	}
 
 	if logLevel >= INFO {
-		r.logger.from(request.CandidateID, fmt.Sprintf("%sVote requested in term %d for term %d", pre, r.persistent.currentTerm, request.Term))
+		r.logger.from(req.CandidateID, fmt.Sprintf("%sVote requested in term %d for term %d", pre, r.persistent.currentTerm, req.Term))
 	}
 
 	// #RV1 Reply false if term < currentTerm.
-	if request.Term < r.persistent.currentTerm {
-		return &pb.RequestVoteResponse{Term: r.persistent.currentTerm}, nil
+	if req.Term < r.persistent.currentTerm {
+		return &pb.RequestVoteResponse{Term: r.persistent.currentTerm}
 	}
 
-	if request.PreVote && r.heardFromLeader {
+	if req.PreVote && r.heardFromLeader {
 		// We don't grant pre-votes if we have recently heard from a
 		// leader.
-		return &pb.RequestVoteResponse{Term: r.persistent.currentTerm}, nil
+		return &pb.RequestVoteResponse{Term: r.persistent.currentTerm}
 	}
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if request.Term > r.persistent.currentTerm && !request.PreVote {
-		r.becomeFollower(request.Term)
+	if req.Term > r.persistent.currentTerm && !req.PreVote {
+		r.becomeFollower(req.Term)
 	}
 
 	// #RV2 If votedFor is null or candidateId, and candidate's log is at least as up-to-date as receiver's log, grant vote.
-	if (r.persistent.votedFor == None || r.persistent.votedFor == request.CandidateID) &&
-		(request.LastLogTerm > r.logTerm(len(r.persistent.log)) ||
-			(request.LastLogTerm == r.logTerm(len(r.persistent.log)) && request.LastLogIndex >= uint64(len(r.persistent.log)))) {
+	if (r.persistent.votedFor == None || r.persistent.votedFor == req.CandidateID) &&
+		(req.LastLogTerm > r.logTerm(len(r.persistent.log)) ||
+			(req.LastLogTerm == r.logTerm(len(r.persistent.log)) && req.LastLogIndex >= uint64(len(r.persistent.log)))) {
 		if logLevel >= INFO {
-			r.logger.to(request.CandidateID, fmt.Sprintf("%sVote granted for term %d", pre, request.Term))
+			r.logger.to(req.CandidateID, fmt.Sprintf("%sVote granted for term %d", pre, req.Term))
 		}
 
-		if request.PreVote {
-			return &pb.RequestVoteResponse{VoteGranted: true, Term: request.Term}, nil
+		if req.PreVote {
+			return &pb.RequestVoteResponse{VoteGranted: true, Term: req.Term}
 		}
 
-		r.persistent.votedFor = request.CandidateID
+		r.persistent.votedFor = req.CandidateID
 
 		// Write to stable storage
 		// TODO Assumes successful
@@ -273,52 +269,48 @@ func (r *Replica) RequestVote(ctx context.Context, request *pb.RequestVoteReques
 		r.election.Reset(r.electionTimeout)
 		r.baseline.Reset(r.baselineTimeout)
 
-		return &pb.RequestVoteResponse{VoteGranted: true, Term: r.persistent.currentTerm}, nil
+		return &pb.RequestVoteResponse{VoteGranted: true, Term: r.persistent.currentTerm}
 	}
 
 	// #RV2 The candidate's log was not up-to-date
-	return &pb.RequestVoteResponse{Term: r.persistent.currentTerm}, nil
+	return &pb.RequestVoteResponse{Term: r.persistent.currentTerm}
 }
 
-// AppendEntries invoked by leader to replicate log entries, also used as a heartbeat.
-// See Raft paper § 5.3 and § 5.2.
-// TODO Implements RaftServer.
-// TODO Extract function that takes a AppendEntriesRequest and produces a AppendEntriesResponse.
-func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
+func (r *Replica) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
 	r.Lock()
 	defer r.Unlock()
 
 	if logLevel >= TRACE {
-		r.logger.from(request.LeaderID, fmt.Sprintf("AppendEntries = %+v", request))
+		r.logger.from(req.LeaderID, fmt.Sprintf("AppendEntries = %+v", req))
 	}
 
 	// #AE1 Reply false if term < currentTerm.
-	if request.Term < r.persistent.currentTerm {
+	if req.Term < r.persistent.currentTerm {
 		return &pb.AppendEntriesResponse{
 			Success: false,
-			Term:    request.Term,
-		}, nil
+			Term:    req.Term,
+		}
 	}
 
-	success := request.PrevLogIndex == 0 || (request.PrevLogIndex-1 < uint64(len(r.persistent.log)) && r.persistent.log[request.PrevLogIndex-1].Term == request.PrevLogTerm)
+	success := req.PrevLogIndex == 0 || (req.PrevLogIndex-1 < uint64(len(r.persistent.log)) && r.persistent.log[req.PrevLogIndex-1].Term == req.PrevLogTerm)
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if request.Term > r.persistent.currentTerm {
-		r.becomeFollower(request.Term)
-	} else if r.id != request.LeaderID {
+	if req.Term > r.persistent.currentTerm {
+		r.becomeFollower(req.Term)
+	} else if r.id != req.LeaderID {
 		r.becomeFollower(r.persistent.currentTerm)
 	}
 
 	if success {
-		r.leader = request.LeaderID
+		r.leader = req.LeaderID
 		r.heardFromLeader = true
 		r.seenLeader = true
 
-		index := int(request.PrevLogIndex)
+		index := int(req.PrevLogIndex)
 
 		var buffer bytes.Buffer
 
-		for _, entry := range request.Entries {
+		for _, entry := range req.Entries {
 			index++
 
 			if index == len(r.persistent.log) || r.logTerm(index) != entry.Term {
@@ -334,12 +326,12 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 		r.save(buffer.String())
 
 		if logLevel >= DEBUG {
-			r.logger.to(request.LeaderID, fmt.Sprintf("AppendEntries persisted %d entries to stable storage", len(request.Entries)))
+			r.logger.to(req.LeaderID, fmt.Sprintf("AppendEntries persisted %d entries to stable storage", len(req.Entries)))
 		}
 
 		old := r.commitIndex
 
-		r.commitIndex = min(request.CommitIndex, uint64(index))
+		r.commitIndex = min(req.CommitIndex, uint64(index))
 
 		if r.commitIndex > old {
 			r.newCommit(old)
@@ -347,17 +339,13 @@ func (r *Replica) AppendEntries(ctx context.Context, request *pb.AppendEntriesRe
 	}
 
 	return &pb.AppendEntriesResponse{
-		Term:       request.Term,
+		Term:       req.Term,
 		MatchIndex: uint64(len(r.persistent.log)),
 		Success:    success,
-	}, nil
+	}
 }
 
-// ClientCommand is invoked by a client to commit a command.
-// See Raft paper § 8 and the Raft PhD dissertation chapter 6.
-// TODO Implements RaftServer.
-// TODO Extract function that can be tested.
-func (r *Replica) ClientCommand(ctx context.Context, request *pb.ClientCommandRequest) (*pb.ClientCommandResponse, error) {
+func (r *Replica) HandleClientCommandRequest(request *pb.ClientCommandRequest) (*pb.ClientCommandResponse, error) {
 	if response, isLeader := r.logCommand(request); isLeader {
 		if !r.batch {
 			r.sendAppendEntries()
@@ -378,45 +366,6 @@ func (r *Replica) ClientCommand(ctx context.Context, request *pb.ClientCommandRe
 	hint := r.getHint()
 
 	return &pb.ClientCommandResponse{Status: pb.NOT_LEADER, LeaderHint: hint}, nil
-}
-
-// TODO This is network code, should not be present.
-func (r *Replica) connect() error {
-	opts := []gorums.ManagerOption{
-		gorums.WithGrpcDialOptions(
-			grpc.WithBlock(),
-			grpc.WithInsecure(),
-			grpc.WithTimeout(TCPConnect*time.Millisecond)),
-		// TODO WithLogger?
-	}
-
-	// TODO In main? We really only want the conf and nodes.
-	mgr, err := gorums.NewManager(r.addrs, opts...)
-
-	if err != nil {
-		return err
-	}
-
-	r.conf, err = mgr.NewConfiguration(mgr.NodeIDs(), r.qs)
-
-	if err != nil {
-		return err
-	}
-
-	var rid uint64 = 1
-
-	for i, node := range mgr.Nodes() {
-		// Increase id to compensate gap.
-		if r.id == uint64(i+1) {
-			rid++
-		}
-
-		r.nodes[rid] = node
-
-		rid++
-	}
-
-	return nil
 }
 
 func (r *Replica) logCommand(request *pb.ClientCommandRequest) (<-chan *pb.ClientCommandRequest, bool) {
@@ -530,35 +479,20 @@ func (r *Replica) startElection() {
 	// #C3 Reset election timer.
 	r.election.Reset(r.electionTimeout)
 
-	ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
-
 	// #C4 Send RequestVote RPCs to all other servers.
-	req := r.conf.RequestVoteFuture(ctx, &pb.RequestVoteRequest{
+	r.rvreqout <- &pb.RequestVoteRequest{
 		CandidateID:  r.id,
 		Term:         term,
 		LastLogTerm:  r.logTerm(len(r.persistent.log)),
 		LastLogIndex: uint64(len(r.persistent.log)),
 		PreVote:      r.preElection,
-	})
-
-	go func() {
-		reply, err := req.Get()
-		cancel()
-
-		if err != nil {
-			r.logger.log(fmt.Sprintf("RequestVote failed = %v", err))
-
-			return
-		}
-
-		r.handleRequestVoteResponse(reply.RequestVoteResponse)
-	}()
+	}
 
 	// Election is now started. Election will be continued in handleRequestVote when a response from Gorums is received.
 	// See RequestVoteQF for the quorum function creating the response.
 }
 
-func (r *Replica) handleRequestVoteResponse(response *pb.RequestVoteResponse) {
+func (r *Replica) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -662,7 +596,7 @@ LOOP:
 		r.logger.log(fmt.Sprintf("Sending %d entries", len(entries)))
 	}
 
-	req := &pb.AppendEntriesRequest{
+	r.aereqout <- &pb.AppendEntriesRequest{
 		LeaderID:     r.id,
 		Term:         r.persistent.currentTerm,
 		PrevLogIndex: uint64(next),
@@ -671,32 +605,10 @@ LOOP:
 		Entries:      entries,
 	}
 
-	go func(req *pb.AppendEntriesRequest) {
-		ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
-		resp, err := r.conf.AppendEntries(ctx, req)
-
-		if err != nil {
-			// TODO Better error message.
-			r.logger.log(fmt.Sprintf("AppendEntries failed = %v", err))
-
-			// Only return if there is no response.
-			if resp.AppendEntriesResponse == nil {
-				return
-			}
-		}
-
-		// Cancel on abort.
-		if !resp.AppendEntriesResponse.Success {
-			cancel()
-		}
-
-		r.handleAppendEntriesResponse(resp.AppendEntriesResponse)
-	}(req)
-
 	r.heartbeat.Reset(r.heartbeatTimeout)
 }
 
-func (r *Replica) handleAppendEntriesResponse(response *pb.AppendEntriesResponse) {
+func (r *Replica) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse) {
 	r.Lock()
 	defer func() {
 		r.Unlock()
