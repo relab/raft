@@ -154,14 +154,13 @@ func (m *Manager) appendEntries(ctx context.Context, c *Configuration, args *raf
 	}
 
 	replyChan := make(chan appendEntriesReply, c.n)
-	newCtx, cancel := context.WithCancel(ctx)
 
 	if m.opts.trace {
 		ti.tr.LazyLog(&payload{sent: true, msg: args}, false)
 	}
 
 	for _, n := range c.nodes {
-		go callGRPCAppendEntries(newCtx, n, args, replyChan)
+		go callGRPCAppendEntries(ctx, n, args, replyChan)
 	}
 
 	var (
@@ -184,15 +183,13 @@ func (m *Manager) appendEntries(ctx context.Context, c *Configuration, args *raf
 			}
 			replyValues = append(replyValues, r.reply)
 			if reply.AppendEntriesResponse, quorum = c.qspec.AppendEntriesQF(args, replyValues); quorum {
-
 				return reply, nil
 			}
-		case <-newCtx.Done():
+		case <-ctx.Done():
 			return reply, QuorumCallError{ctx.Err().Error(), errCount, len(replyValues)}
 		}
 
 		if errCount+len(replyValues) == c.n {
-			cancel()
 			return reply, QuorumCallError{"incomplete call", errCount, len(replyValues)}
 		}
 	}
@@ -248,14 +245,13 @@ func (m *Manager) requestVote(ctx context.Context, c *Configuration, args *raftp
 	}
 
 	replyChan := make(chan requestVoteReply, c.n)
-	newCtx, cancel := context.WithCancel(ctx)
 
 	if m.opts.trace {
 		ti.tr.LazyLog(&payload{sent: true, msg: args}, false)
 	}
 
 	for _, n := range c.nodes {
-		go callGRPCRequestVote(newCtx, n, args, replyChan)
+		go callGRPCRequestVote(ctx, n, args, replyChan)
 	}
 
 	var (
@@ -278,15 +274,13 @@ func (m *Manager) requestVote(ctx context.Context, c *Configuration, args *raftp
 			}
 			replyValues = append(replyValues, r.reply)
 			if reply.RequestVoteResponse, quorum = c.qspec.RequestVoteQF(args, replyValues); quorum {
-
 				return reply, nil
 			}
-		case <-newCtx.Done():
+		case <-ctx.Done():
 			return reply, QuorumCallError{ctx.Err().Error(), errCount, len(replyValues)}
 		}
 
 		if errCount+len(replyValues) == c.n {
-			cancel()
 			return reply, QuorumCallError{"incomplete call", errCount, len(replyValues)}
 		}
 	}
