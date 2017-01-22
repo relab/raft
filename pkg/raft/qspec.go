@@ -12,13 +12,19 @@ type QuorumSpec struct {
 // RequestVoteQF gathers RequestVoteResponses and delivers a reply when a higher
 // term is seen or a quorum of votes is received.
 func (qs *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.RequestVoteResponse) (*pb.RequestVoteResponse, bool) {
-	votes := 0
-	last := replies[len(replies)-1]
+	// Make copy of last reply.
+	response := *replies[len(replies)-1]
 
-	if last.Term > req.Term {
-		return last, true
+	// On abort.
+	if response.Term > req.Term {
+		return &response, true
 	}
 
+	// Being past this point means last.Term == req.Term.
+
+	var votes int
+
+	// Tally votes.
 	for _, reply := range replies {
 		if reply.VoteGranted {
 			votes++
@@ -26,49 +32,55 @@ func (qs *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.Re
 
 	}
 
+	// On quorum.
 	if votes >= qs.Q {
-		last.VoteGranted = true
-
-		return last, true
+		response.VoteGranted = true
+		return &response, true
 	}
 
+	// Wait for more replies.
 	return nil, false
 }
 
 // AppendEntriesQF gathers AppendEntriesResponses and calculates the log entries
 // replicated, depending on the quorum configuration.
 func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*pb.AppendEntriesResponse) (*pb.AppendEntriesResponse, bool) {
-	last := replies[len(replies)-1]
+	// Make copy of last reply.
+	response := *replies[len(replies)-1]
 
-	// Abort.
-	if last.Term > req.Term {
-		return last, true
+	// On abort.
+	if response.Term > req.Term {
+		return &response, true
 	}
 
-	successful := 0
-	minMatch := ^uint64(0) // Largest uint64.
-	reply := &pb.AppendEntriesResponse{Term: req.Term}
+	// Being past this point means last.Term == req.Term.
+
+	var successful int
+	minMatch := ^uint64(0)   // Largest uint64.
+	response.Success = false // Default to unsuccessful.
 
 	for _, r := range replies {
+		// Track lowest match index.
 		if r.MatchIndex < minMatch {
 			minMatch = r.MatchIndex
 		}
 
+		// Count successful.
 		if r.Success {
-			reply.MatchIndex = r.MatchIndex
+			response.MatchIndex = r.MatchIndex
 			successful++
 		}
 	}
 
-	// Quorum.
+	// On quorum.
 	if successful >= qs.Q {
-		reply.Success = true
-		return reply, true
+		response.Success = true
+		return &response, true
 	}
 
-	// Set match index to the lowest seen.
-	reply.MatchIndex = minMatch
+	response.MatchIndex = minMatch
 
-	// Wait for more replies.
-	return reply, len(replies) == qs.N
+	// Wait for more replies. Return response, even on failure. This allows
+	// raft to back off and try a lower match index.
+	return &response, false
 }

@@ -664,17 +664,18 @@ LOOP:
 
 	go func(req *pb.AppendEntriesRequest) {
 		ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
-
 		resp, err := r.conf.AppendEntries(ctx, req)
 
 		if err != nil {
 			r.logger.log(fmt.Sprintf("AppendEntries failed = %v", err))
 
+			// Only return if there is no response.
 			if resp.AppendEntriesResponse == nil {
 				return
 			}
 		}
 
+		// Cancel on abort.
 		if !resp.AppendEntriesResponse.Success {
 			cancel()
 		}
