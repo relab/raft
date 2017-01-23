@@ -246,10 +246,28 @@ func (r *Replica) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.Reque
 		r.becomeFollower(req.Term)
 	}
 
-	// #RV2 If votedFor is null or candidateId, and candidate's log is at least as up-to-date as receiver's log, grant vote.
-	if (r.persistent.votedFor == None || r.persistent.votedFor == req.CandidateID || req.PreVote) &&
-		(req.LastLogTerm > r.logTerm(len(r.persistent.log)) ||
-			(req.LastLogTerm == r.logTerm(len(r.persistent.log)) && req.LastLogIndex >= uint64(len(r.persistent.log)))) {
+	notVotedYet := r.persistent.votedFor == None
+
+	// We can grant a vote in the same term, as long as it's to the same
+	// candidate. This is useful if the response was lost, and the candidate
+	// sends another request.
+	alreadyVotedForCandidate := r.persistent.votedFor == req.CandidateID
+
+	// If the logs have last entries with different terms, the log with the
+	// later term is more up-to-date.
+	laterTerm := req.LastLogTerm > r.logTerm(len(r.persistent.log))
+
+	// If the logs end with the same term, whichever log is longer is more
+	// up-to-date.
+	longEnough := req.LastLogTerm == r.logTerm(len(r.persistent.log)) && req.LastLogIndex >= uint64(len(r.persistent.log))
+
+	// We can only grant a vote if: we have not voted yet, we vote for the
+	// same candidate again, or this is a pre-vote.
+	canGrantVote := notVotedYet || alreadyVotedForCandidate || req.PreVote
+
+	// #RV2 If votedFor is null or candidateId, and candidate's log is at
+	// least as up-to-date as receiver's log, grant vote.
+	if canGrantVote && (laterTerm || longEnough) {
 		if logLevel >= INFO {
 			r.logger.to(req.CandidateID, fmt.Sprintf("%sVote granted for term %d", pre, req.Term))
 		}
