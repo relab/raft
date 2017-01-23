@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	gorums "github.com/relab/raft/proto/gorums"
-	pb "github.com/relab/raft/proto/messages"
+	gorums "github.com/relab/raft/cmd/raftgorums/gorumspb"
+	pb "github.com/relab/raft/raftpb"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"

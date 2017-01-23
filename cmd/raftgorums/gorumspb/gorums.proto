@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+import "github.com/relab/gorums/gorums.proto";
+import "github.com/relab/raft/raftpb/raft.proto";
+
+package gorums;
+
+service Raft {
+  rpc RequestVote(raft.RequestVoteRequest) returns (raft.RequestVoteResponse) {
+    option (gorums.qc) 	= true;
+    option (gorums.qf_with_req) = true;
+  }
+
+  rpc AppendEntries(raft.AppendEntriesRequest) returns (raft.AppendEntriesResponse) {
+    option (gorums.qc) = true;
+    option (gorums.qf_with_req) = true;
+  }
+
+  rpc ClientCommand(raft.ClientCommandRequest) returns (raft.ClientCommandResponse);
+}

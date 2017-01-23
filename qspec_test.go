@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/relab/raft"
-	gorums "github.com/relab/raft/proto/gorums"
-	pb "github.com/relab/raft/proto/messages"
+	gorums "github.com/relab/raft/cmd/raftgorums/gorumspb"
+	pb "github.com/relab/raft/raftpb"
 )
 
 var requestVoteQFTests = []struct {

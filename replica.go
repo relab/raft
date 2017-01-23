@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/relab/raft/proto/messages"
+	pb "github.com/relab/raft/raftpb"
 )
 
 // State represents one of the Raft server states.

@@ -4,7 +4,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/relab/raft"
-	pb "github.com/relab/raft/proto/messages"
+	pb "github.com/relab/raft/raftpb"
 )
 
 type RaftServer struct {
