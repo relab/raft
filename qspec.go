@@ -17,8 +17,8 @@ func (qs *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.Re
 	// Make copy of last reply.
 	response := *replies[len(replies)-1]
 
-	// On abort.
 	if response.Term > req.Term {
+		// Abort.
 		return &response, true
 	}
 
@@ -26,22 +26,26 @@ func (qs *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.Re
 
 	var votes int
 
-	// Tally votes.
 	for _, reply := range replies {
+		// Tally votes.
 		if reply.VoteGranted {
 			votes++
 		}
 
 	}
 
-	// On quorum.
 	if votes >= qs.Q {
+		// Quorum.
 		response.VoteGranted = true
 		return &response, true
 	}
 
-	// Wait for more replies.
-	return nil, false
+	if len(replies) < qs.N {
+		// Wait for more replies.
+		return nil, false
+	}
+
+	return nil, true
 }
 
 // AppendEntriesQF gathers AppendEntriesResponses and calculates the log entries
@@ -51,8 +55,8 @@ func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*p
 	// Make copy of last reply.
 	response := *replies[len(replies)-1]
 
-	// On abort.
 	if response.Term > req.Term {
+		// Abort.
 		return &response, true
 	}
 
@@ -75,8 +79,8 @@ func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*p
 		}
 	}
 
-	// On quorum.
 	if successful >= qs.Q {
+		// Quorum.
 		response.Success = true
 		return &response, true
 	}
@@ -85,5 +89,10 @@ func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*p
 
 	// Wait for more replies. Return response, even on failure. This allows
 	// raft to back off and try a lower match index.
-	return &response, false
+
+	if len(replies) < qs.N {
+		return &response, false
+	}
+
+	return &response, true
 }

@@ -99,7 +99,7 @@ var appendEntriesCommonQFTests = []AETestCase{
 				Success:    false,
 			},
 		},
-		false,
+		true,
 		&pb.AppendEntriesResponse{
 			Term:       5,
 			MatchIndex: 100,
@@ -121,7 +121,7 @@ var appendEntriesCommonQFTests = []AETestCase{
 				Success:    false,
 			},
 		},
-		false,
+		true,
 		&pb.AppendEntriesResponse{
 			Term:       5,
 			MatchIndex: 50,

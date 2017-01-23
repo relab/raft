@@ -119,7 +119,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	conf, err := mgr.NewConfiguration(mgr.NodeIDs(), raft.NewQuorumSpec(len(nodes)-1))
+	conf, err := mgr.NewConfiguration(mgr.NodeIDs(), raft.NewQuorumSpec(len(nodes)))
 
 	if err != nil {
 		log.Fatal(err)
@@ -137,11 +137,12 @@ func main() {
 				cancel()
 
 				if err != nil {
-					cancel() // TODO Needed?
-
 					// TODO Better error message.
 					log.Println(fmt.Sprintf("RequestVote failed = %v", err))
 
+				}
+
+				if r.RequestVoteResponse == nil {
 					continue
 				}
 
@@ -151,12 +152,9 @@ func main() {
 				r, err := conf.AppendEntries(ctx, req)
 
 				if err != nil {
-					cancel() // TODO Needed?
-
 					// TODO Better error message.
 					log.Println(fmt.Sprintf("AppendEntries failed = %v", err))
 
-					// Only continue if there is no response.
 					if r.AppendEntriesResponse == nil {
 						continue
 					}

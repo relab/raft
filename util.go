@@ -26,10 +26,8 @@ func randomTimeout(base time.Duration) time.Duration {
 }
 
 func NewQuorumSpec(peers int) *QuorumSpec {
-	n := peers + 1
-
 	return &QuorumSpec{
-		N: n - 1,
-		Q: n / 2,
+		N: peers - 1,
+		Q: peers / 2,
 	}
 }
