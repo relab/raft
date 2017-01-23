@@ -247,7 +247,7 @@ func (r *Replica) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.Reque
 	}
 
 	// #RV2 If votedFor is null or candidateId, and candidate's log is at least as up-to-date as receiver's log, grant vote.
-	if (r.persistent.votedFor == None || r.persistent.votedFor == req.CandidateID) &&
+	if (r.persistent.votedFor == None || r.persistent.votedFor == req.CandidateID || req.PreVote) &&
 		(req.LastLogTerm > r.logTerm(len(r.persistent.log)) ||
 			(req.LastLogTerm == r.logTerm(len(r.persistent.log)) && req.LastLogIndex >= uint64(len(r.persistent.log)))) {
 		if logLevel >= INFO {
