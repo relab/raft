@@ -233,18 +233,18 @@ func (r *Replica) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.Reque
 		return &pb.RequestVoteResponse{Term: r.persistent.CurrentTerm}
 	}
 
-	if req.PreVote && r.heardFromLeader {
-		// We don't grant pre-votes if we have recently heard from a
-		// leader.
-		return &pb.RequestVoteResponse{Term: r.persistent.CurrentTerm}
-	}
-
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	if req.Term > r.persistent.CurrentTerm && !req.PreVote {
 		r.becomeFollower(req.Term)
 	}
 
-	notVotedYet := r.persistent.VotedFor == None
+	voted := r.persistent.VotedFor != None
+
+	if req.PreVote && (r.heardFromLeader || (voted && req.Term == r.persistent.CurrentTerm)) {
+		// We don't grant pre-votes if we have recently heard from a
+		// leader or already voted in the pre-term.
+		return &pb.RequestVoteResponse{Term: r.persistent.CurrentTerm}
+	}
 
 	// We can grant a vote in the same term, as long as it's to the same
 	// candidate. This is useful if the response was lost, and the candidate
@@ -261,7 +261,7 @@ func (r *Replica) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.Reque
 
 	// We can only grant a vote if: we have not voted yet, we vote for the
 	// same candidate again, or this is a pre-vote.
-	canGrantVote := notVotedYet || alreadyVotedForCandidate || req.PreVote
+	canGrantVote := !voted || alreadyVotedForCandidate || req.PreVote
 
 	// #RV2 If votedFor is null or candidateId, and candidate's log is at
 	// least as up-to-date as receiver's log, grant vote.
