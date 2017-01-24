@@ -11,12 +11,6 @@ type RaftServer struct {
 	*raft.Replica
 }
 
-func NewRaftServer(cfg *raft.Config) (*RaftServer, error) {
-	r, err := raft.NewReplica(cfg)
-
-	return &RaftServer{r}, err
-}
-
 func (r *RaftServer) RequestVote(ctx context.Context, req *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
 	return r.HandleRequestVoteRequest(req), nil
 }

@@ -126,7 +126,7 @@ type Replica struct {
 }
 
 // NewReplica returns a new Replica given a configuration.
-func NewReplica(cfg *Config) (*Replica, error) {
+func NewReplica(cfg *Config) *Replica {
 	// TODO Validate config, i.e., make sure to sensible defaults if an
 	// option is not configured.
 	if cfg.Logger == nil {
@@ -177,10 +177,7 @@ func NewReplica(cfg *Config) (*Replica, error) {
 
 	r.logger.Printf("ElectionTimeout: %v", r.electionTimeout)
 
-	// Makes sure no RPCs are processed until the replica is ready.
-	r.Lock()
-
-	return r, nil
+	return r
 }
 
 // RequestVoteRequestChan returns a channel for outgoing RequestVoteRequests.
@@ -199,10 +196,7 @@ func (r *Replica) AppendEntriesRequestChan() chan *pb.AppendEntriesRequest {
 
 // Run handles timeouts.
 // All RPCs are handled by Gorums.
-func (r *Replica) Run() error {
-	// Replica is ready.
-	r.Unlock()
-
+func (r *Replica) Run() {
 	for {
 		select {
 		case <-r.baseline.C:

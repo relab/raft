@@ -91,19 +91,17 @@ func main() {
 		}
 	}
 
-	raftServer, err := NewRaftServer(&raft.Config{
-		ID:               *id,
-		Nodes:            nodes,
-		Batch:            *batch,
-		Storage:          storage,
-		ElectionTimeout:  *electionTimeout,
-		HeartbeatTimeout: *heartbeatTimeout,
-		MaxAppendEntries: *maxAppendEntries,
-		Logger:           log.New(os.Stderr, "raft", log.LstdFlags),
-	})
-
-	if err != nil {
-		log.Fatal(err)
+	raftServer := &RaftServer{
+		raft.NewReplica(&raft.Config{
+			ID:               *id,
+			Nodes:            nodes,
+			Batch:            *batch,
+			Storage:          storage,
+			ElectionTimeout:  *electionTimeout,
+			HeartbeatTimeout: *heartbeatTimeout,
+			MaxAppendEntries: *maxAppendEntries,
+			Logger:           log.New(os.Stderr, "raft", log.LstdFlags),
+		}),
 	}
 
 	s := grpc.NewServer()
@@ -191,9 +189,7 @@ func main() {
 
 	if *cpuprofile != "" {
 		go func() {
-			if err := raftServer.Run(); err != nil {
-				log.Fatal(err)
-			}
+			raftServer.Run()
 		}()
 
 		reader := bufio.NewReader(os.Stdin)
@@ -201,8 +197,6 @@ func main() {
 
 		pprof.StopCPUProfile()
 	} else {
-		if err := raftServer.Run(); err != nil {
-			log.Fatal(err)
-		}
+		raftServer.Run()
 	}
 }
