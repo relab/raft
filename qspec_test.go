@@ -182,7 +182,7 @@ var qspecs = []struct {
 }{
 	{
 		"QuorumSpec N3 Q1",
-		&raft.QuorumSpec{N: 2, Q: 1},
+		raft.NewQuorumSpec(3),
 	},
 }
 
