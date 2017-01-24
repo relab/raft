@@ -25,6 +25,7 @@ func randomTimeout(base time.Duration) time.Duration {
 	return time.Duration(rand.Int63n(base.Nanoseconds()) + base.Nanoseconds())
 }
 
+// NewQuorumSpec returns a QuorumSpec for len(peers).
 func NewQuorumSpec(peers int) *QuorumSpec {
 	return &QuorumSpec{
 		N: peers - 1,

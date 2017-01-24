@@ -183,10 +183,16 @@ func NewReplica(cfg *Config) (*Replica, error) {
 	return r, nil
 }
 
+// RequestVoteRequestChan returns a channel for outgoing RequestVoteRequests.
+// It's the implementers responsibility to make sure these requests are
+// delivered.
 func (r *Replica) RequestVoteRequestChan() chan *pb.RequestVoteRequest {
 	return r.rvreqout
 }
 
+// AppendEntriesRequestChan returns a channel for outgoing RequestVoteRequests.
+// It's the implementers responsibility to make sure these requests are
+// delivered.
 func (r *Replica) AppendEntriesRequestChan() chan *pb.AppendEntriesRequest {
 	return r.aereqout
 }
@@ -212,6 +218,8 @@ func (r *Replica) Run() error {
 	}
 }
 
+// HandleRequestVoteRequest must be called when receiving a RequestVoteRequest,
+// the return value must be delivered to the requester.
 func (r *Replica) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestVoteResponse {
 	r.Lock()
 	defer r.Unlock()
@@ -291,6 +299,8 @@ func (r *Replica) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.Reque
 	return &pb.RequestVoteResponse{Term: r.persistent.CurrentTerm}
 }
 
+// HandleAppendEntriesRequest must be called when receiving a
+// AppendEntriesRequest, the return value must be delivered to the requester.
 func (r *Replica) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
 	r.Lock()
 	defer r.Unlock()
@@ -362,6 +372,8 @@ func (r *Replica) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.A
 	}
 }
 
+// HandleClientCommandRequest must be called when receiving a
+// ClientCommandRequest, the return value must be delivered to the requester.
 func (r *Replica) HandleClientCommandRequest(request *pb.ClientCommandRequest) (*pb.ClientCommandResponse, error) {
 	if response, isLeader := r.logCommand(request); isLeader {
 		if !r.batch {
@@ -503,6 +515,8 @@ func (r *Replica) startElection() {
 	// See RequestVoteQF for the quorum function creating the response.
 }
 
+// HandleRequestVoteResponse must be invoked when receiving a
+// RequestVoteResponse.
 func (r *Replica) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 	r.Lock()
 	defer r.Unlock()
@@ -620,6 +634,8 @@ LOOP:
 	r.heartbeat.Reset(r.heartbeatTimeout)
 }
 
+// HandleAppendEntriesResponse must be invoked when receiving an
+// AppendEntriesResponse.
 func (r *Replica) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse) {
 	r.Lock()
 	defer func() {
