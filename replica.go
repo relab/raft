@@ -233,10 +233,9 @@ func (r *Replica) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.Reque
 		return &pb.RequestVoteResponse{Term: r.persistent.CurrentTerm}
 	}
 
-	if req.PreVote && (r.heardFromLeader || req.Term == r.persistent.CurrentTerm) {
+	if req.PreVote && r.heardFromLeader {
 		// We don't grant pre-votes if we have recently heard from a
-		// leader. The pre-vote term needs to be higher than the current
-		// term.
+		// leader.
 		return &pb.RequestVoteResponse{Term: r.persistent.CurrentTerm}
 	}
 
