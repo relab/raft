@@ -1,13 +1,11 @@
 package raft
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"math/rand"
-	"os"
 	"sync"
 	"time"
 
@@ -43,8 +41,6 @@ const BufferSize = 10000
 var (
 	// ErrLateCommit indicates an entry taking too long to commit.
 	ErrLateCommit = errors.New("Entry not committed in time.")
-
-	errCommaInCommand = errors.New("Comma in command.")
 )
 
 // Config contains the configuration need to start a Replica.
@@ -53,7 +49,8 @@ type Config struct {
 
 	Nodes []string
 
-	Recover          bool
+	Storage Storage
+
 	Batch            bool
 	QRPC             bool
 	SlowQuorum       bool
@@ -64,19 +61,21 @@ type Config struct {
 	Logger *log.Logger
 }
 
-type uniqueCommand struct {
-	clientID       uint32
-	sequenceNumber uint64
+// UniqueCommand identifies a client command.
+type UniqueCommand struct {
+	ClientID       uint32
+	SequenceNumber uint64
 }
 
-type persistent struct {
-	currentTerm uint64
-	votedFor    uint64
-	log         []*pb.Entry
-	// TODO Should this be here?
-	commands map[uniqueCommand]*pb.ClientCommandRequest
-
-	recoverFile *os.File
+// Persistent stores the persistent state of the Replica.
+type Persistent struct {
+	CurrentTerm uint64
+	VotedFor    uint64
+	Log         []*pb.Entry
+	// TODO commands is recreated from entries on load. This should not be
+	// needed. A client should, on leader crash, try the request with the
+	// new leader.
+	Commands map[UniqueCommand]*pb.ClientCommandRequest
 }
 
 // Replica represents a Raft server.
@@ -87,7 +86,9 @@ type Replica struct {
 	id     uint64
 	leader uint64
 
-	persistent *persistent
+	persistent *Persistent
+
+	storage Storage
 
 	seenLeader      bool
 	heardFromLeader bool
@@ -111,7 +112,7 @@ type Replica struct {
 
 	preElection bool
 
-	pending map[uniqueCommand]chan<- *pb.ClientCommandRequest
+	pending map[UniqueCommand]chan<- *pb.ClientCommandRequest
 
 	maxAppendEntries int
 	queue            chan *pb.Entry
@@ -137,14 +138,6 @@ func NewReplica(cfg *Config) (*Replica, error) {
 	heartbeat := NewTimer(0)
 	heartbeat.Stop()
 
-	// Recover from stable storage. TODO Cleanup.
-	// TODO Should already be loaded through config.
-	persistent, err := recoverFromStable(cfg.ID, cfg.Recover)
-
-	if err != nil {
-		return nil, err
-	}
-
 	var nodes []string
 
 	// Remove self
@@ -156,9 +149,13 @@ func NewReplica(cfg *Config) (*Replica, error) {
 		nodes = append(nodes, node)
 	}
 
+	persistent := cfg.Storage.Load()
+
 	// TODO Order.
 	r := &Replica{
 		id:               cfg.ID,
+		persistent:       &persistent,
+		storage:          cfg.Storage,
 		batch:            cfg.Batch,
 		addrs:            nodes,
 		nextIndex:        1,
@@ -170,10 +167,9 @@ func NewReplica(cfg *Config) (*Replica, error) {
 		election:         NewTimer(randomTimeout(cfg.ElectionTimeout)),
 		heartbeat:        heartbeat,
 		preElection:      true,
-		pending:          make(map[uniqueCommand]chan<- *pb.ClientCommandRequest, BufferSize),
+		pending:          make(map[UniqueCommand]chan<- *pb.ClientCommandRequest, BufferSize),
 		maxAppendEntries: cfg.MaxAppendEntries,
 		queue:            make(chan *pb.Entry, BufferSize),
-		persistent:       persistent,
 		rvreqout:         make(chan *pb.RequestVoteRequest, BufferSize),
 		aereqout:         make(chan *pb.AppendEntriesRequest, BufferSize),
 		logger:           &Logger{cfg.ID, cfg.Logger},
@@ -227,39 +223,39 @@ func (r *Replica) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.Reque
 	}
 
 	if logLevel >= INFO {
-		r.logger.from(req.CandidateID, fmt.Sprintf("%sVote requested in term %d for term %d", pre, r.persistent.currentTerm, req.Term))
+		r.logger.from(req.CandidateID, fmt.Sprintf("%sVote requested in term %d for term %d", pre, r.persistent.CurrentTerm, req.Term))
 	}
 
 	// #RV1 Reply false if term < currentTerm.
-	if req.Term < r.persistent.currentTerm {
-		return &pb.RequestVoteResponse{Term: r.persistent.currentTerm}
+	if req.Term < r.persistent.CurrentTerm {
+		return &pb.RequestVoteResponse{Term: r.persistent.CurrentTerm}
 	}
 
 	if req.PreVote && r.heardFromLeader {
 		// We don't grant pre-votes if we have recently heard from a
 		// leader.
-		return &pb.RequestVoteResponse{Term: r.persistent.currentTerm}
+		return &pb.RequestVoteResponse{Term: r.persistent.CurrentTerm}
 	}
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if req.Term > r.persistent.currentTerm && !req.PreVote {
+	if req.Term > r.persistent.CurrentTerm && !req.PreVote {
 		r.becomeFollower(req.Term)
 	}
 
-	notVotedYet := r.persistent.votedFor == None
+	notVotedYet := r.persistent.VotedFor == None
 
 	// We can grant a vote in the same term, as long as it's to the same
 	// candidate. This is useful if the response was lost, and the candidate
 	// sends another request.
-	alreadyVotedForCandidate := r.persistent.votedFor == req.CandidateID
+	alreadyVotedForCandidate := r.persistent.VotedFor == req.CandidateID
 
 	// If the logs have last entries with different terms, the log with the
 	// later term is more up-to-date.
-	laterTerm := req.LastLogTerm > r.logTerm(len(r.persistent.log))
+	laterTerm := req.LastLogTerm > r.logTerm(len(r.persistent.Log))
 
 	// If the logs end with the same term, whichever log is longer is more
 	// up-to-date.
-	longEnough := req.LastLogTerm == r.logTerm(len(r.persistent.log)) && req.LastLogIndex >= uint64(len(r.persistent.log))
+	longEnough := req.LastLogTerm == r.logTerm(len(r.persistent.Log)) && req.LastLogIndex >= uint64(len(r.persistent.Log))
 
 	// We can only grant a vote if: we have not voted yet, we vote for the
 	// same candidate again, or this is a pre-vote.
@@ -276,22 +272,23 @@ func (r *Replica) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.Reque
 			return &pb.RequestVoteResponse{VoteGranted: true, Term: req.Term}
 		}
 
-		r.persistent.votedFor = req.CandidateID
+		r.persistent.VotedFor = req.CandidateID
+		err := r.storage.SaveState(r.persistent.CurrentTerm, req.CandidateID)
 
-		// Write to stable storage
-		// TODO Assumes successful
-		r.save(fmt.Sprintf(STOREVOTEDFOR, r.persistent.votedFor))
+		if err != nil {
+			panic(fmt.Errorf("couldn't save state: %v", err))
+		}
 
 		// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
 		// Here we are granting a vote to a candidate so we reset the election timeout.
 		r.election.Reset(r.electionTimeout)
 		r.baseline.Reset(r.baselineTimeout)
 
-		return &pb.RequestVoteResponse{VoteGranted: true, Term: r.persistent.currentTerm}
+		return &pb.RequestVoteResponse{VoteGranted: true, Term: r.persistent.CurrentTerm}
 	}
 
 	// #RV2 The candidate's log was not up-to-date
-	return &pb.RequestVoteResponse{Term: r.persistent.currentTerm}
+	return &pb.RequestVoteResponse{Term: r.persistent.CurrentTerm}
 }
 
 func (r *Replica) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
@@ -303,20 +300,20 @@ func (r *Replica) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.A
 	}
 
 	// #AE1 Reply false if term < currentTerm.
-	if req.Term < r.persistent.currentTerm {
+	if req.Term < r.persistent.CurrentTerm {
 		return &pb.AppendEntriesResponse{
 			Success: false,
 			Term:    req.Term,
 		}
 	}
 
-	success := req.PrevLogIndex == 0 || (req.PrevLogIndex-1 < uint64(len(r.persistent.log)) && r.persistent.log[req.PrevLogIndex-1].Term == req.PrevLogTerm)
+	success := req.PrevLogIndex == 0 || (req.PrevLogIndex-1 < uint64(len(r.persistent.Log)) && r.persistent.Log[req.PrevLogIndex-1].Term == req.PrevLogTerm)
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if req.Term > r.persistent.currentTerm {
+	if req.Term > r.persistent.CurrentTerm {
 		r.becomeFollower(req.Term)
 	} else if r.id != req.LeaderID {
-		r.becomeFollower(r.persistent.currentTerm)
+		r.becomeFollower(r.persistent.CurrentTerm)
 	}
 
 	if success {
@@ -326,22 +323,24 @@ func (r *Replica) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.A
 
 		index := int(req.PrevLogIndex)
 
-		var buffer bytes.Buffer
+		var toSave []*pb.Entry
 
 		for _, entry := range req.Entries {
 			index++
 
-			if index == len(r.persistent.log) || r.logTerm(index) != entry.Term {
-				r.persistent.log = r.persistent.log[:index-1] // Remove excessive log entries.
-				r.persistent.log = append(r.persistent.log, entry)
+			if index == len(r.persistent.Log) || r.logTerm(index) != entry.Term {
+				r.persistent.Log = r.persistent.Log[:index-1] // Remove excessive log entries.
+				r.persistent.Log = append(r.persistent.Log, entry)
 
-				buffer.WriteString(fmt.Sprintf(STORECOMMAND, entry.Term, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
+				toSave = append(toSave, entry)
 			}
 		}
 
-		// Write to stable storage
-		// TODO Assumes successful
-		r.save(buffer.String())
+		err := r.storage.SaveEntries(toSave)
+
+		if err != nil {
+			panic(fmt.Errorf("couldn't save entries: %v", err))
+		}
 
 		if logLevel >= DEBUG {
 			r.logger.to(req.LeaderID, fmt.Sprintf("AppendEntries persisted %d entries to stable storage", len(req.Entries)))
@@ -358,7 +357,7 @@ func (r *Replica) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.A
 
 	return &pb.AppendEntriesResponse{
 		Term:       req.Term,
-		MatchIndex: uint64(len(r.persistent.log)),
+		MatchIndex: uint64(len(r.persistent.Log)),
 		Success:    success,
 	}
 }
@@ -401,9 +400,9 @@ func (r *Replica) logCommand(request *pb.ClientCommandRequest) (<-chan *pb.Clien
 			r.logger.from(uint64(request.ClientID), fmt.Sprintf("Client request = %s", request.Command))
 		}
 
-		commandID := uniqueCommand{clientID: request.ClientID, sequenceNumber: request.SequenceNumber}
+		commandID := UniqueCommand{ClientID: request.ClientID, SequenceNumber: request.SequenceNumber}
 
-		if old, ok := r.persistent.commands[commandID]; ok {
+		if old, ok := r.persistent.Commands[commandID]; ok {
 			response := make(chan *pb.ClientCommandRequest, 1)
 			response <- old
 
@@ -411,7 +410,7 @@ func (r *Replica) logCommand(request *pb.ClientCommandRequest) (<-chan *pb.Clien
 		}
 
 		r.Unlock()
-		r.queue <- &pb.Entry{Term: r.persistent.currentTerm, Data: request}
+		r.queue <- &pb.Entry{Term: r.persistent.CurrentTerm, Data: request}
 		r.Lock()
 
 		response := make(chan *pb.ClientCommandRequest)
@@ -429,7 +428,7 @@ func (r *Replica) advanceCommitIndex() {
 
 	old := r.commitIndex
 
-	if r.state == Leader && r.logTerm(r.matchIndex) == r.persistent.currentTerm {
+	if r.state == Leader && r.logTerm(r.matchIndex) == r.persistent.CurrentTerm {
 		r.commitIndex = max(r.commitIndex, uint64(r.matchIndex))
 	}
 
@@ -441,10 +440,10 @@ func (r *Replica) advanceCommitIndex() {
 // TODO Assumes caller already holds lock on Replica
 func (r *Replica) newCommit(old uint64) {
 	for i := old; i < r.commitIndex; i++ {
-		committed := r.persistent.log[i]
+		committed := r.persistent.Log[i]
 		sequenceNumber := committed.Data.SequenceNumber
 		clientID := committed.Data.ClientID
-		commandID := uniqueCommand{clientID: clientID, sequenceNumber: sequenceNumber}
+		commandID := UniqueCommand{ClientID: clientID, SequenceNumber: sequenceNumber}
 
 		if response, ok := r.pending[commandID]; ok {
 			// If entry is not committed fast enough, the client
@@ -457,7 +456,7 @@ func (r *Replica) newCommit(old uint64) {
 			}(response)
 		}
 
-		r.persistent.commands[commandID] = committed.Data
+		r.persistent.Commands[commandID] = committed.Data
 	}
 }
 
@@ -468,26 +467,20 @@ func (r *Replica) startElection() {
 	r.state = Candidate
 	r.electionTimeout = randomTimeout(r.electionTimeout)
 
-	term := r.persistent.currentTerm + 1
+	term := r.persistent.CurrentTerm + 1
 	pre := "pre"
 
 	if !r.preElection {
 		pre = ""
 		// We are now a candidate. See Raft Paper Figure 2 -> Rules for Servers -> Candidates.
 		// #C1 Increment currentTerm.
-		r.persistent.currentTerm++
+		r.persistent.CurrentTerm++
 
-		var buffer bytes.Buffer
-		buffer.WriteString(fmt.Sprintf(STORETERM, r.persistent.currentTerm))
+		err := r.storage.SaveState(r.persistent.CurrentTerm, r.id)
 
-		// #C2 Vote for self.
-		r.persistent.votedFor = r.id
-
-		buffer.WriteString(fmt.Sprintf(STOREVOTEDFOR, r.persistent.votedFor))
-
-		// Write to stable storage
-		// TODO Assumes successful
-		r.save(buffer.String())
+		if err != nil {
+			panic(fmt.Errorf("couldn't save state: %v", err))
+		}
 	}
 
 	if logLevel >= INFO {
@@ -501,8 +494,8 @@ func (r *Replica) startElection() {
 	r.rvreqout <- &pb.RequestVoteRequest{
 		CandidateID:  r.id,
 		Term:         term,
-		LastLogTerm:  r.logTerm(len(r.persistent.log)),
-		LastLogIndex: uint64(len(r.persistent.log)),
+		LastLogTerm:  r.logTerm(len(r.persistent.Log)),
+		LastLogIndex: uint64(len(r.persistent.Log)),
 		PreVote:      r.preElection,
 	}
 
@@ -514,7 +507,7 @@ func (r *Replica) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 	r.Lock()
 	defer r.Unlock()
 
-	term := r.persistent.currentTerm
+	term := r.persistent.CurrentTerm
 
 	if r.preElection {
 		term++
@@ -548,13 +541,13 @@ func (r *Replica) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		// We have received at least a quorum of votes.
 		// We are the leader for this term. See Raft Paper Figure 2 -> Rules for Servers -> Leaders.
 		if logLevel >= INFO {
-			r.logger.log(fmt.Sprintf("Elected leader for term %d", r.persistent.currentTerm))
+			r.logger.log(fmt.Sprintf("Elected leader for term %d", r.persistent.CurrentTerm))
 		}
 
 		r.state = Leader
 		r.leader = r.id
 		r.seenLeader = true
-		r.nextIndex = len(r.persistent.log) + 1
+		r.nextIndex = len(r.persistent.Log) + 1
 
 		// #L1 Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
 		r.heartbeat.Reset(0)
@@ -574,40 +567,41 @@ func (r *Replica) sendAppendEntries() {
 	defer r.Unlock()
 
 	if logLevel >= DEBUG {
-		r.logger.log(fmt.Sprintf("Sending AppendEntries for term %d", r.persistent.currentTerm))
+		r.logger.log(fmt.Sprintf("Sending AppendEntries for term %d", r.persistent.CurrentTerm))
 	}
 
-	var buffer bytes.Buffer
+	var toSave []*pb.Entry
 
 LOOP:
 	for i := r.maxAppendEntries; i > 0; i-- {
 		select {
 		case entry := <-r.queue:
-			r.persistent.log = append(r.persistent.log, entry)
-
-			buffer.WriteString(fmt.Sprintf(STORECOMMAND, r.persistent.currentTerm, entry.Data.ClientID, entry.Data.SequenceNumber, entry.Data.Command))
+			r.persistent.Log = append(r.persistent.Log, entry)
+			toSave = append(toSave, entry)
 		default:
 			break LOOP
 		}
 	}
 
-	// Write to stable storage
-	// TODO Assumes successful
-	r.save(buffer.String())
+	err := r.storage.SaveEntries(toSave)
+
+	if err != nil {
+		panic(fmt.Errorf("couldn't save entries: %v", err))
+	}
 
 	// #L1
 	entries := []*pb.Entry{}
 
 	next := r.nextIndex - 1
 
-	if len(r.persistent.log) > next {
-		maxEntries := int(min(uint64(next+r.maxAppendEntries), uint64(len(r.persistent.log))))
+	if len(r.persistent.Log) > next {
+		maxEntries := int(min(uint64(next+r.maxAppendEntries), uint64(len(r.persistent.Log))))
 
 		if !r.batch {
 			maxEntries = next + 1
 		}
 
-		entries = r.persistent.log[next:maxEntries]
+		entries = r.persistent.Log[next:maxEntries]
 	}
 
 	if logLevel >= DEBUG {
@@ -616,7 +610,7 @@ LOOP:
 
 	r.aereqout <- &pb.AppendEntriesRequest{
 		LeaderID:     r.id,
-		Term:         r.persistent.currentTerm,
+		Term:         r.persistent.CurrentTerm,
 		PrevLogIndex: uint64(next),
 		PrevLogTerm:  r.logTerm(next),
 		CommitIndex:  r.commitIndex,
@@ -634,14 +628,14 @@ func (r *Replica) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse
 	}()
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if response.Term > r.persistent.currentTerm {
+	if response.Term > r.persistent.CurrentTerm {
 		r.becomeFollower(response.Term)
 
 		return
 	}
 
 	// Ignore late response
-	if response.Term < r.persistent.currentTerm {
+	if response.Term < r.persistent.CurrentTerm {
 		return
 	}
 
@@ -658,29 +652,24 @@ func (r *Replica) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse
 	}
 }
 
+// TODO Tests.
 func (r *Replica) becomeFollower(term uint64) {
 	r.state = Follower
 	r.preElection = true
 
-	if r.persistent.currentTerm != term {
+	if r.persistent.CurrentTerm != term {
 		if logLevel >= INFO {
-			r.logger.log(fmt.Sprintf("Become follower as we transition from term %d to %d", r.persistent.currentTerm, term))
+			r.logger.log(fmt.Sprintf("Become follower as we transition from term %d to %d", r.persistent.CurrentTerm, term))
 		}
 
-		r.persistent.currentTerm = term
+		r.persistent.CurrentTerm = term
+		r.persistent.VotedFor = None
 
-		var buffer bytes.Buffer
-		buffer.WriteString(fmt.Sprintf(STORETERM, r.persistent.currentTerm))
+		err := r.storage.SaveState(term, r.persistent.VotedFor)
 
-		if r.persistent.votedFor != None {
-			r.persistent.votedFor = None
-
-			buffer.WriteString(fmt.Sprintf(STOREVOTEDFOR, r.persistent.votedFor))
+		if err != nil {
+			panic(fmt.Errorf("couldn't save state: %v", err))
 		}
-
-		// Write to stable storage
-		// TODO Assumes successful
-		r.save(buffer.String())
 	}
 
 	r.election.Reset(r.electionTimeout)
@@ -703,14 +692,9 @@ func (r *Replica) getHint() uint32 {
 }
 
 func (r *Replica) logTerm(index int) uint64 {
-	if index < 1 || index > len(r.persistent.log) {
+	if index < 1 || index > len(r.persistent.Log) {
 		return 0
 	}
 
-	return r.persistent.log[index-1].Term
-}
-
-func (r *Replica) save(buffer string) {
-	r.persistent.recoverFile.WriteString(buffer)
-	r.persistent.recoverFile.Sync()
+	return r.persistent.Log[index-1].Term
 }

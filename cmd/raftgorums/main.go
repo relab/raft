@@ -16,6 +16,7 @@ import (
 
 	"github.com/relab/raft"
 	gorums "github.com/relab/raft/cmd/raftgorums/gorumspb"
+	"github.com/relab/raft/filestorage"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
@@ -72,11 +73,29 @@ func main() {
 		grpc.EnableTracing = false
 	}
 
+	var storage raft.Storage
+
+	if *recover {
+		var err error
+		storage, err = filestorage.FromFile(fmt.Sprintf(filestorage.STOREFILE, *id))
+
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		var err error
+		storage, err = filestorage.New(fmt.Sprintf(filestorage.STOREFILE, *id))
+
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	raftServer, err := NewRaftServer(&raft.Config{
 		ID:               *id,
 		Nodes:            nodes,
-		Recover:          *recover,
 		Batch:            *batch,
+		Storage:          storage,
 		ElectionTimeout:  *electionTimeout,
 		HeartbeatTimeout: *heartbeatTimeout,
 		MaxAppendEntries: *maxAppendEntries,
