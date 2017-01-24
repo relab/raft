@@ -174,7 +174,10 @@ func loadFromFile(file *os.File) (*raft.Persistent, error) {
 			entry.Data = &pb.ClientCommandRequest{ClientID: uint32(clientID), SequenceNumber: uint64(sequenceNumber), Command: command}
 
 			p.Log = append(p.Log, &entry)
-			p.Commands[raft.UniqueCommand{entry.Data.ClientID, entry.Data.SequenceNumber}] = entry.Data
+			p.Commands[raft.UniqueCommand{
+				ClientID:       entry.Data.ClientID,
+				SequenceNumber: entry.Data.SequenceNumber,
+			}] = entry.Data
 		}
 	}
 
