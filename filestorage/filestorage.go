@@ -64,8 +64,16 @@ func FromFile(filename string) (*FileStorage, error) {
 	// Load data
 	p, err := loadFromFile(file)
 
+	if err != nil {
+		return nil, err
+	}
+
 	// Open append only.
 	file, err = os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
+
+	if err != nil {
+		return nil, err
+	}
 
 	return &FileStorage{
 		file:       file,

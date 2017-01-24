@@ -40,10 +40,16 @@ func main() {
 
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
+
 		if err != nil {
 			log.Fatal(err)
 		}
-		pprof.StartCPUProfile(f)
+
+		err = pprof.StartCPUProfile(f)
+
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	if *id == 0 {
@@ -114,10 +120,10 @@ func main() {
 	}
 
 	go func() {
-		err := s.Serve(l)
+		serr := s.Serve(l)
 
-		if err != nil {
-			log.Fatal(err)
+		if serr != nil {
+			log.Fatal(serr)
 		}
 	}()
 
@@ -193,7 +199,11 @@ func main() {
 		}()
 
 		reader := bufio.NewReader(os.Stdin)
-		reader.ReadLine()
+		_, _, err := reader.ReadLine()
+
+		if err != nil {
+			log.Println(err)
+		}
 
 		pprof.StopCPUProfile()
 	} else {
