@@ -97,7 +97,7 @@ func main() {
 		}
 	}
 
-	raftServer := &RaftServer{
+	raftServer := &Server{
 		raft.NewReplica(&raft.Config{
 			ID:               *id,
 			Nodes:            nodes,
