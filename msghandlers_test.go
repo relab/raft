@@ -15,11 +15,16 @@ type mockStorage struct {
 	log      []*pb.Entry
 }
 
-func (s *mockStorage) SaveState(uint64, uint64) error {
+func (s *mockStorage) SaveState(term uint64, votedFor uint64) error {
+	s.term = term
+	s.votedFor = votedFor
+
 	return nil
 }
 
-func (s *mockStorage) SaveEntries([]*pb.Entry) error {
+func (s *mockStorage) SaveEntries(entries []*pb.Entry) error {
+	s.log = entries
+
 	return nil
 }
 
@@ -41,125 +46,153 @@ func (s *mockStorage) Load() raft.Persistent {
 	}
 }
 
-var term5 = &raft.Config{
-	ElectionTimeout: time.Second,
-	Storage:         &mockStorage{term: 5},
-}
-
-var term5log2 = &raft.Config{
-	ElectionTimeout: time.Second,
-	Storage: &mockStorage{
-		term: 5,
-		log: []*pb.Entry{
-			&pb.Entry{
-				Term: 4,
-				Data: &pb.ClientCommandRequest{
-					ClientID:       123,
-					SequenceNumber: 456,
-					Command:        "first",
-				},
-			},
-			&pb.Entry{
-				Term: 5,
-				Data: &pb.ClientCommandRequest{
-					ClientID:       123,
-					SequenceNumber: 457,
-					Command:        "second",
-				},
-			},
+var log2 = []*pb.Entry{
+	&pb.Entry{
+		Term: 4,
+		Data: &pb.ClientCommandRequest{
+			ClientID:       123,
+			SequenceNumber: 456,
+			Command:        "first",
+		},
+	},
+	&pb.Entry{
+		Term: 5,
+		Data: &pb.ClientCommandRequest{
+			ClientID:       123,
+			SequenceNumber: 457,
+			Command:        "second",
 		},
 	},
 }
+
+func newTerm5() mockStorage {
+	return mockStorage{term: 5}
+}
+
+func newTerm5log2() mockStorage {
+	return mockStorage{term: 5, log: log2}
+}
+
+var term5 mockStorage
+var term5log2 mockStorage
 
 var handleRequestVoteRequestTests = []struct {
-	name string
-	r    *raft.Replica
-	req  []*pb.RequestVoteRequest
-	res  []*pb.RequestVoteResponse
+	name   string
+	s      raft.Storage
+	req    []*pb.RequestVoteRequest
+	res    []*pb.RequestVoteResponse
+	states []*mockStorage
 }{
 	{
-		"lower term",
-		raft.NewReplica(term5),
-		[]*pb.RequestVoteRequest{&pb.RequestVoteRequest{Term: 1}},
+		"reject lower term",
+		&term5,
+		[]*pb.RequestVoteRequest{&pb.RequestVoteRequest{CandidateID: 1, Term: 1}},
 		[]*pb.RequestVoteResponse{&pb.RequestVoteResponse{Term: 5}},
+		[]*mockStorage{&mockStorage{term: 5, votedFor: raft.None, log: nil}},
 	},
 	{
-		"high then low term",
-		raft.NewReplica(term5),
+		"accept same term if not voted",
+		&term5,
+		[]*pb.RequestVoteRequest{&pb.RequestVoteRequest{CandidateID: 1, Term: 5}},
+		[]*pb.RequestVoteResponse{&pb.RequestVoteResponse{Term: 5, VoteGranted: true}},
+		[]*mockStorage{&mockStorage{term: 5, votedFor: 1, log: nil}},
+	},
+	{
+		"accept one vote per term",
+		&term5,
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{Term: 7},
-			&pb.RequestVoteRequest{Term: 1},
+			&pb.RequestVoteRequest{CandidateID: 1, Term: 6},
+			&pb.RequestVoteRequest{CandidateID: 2, Term: 6},
+			&pb.RequestVoteRequest{CandidateID: 1, Term: 6},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 7, VoteGranted: true},
-			&pb.RequestVoteResponse{Term: 7},
+			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
+			&pb.RequestVoteResponse{Term: 6, VoteGranted: false},
+			// Multiple requests from the same candidate we voted
+			// for (in the same term) must always return true. This
+			// gives correct behavior even if the response is lost.
+			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
+		},
+		[]*mockStorage{
+			&mockStorage{term: 6, votedFor: 1, log: nil},
+			&mockStorage{term: 6, votedFor: 1, log: nil},
+			&mockStorage{term: 6, votedFor: 1, log: nil},
 		},
 	},
 	{
-		"increasing terms",
-		raft.NewReplica(term5),
+		"accept higher terms",
+		&term5,
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{Term: 4},
-			&pb.RequestVoteRequest{Term: 5},
-			&pb.RequestVoteRequest{Term: 6},
-			&pb.RequestVoteRequest{Term: 7},
+			&pb.RequestVoteRequest{CandidateID: 1, Term: 4},
+			&pb.RequestVoteRequest{CandidateID: 2, Term: 5},
+			&pb.RequestVoteRequest{CandidateID: 3, Term: 6},
 		},
 		[]*pb.RequestVoteResponse{
 			&pb.RequestVoteResponse{Term: 5},
 			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
 			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
-			&pb.RequestVoteResponse{Term: 7, VoteGranted: true},
+		},
+		[]*mockStorage{
+			&mockStorage{term: 5, votedFor: raft.None, log: nil},
+			&mockStorage{term: 5, votedFor: 2, log: nil},
+			&mockStorage{term: 6, votedFor: 3, log: nil},
 		},
 	},
 	{
-		"already voted",
-		raft.NewReplica(term5),
+		"reject lower prevote term",
+		&term5,
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{CandidateID: 1, Term: 5},
-			&pb.RequestVoteRequest{CandidateID: 2, Term: 5},
-			&pb.RequestVoteRequest{CandidateID: 1, Term: 5},
-		},
-		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
-			&pb.RequestVoteResponse{Term: 5, VoteGranted: false},
-			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
-		},
-	},
-	{
-		"pre-vote lower term",
-		raft.NewReplica(term5),
-		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{Term: 4, PreVote: true},
+			&pb.RequestVoteRequest{CandidateID: 1, Term: 4, PreVote: true},
 		},
 		[]*pb.RequestVoteResponse{
 			&pb.RequestVoteResponse{Term: 5},
 		},
+		[]*mockStorage{&mockStorage{term: 5, votedFor: raft.None, log: nil}},
 	},
 	{
-		"pre-vote same term",
-		raft.NewReplica(term5),
+		"accept prevote in same term if not voted",
+		&term5,
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{Term: 5, PreVote: true},
+			&pb.RequestVoteRequest{CandidateID: 1, Term: 5, PreVote: true},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 5},
+			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
 		},
+		[]*mockStorage{&mockStorage{term: 5, votedFor: raft.None, log: nil}},
 	},
 	{
-		"pre-vote higher term",
-		raft.NewReplica(term5),
+		"reject prevote in same term if voted",
+		&term5,
+		[]*pb.RequestVoteRequest{
+			&pb.RequestVoteRequest{CandidateID: 1, Term: 5},
+			&pb.RequestVoteRequest{CandidateID: 2, Term: 5, PreVote: true},
+		},
+		[]*pb.RequestVoteResponse{
+			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
+			&pb.RequestVoteResponse{Term: 5},
+		},
+		[]*mockStorage{
+			&mockStorage{term: 5, votedFor: 1, log: nil},
+			&mockStorage{term: 5, votedFor: 1, log: nil},
+		},
+	},
+	// TODO Don't grant pre-vote if heard from leader.
+	{
+		"accept prevote in higher term",
+		&term5,
 		[]*pb.RequestVoteRequest{
 			&pb.RequestVoteRequest{CandidateID: 1, Term: 6, PreVote: true},
 		},
 		[]*pb.RequestVoteResponse{
 			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
 		},
+		[]*mockStorage{&mockStorage{term: 5, votedFor: raft.None, log: nil}},
 	},
 	{
 		// A pre-election is actually an election for the next term, so
 		// a vote granted in an earlier term should not interfere.
-		"pre-vote already voted",
-		raft.NewReplica(term5),
+		"accept prevote in higher term even if voted in current",
+		&term5,
 		[]*pb.RequestVoteRequest{
 			&pb.RequestVoteRequest{CandidateID: 1, Term: 5},
 			&pb.RequestVoteRequest{CandidateID: 2, Term: 6, PreVote: true},
@@ -168,12 +201,17 @@ var handleRequestVoteRequestTests = []struct {
 			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
 			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
 		},
+		[]*mockStorage{
+			&mockStorage{term: 5, votedFor: 1, log: nil},
+			&mockStorage{term: 5, votedFor: 1, log: nil},
+		},
 	},
 	{
-		"log not up-to-date",
-		raft.NewReplica(term5log2),
+		"reject log not up-to-date",
+		&term5log2,
 		[]*pb.RequestVoteRequest{
 			&pb.RequestVoteRequest{
+				CandidateID:  1,
 				Term:         5,
 				LastLogIndex: 0,
 				LastLogTerm:  0,
@@ -182,12 +220,14 @@ var handleRequestVoteRequestTests = []struct {
 		[]*pb.RequestVoteResponse{
 			&pb.RequestVoteResponse{Term: 5},
 		},
+		[]*mockStorage{&mockStorage{term: 5, votedFor: raft.None, log: log2}},
 	},
 	{
-		"log not up-to-date shorter log",
-		raft.NewReplica(term5log2),
+		"reject log not up-to-date shorter log",
+		&term5log2,
 		[]*pb.RequestVoteRequest{
 			&pb.RequestVoteRequest{
+				CandidateID:  1,
 				Term:         5,
 				LastLogIndex: 0,
 				LastLogTerm:  5,
@@ -196,12 +236,14 @@ var handleRequestVoteRequestTests = []struct {
 		[]*pb.RequestVoteResponse{
 			&pb.RequestVoteResponse{Term: 5},
 		},
+		[]*mockStorage{&mockStorage{term: 5, votedFor: raft.None, log: log2}},
 	},
 	{
-		"log not up-to-date lower term",
-		raft.NewReplica(term5log2),
+		"reject log not up-to-date lower term",
+		&term5log2,
 		[]*pb.RequestVoteRequest{
 			&pb.RequestVoteRequest{
+				CandidateID:  1,
 				Term:         5,
 				LastLogIndex: 10,
 				LastLogTerm:  4,
@@ -210,12 +252,14 @@ var handleRequestVoteRequestTests = []struct {
 		[]*pb.RequestVoteResponse{
 			&pb.RequestVoteResponse{Term: 5},
 		},
+		[]*mockStorage{&mockStorage{term: 5, votedFor: raft.None, log: log2}},
 	},
 	{
-		"log up-to-date",
-		raft.NewReplica(term5log2),
+		"accpet log up-to-date",
+		&term5log2,
 		[]*pb.RequestVoteRequest{
 			&pb.RequestVoteRequest{
+				CandidateID:  1,
 				Term:         5,
 				LastLogIndex: 2,
 				LastLogTerm:  5,
@@ -224,10 +268,11 @@ var handleRequestVoteRequestTests = []struct {
 		[]*pb.RequestVoteResponse{
 			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
 		},
+		[]*mockStorage{&mockStorage{term: 5, votedFor: 1, log: log2}},
 	},
 	{
-		"log up-to-date already voted",
-		raft.NewReplica(term5log2),
+		"reject log up-to-date already voted",
+		&term5log2,
 		[]*pb.RequestVoteRequest{
 			&pb.RequestVoteRequest{
 				CandidateID:  1,
@@ -246,10 +291,14 @@ var handleRequestVoteRequestTests = []struct {
 			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
 			&pb.RequestVoteResponse{Term: 5},
 		},
+		[]*mockStorage{
+			&mockStorage{term: 5, votedFor: 1, log: log2},
+			&mockStorage{term: 5, votedFor: 1, log: log2},
+		},
 	},
 	{
-		"log up-to-date already voted higher term",
-		raft.NewReplica(term5log2),
+		"accept log up-to-date already voted if higher term",
+		&term5log2,
 		[]*pb.RequestVoteRequest{
 			&pb.RequestVoteRequest{
 				CandidateID:  1,
@@ -268,17 +317,33 @@ var handleRequestVoteRequestTests = []struct {
 			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
 			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
 		},
+		[]*mockStorage{
+			&mockStorage{term: 5, votedFor: 1, log: log2},
+			&mockStorage{term: 6, votedFor: 2, log: log2},
+		},
 	},
 }
 
 func TestHandleRequestVoteRequest(t *testing.T) {
 	for _, test := range handleRequestVoteRequestTests {
 		t.Run(test.name, func(t *testing.T) {
+			term5 = newTerm5()
+			term5log2 = newTerm5log2()
+
+			r := raft.NewReplica(&raft.Config{
+				ElectionTimeout: time.Second,
+				Storage:         test.s,
+			})
+
 			for i := 0; i < len(test.req); i++ {
-				res := test.r.HandleRequestVoteRequest(test.req[i])
+				res := r.HandleRequestVoteRequest(test.req[i])
 
 				if !reflect.DeepEqual(res, test.res[i]) {
 					t.Errorf("got %+v, want %+v", res, test.res[i])
+				}
+
+				if !reflect.DeepEqual(test.s, test.states[i]) {
+					t.Errorf("got %+v, want %+v", test.s, test.states[i])
 				}
 			}
 		})
