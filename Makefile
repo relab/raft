@@ -33,6 +33,10 @@ install:
 test:
 	go test $(PKGS) -v
 
+.PHONY: bench
+bench:
+	go test $(PKGS) -v -run ^none -bench .
+
 .PHONY: clean
 clean:
 	go clean -i $(CMD_PKGS)
