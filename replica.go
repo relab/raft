@@ -710,3 +710,11 @@ func (r *Replica) logTerm(index int) uint64 {
 
 	return r.persistent.Log[index-1].Term
 }
+
+// State returns the current raft state.
+func (r *Replica) State() State {
+	r.Lock()
+	defer r.Unlock()
+
+	return r.state
+}
