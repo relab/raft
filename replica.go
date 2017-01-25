@@ -587,6 +587,7 @@ func (r *Replica) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		r.state = Leader
 		r.leader = r.id
 		r.seenLeader = true
+		r.heardFromLeader = true
 		r.nextIndex = r.storage.NumEntries() + 1
 
 		// #L1 Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
