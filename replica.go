@@ -453,7 +453,7 @@ func (r *Replica) advanceCommitIndex() {
 	old := r.commitIndex
 
 	if r.state == Leader && r.logTerm(r.matchIndex) == r.currentTerm {
-		r.commitIndex = max(r.commitIndex, uint64(r.matchIndex))
+		r.commitIndex = max(r.commitIndex, r.matchIndex)
 	}
 
 	if r.commitIndex > old {
