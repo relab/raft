@@ -34,9 +34,6 @@ func main() {
 		maxAppendEntries = flag.Uint64("maxappend", 5000, "Max entries per AppendEntries message")
 	)
 
-	// TODO Implement disk based storage, so that we can recover.
-	var _ = recover
-
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
 
@@ -81,7 +78,11 @@ func main() {
 		grpc.EnableTracing = false
 	}
 
-	storage := raft.NewMemory(make(map[uint64]uint64), nil)
+	storage, err := raft.NewFileStorage(fmt.Sprintf("db%.2d.bolt", *id), !*recover)
+
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	raftServer := &Server{
 		raft.NewReplica(&raft.Config{

@@ -6,6 +6,7 @@ import pb "github.com/relab/raft/raftpb"
 const (
 	KeyTerm uint64 = iota
 	KeyVotedFor
+	KeyLogLength
 )
 
 // Storage provides an interface for storing and retrieving Replica state.
