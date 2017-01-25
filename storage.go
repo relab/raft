@@ -28,9 +28,10 @@ type Memory struct {
 }
 
 // NewMemory returns a memory backed storage.
-func NewMemory() *Memory {
+func NewMemory(kvstore map[uint64]uint64, log []*pb.Entry) *Memory {
 	return &Memory{
-		kvstore: make(map[uint64]uint64),
+		kvstore: kvstore,
+		log:     log,
 	}
 }
 

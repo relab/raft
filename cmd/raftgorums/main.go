@@ -81,12 +81,14 @@ func main() {
 		grpc.EnableTracing = false
 	}
 
+	storage := raft.NewMemory(make(map[uint64]uint64), nil)
+
 	raftServer := &Server{
 		raft.NewReplica(&raft.Config{
 			ID:               *id,
 			Nodes:            nodes,
 			Batch:            *batch,
-			Storage:          raft.NewMemory(),
+			Storage:          storage,
 			ElectionTimeout:  *electionTimeout,
 			HeartbeatTimeout: *heartbeatTimeout,
 			MaxAppendEntries: *maxAppendEntries,
