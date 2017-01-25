@@ -1,4 +1,4 @@
-package filestorage
+package raft
 
 import (
 	"bufio"
@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/relab/raft"
 	pb "github.com/relab/raft/raftpb"
 )
 
@@ -28,7 +27,7 @@ var ErrCorruptedFile = errors.New("File is corrupted.")
 // FileStorage implements Storage using a file.
 type FileStorage struct {
 	file       *os.File
-	persistent *raft.Persistent
+	persistent *Persistent
 }
 
 // New returns a empty FileStorage.
@@ -41,8 +40,8 @@ func New(filename string) (*FileStorage, error) {
 
 	return &FileStorage{
 		file: file,
-		persistent: &raft.Persistent{
-			Commands: make(map[raft.UniqueCommand]*pb.ClientCommandRequest, raft.BufferSize),
+		persistent: &Persistent{
+			Commands: make(map[UniqueCommand]*pb.ClientCommandRequest, BufferSize),
 		},
 	}, nil
 }
@@ -82,7 +81,7 @@ func FromFile(filename string) (*FileStorage, error) {
 }
 
 // Load implements the Storage interface. Can currently only be called once.
-func (fs *FileStorage) Load() raft.Persistent {
+func (fs *FileStorage) Load() Persistent {
 	p := *fs.persistent
 	fs.persistent = nil
 
@@ -123,9 +122,9 @@ func (fs *FileStorage) write(buffer []byte) error {
 	return fs.file.Sync()
 }
 
-func loadFromFile(file *os.File) (*raft.Persistent, error) {
-	p := &raft.Persistent{
-		Commands: make(map[raft.UniqueCommand]*pb.ClientCommandRequest, raft.BufferSize),
+func loadFromFile(file *os.File) (*Persistent, error) {
+	p := &Persistent{
+		Commands: make(map[UniqueCommand]*pb.ClientCommandRequest, BufferSize),
 	}
 
 	scanner := bufio.NewScanner(file)
@@ -182,7 +181,7 @@ func loadFromFile(file *os.File) (*raft.Persistent, error) {
 			entry.Data = &pb.ClientCommandRequest{ClientID: uint32(clientID), SequenceNumber: uint64(sequenceNumber), Command: command}
 
 			p.Log = append(p.Log, &entry)
-			p.Commands[raft.UniqueCommand{
+			p.Commands[UniqueCommand{
 				ClientID:       entry.Data.ClientID,
 				SequenceNumber: entry.Data.SequenceNumber,
 			}] = entry.Data

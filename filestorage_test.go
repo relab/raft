@@ -1,4 +1,4 @@
-package filestorage_test
+package raft_test
 
 import (
 	"os"
@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/relab/raft"
-	"github.com/relab/raft/filestorage"
 	pb "github.com/relab/raft/raftpb"
 )
 
@@ -71,7 +70,7 @@ var fileStorageTests = []struct {
 func TestFileStorage(t *testing.T) {
 	for _, test := range fileStorageTests {
 		t.Run(test.name, func(t *testing.T) {
-			fs, err := filestorage.New(testFilename)
+			fs, err := raft.New(testFilename)
 
 			if err != nil {
 				t.Error(err)
@@ -100,7 +99,7 @@ func TestFileStorage(t *testing.T) {
 					}
 				}
 
-				fs, err := filestorage.FromFile(testFilename)
+				fs, err := raft.FromFile(testFilename)
 
 				if err != nil {
 					t.Error(err)
@@ -123,7 +122,7 @@ func TestFileStorage(t *testing.T) {
 }
 
 func BenchmarkFileStorage(b *testing.B) {
-	fs, err := filestorage.New(testFilename)
+	fs, err := raft.New(testFilename)
 
 	if err != nil {
 		b.Error(err)

@@ -16,7 +16,6 @@ import (
 
 	"github.com/relab/raft"
 	gorums "github.com/relab/raft/cmd/raftgorums/gorumspb"
-	"github.com/relab/raft/filestorage"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
@@ -83,14 +82,14 @@ func main() {
 
 	if *recover {
 		var err error
-		storage, err = filestorage.FromFile(fmt.Sprintf(filestorage.STOREFILE, *id))
+		storage, err = raft.FromFile(fmt.Sprintf(raft.STOREFILE, *id))
 
 		if err != nil {
 			log.Fatal(err)
 		}
 	} else {
 		var err error
-		storage, err = filestorage.New(fmt.Sprintf(filestorage.STOREFILE, *id))
+		storage, err = raft.New(fmt.Sprintf(raft.STOREFILE, *id))
 
 		if err != nil {
 			log.Fatal(err)
