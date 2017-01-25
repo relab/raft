@@ -510,6 +510,15 @@ func (r *Replica) startElection() {
 		if err != nil {
 			panic(fmt.Errorf("couldn't save Term: %v", err))
 		}
+
+		// #C2 Vote for self.
+		r.votedFor = r.id
+
+		err = r.storage.Set(KeyVotedFor, r.id)
+
+		if err != nil {
+			panic(fmt.Errorf("couldn't save VotedFor: %v", err))
+		}
 	}
 
 	if logLevel >= INFO {
