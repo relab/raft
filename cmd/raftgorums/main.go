@@ -31,8 +31,11 @@ func main() {
 		batch            = flag.Bool("batch", true, "enable batching")
 		electionTimeout  = flag.Duration("election", 2*time.Second, "How long servers wait before starting an election")
 		heartbeatTimeout = flag.Duration("heartbeat", 250*time.Millisecond, "How often a heartbeat should be sent")
-		maxAppendEntries = flag.Int("maxappend", 5000, "Max entries per AppendEntries message")
+		maxAppendEntries = flag.Uint64("maxappend", 5000, "Max entries per AppendEntries message")
 	)
+
+	// TODO Implement disk based storage, so that we can recover.
+	var _ = recover
 
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
@@ -78,30 +81,12 @@ func main() {
 		grpc.EnableTracing = false
 	}
 
-	var storage raft.Storage
-
-	if *recover {
-		var err error
-		storage, err = raft.FromFile(fmt.Sprintf(raft.STOREFILE, *id))
-
-		if err != nil {
-			log.Fatal(err)
-		}
-	} else {
-		var err error
-		storage, err = raft.New(fmt.Sprintf(raft.STOREFILE, *id))
-
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-
 	raftServer := &Server{
 		raft.NewReplica(&raft.Config{
 			ID:               *id,
 			Nodes:            nodes,
 			Batch:            *batch,
-			Storage:          storage,
+			Storage:          raft.NewMemory(),
 			ElectionTimeout:  *electionTimeout,
 			HeartbeatTimeout: *heartbeatTimeout,
 			MaxAppendEntries: *maxAppendEntries,

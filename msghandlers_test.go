@@ -15,35 +15,43 @@ type mockStorage struct {
 	log      []*pb.Entry
 }
 
-func (s *mockStorage) SaveState(term uint64, votedFor uint64) error {
-	s.term = term
-	s.votedFor = votedFor
-
+func (m *mockStorage) Set(key, value uint64) error {
+	switch {
+	case key == raft.KeyTerm:
+		m.term = value
+	case key == raft.KeyVotedFor:
+		m.votedFor = value
+	}
 	return nil
 }
 
-func (s *mockStorage) SaveEntries(entries []*pb.Entry) error {
-	s.log = entries
+func (m *mockStorage) Get(key uint64) (uint64, error) {
+	if key == raft.KeyTerm {
+		return m.term, nil
+	}
+	return m.votedFor, nil
+}
 
+func (m *mockStorage) StoreEntries(entries []*pb.Entry) error {
+	m.log = append(m.log, entries...)
 	return nil
 }
 
-func (s *mockStorage) Load() raft.Persistent {
-	commands := make(map[raft.UniqueCommand]*pb.ClientCommandRequest)
+func (m *mockStorage) GetEntry(index uint64) (*pb.Entry, error) {
+	return m.log[int(index)], nil
+}
 
-	for _, entry := range s.log {
-		commands[raft.UniqueCommand{
-			ClientID:       entry.Data.ClientID,
-			SequenceNumber: entry.Data.SequenceNumber,
-		}] = entry.Data
-	}
+func (m *mockStorage) GetEntries(from, to uint64) ([]*pb.Entry, error) {
+	return m.log[int(from):int(to)], nil
+}
 
-	return raft.Persistent{
-		CurrentTerm: s.term,
-		VotedFor:    s.votedFor,
-		Log:         s.log,
-		Commands:    commands,
-	}
+func (m *mockStorage) RemoveEntriesFrom(index uint64) error {
+	m.log = m.log[:index]
+	return nil
+}
+
+func (m *mockStorage) NumEntries() uint64 {
+	return uint64(len(m.log))
 }
 
 var log2 = []*pb.Entry{
