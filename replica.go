@@ -332,10 +332,12 @@ func (r *Replica) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.A
 		for _, entry := range req.Entries {
 			index++
 
-			if index == len(r.persistent.Log) || r.logTerm(index) != entry.Term {
+			switch {
+			case r.logTerm(index) != entry.Term:
 				r.persistent.Log = r.persistent.Log[:index-1] // Remove excessive log entries.
+				fallthrough
+			case index == len(r.persistent.Log):
 				r.persistent.Log = append(r.persistent.Log, entry)
-
 				toSave = append(toSave, entry)
 			}
 		}
