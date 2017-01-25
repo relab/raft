@@ -13,14 +13,20 @@ var (
 	logBucket   = []byte("log")
 )
 
+// ErrKeyNotFound that the given key could not be found in the storage.
 var ErrKeyNotFound = errors.New("key not found")
 
+// FileStorage is an implementation of the Storage interface for file based
+// storage.
 type FileStorage struct {
 	*bolt.DB
 
 	nextIndex uint64
 }
 
+// NewFileStorage returns a new FileStorage using the file given with the path
+// argument. Overwrite decides whether to use the database if it already exists
+// or overwrite it.
 func NewFileStorage(path string, overwrite bool) (*FileStorage, error) {
 	db, err := bolt.Open(path, 0600, nil)
 
@@ -37,8 +43,13 @@ func NewFileStorage(path string, overwrite bool) (*FileStorage, error) {
 	defer tx.Rollback()
 
 	if overwrite {
-		tx.DeleteBucket(stateBucket)
-		tx.DeleteBucket(logBucket)
+		if err := tx.DeleteBucket(stateBucket); err != nil {
+			return nil, err
+		}
+
+		if err := tx.DeleteBucket(logBucket); err != nil {
+			return nil, err
+		}
 	}
 
 	if _, err := tx.CreateBucketIfNotExists(stateBucket); err != nil {
@@ -61,6 +72,7 @@ func NewFileStorage(path string, overwrite bool) (*FileStorage, error) {
 	}, nil
 }
 
+// Set implements the Storage interface.
 func (fs *FileStorage) Set(key uint64, value uint64) error {
 	tx, err := fs.Begin(true)
 
@@ -86,6 +98,7 @@ func set(bucket *bolt.Bucket, key uint64, value uint64) error {
 	return bucket.Put(k, v)
 }
 
+// Get implements the Storage interface.
 func (fs *FileStorage) Get(key uint64) (uint64, error) {
 	tx, err := fs.Begin(false)
 
@@ -111,6 +124,7 @@ func get(bucket *bolt.Bucket, key uint64) uint64 {
 	return 0
 }
 
+// StoreEntries implements the Storage interface.
 func (fs *FileStorage) StoreEntries(entries []*pb.Entry) error {
 	tx, err := fs.Begin(true)
 
@@ -146,6 +160,7 @@ func (fs *FileStorage) StoreEntries(entries []*pb.Entry) error {
 	return tx.Commit()
 }
 
+// GetEntry implements the Storage interface.
 func (fs *FileStorage) GetEntry(index uint64) (*pb.Entry, error) {
 	tx, err := fs.Begin(false)
 
@@ -174,6 +189,7 @@ func (fs *FileStorage) GetEntry(index uint64) (*pb.Entry, error) {
 	return nil, ErrKeyNotFound
 }
 
+// GetEntries implements the Storage interface.
 func (fs *FileStorage) GetEntries(from, to uint64) ([]*pb.Entry, error) {
 	tx, err := fs.Begin(false)
 
@@ -206,6 +222,7 @@ func (fs *FileStorage) GetEntries(from, to uint64) ([]*pb.Entry, error) {
 	return entries, nil
 }
 
+// RemoveEntriesFrom implements the Storage interface.
 func (fs *FileStorage) RemoveEntriesFrom(index uint64) error {
 	tx, err := fs.Begin(true)
 
@@ -237,6 +254,7 @@ func (fs *FileStorage) RemoveEntriesFrom(index uint64) error {
 	return tx.Commit()
 }
 
+// NumEntries implements the Storage interface.
 func (fs *FileStorage) NumEntries() uint64 {
 	return fs.nextIndex
 }
