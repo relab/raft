@@ -1,6 +1,10 @@
 package raft
 
-import pb "github.com/relab/raft/raftpb"
+import (
+	"math"
+
+	pb "github.com/relab/raft/raftpb"
+)
 
 // QuorumSpec holds information about the quorum size of the current
 // configuration and allows us to invoke QRPCs.
@@ -63,7 +67,7 @@ func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*p
 	// Being past this point means last.Term == req.Term.
 
 	var successful int
-	minMatch := ^uint64(0)   // Largest uint64.
+	var minMatch uint64 = math.MaxUint64
 	response.Success = false // Default to unsuccessful.
 
 	for _, r := range replies {
