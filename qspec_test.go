@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/relab/raft"
-	gorums "github.com/relab/raft/cmd/raftgorums/gorumspb"
 	pb "github.com/relab/raft/raftpb"
 )
 
@@ -157,7 +156,7 @@ var appendEntriesQFTests = []struct {
 
 type spec struct {
 	name string
-	qs   gorums.QuorumSpec
+	qs   *raft.QuorumSpec
 }
 
 var (

@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/relab/raft"
-	gorums "github.com/relab/raft/cmd/raftgorums/gorumspb"
+	gorums "github.com/relab/raft/cmd/gorumspb"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
