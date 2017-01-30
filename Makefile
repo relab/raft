@@ -5,10 +5,14 @@ all: test
 autocomplete:
 	go install .
 
+.PHONY: protocgorums
+protocgorums:
+	go install github.com/relab/gorums/cmd/protoc-gen-gorums
+
 .PHONY: proto
-proto:
 	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. gorumspb/gorums.proto
 	protoc -I ../../../:. --gogofast_out=. raftpb/raft.proto
+proto: protocgorums
 
 .PHONY: test
 test:
