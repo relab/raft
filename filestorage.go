@@ -42,17 +42,23 @@ func NewFileStorage(path string, overwrite bool) (*FileStorage, error) {
 
 	defer tx.Rollback()
 
-	initBucket := tx.CreateBucketIfNotExists
-
 	if overwrite {
-		initBucket = tx.CreateBucket
+		err := tx.DeleteBucket(stateBucket)
+		if err != nil && err != bolt.ErrBucketNotFound {
+			return nil, err
+		}
+
+		err = tx.DeleteBucket(logBucket)
+		if err != nil && err != bolt.ErrBucketNotFound {
+			return nil, err
+		}
 	}
 
-	if _, err := initBucket(stateBucket); err != nil {
+	if _, err := tx.CreateBucketIfNotExists(stateBucket); err != nil {
 		return nil, err
 	}
 
-	if _, err := initBucket(logBucket); err != nil {
+	if _, err := tx.CreateBucketIfNotExists(logBucket); err != nil {
 		return nil, err
 	}
 
