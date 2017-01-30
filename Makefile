@@ -1,42 +1,19 @@
-PKGS		 := $(shell go list ./... | grep -ve "vendor")
-CMD_PKGS := $(shell go list ./... | grep -ve "vendor" | grep "cmd")
-LIB_PKGS := $(shell go list ./... | grep -ve "vendor" | grep -ve "cmd")
-
 .PHONY: all
-all: install test
+all: test
 
 .PHONY: autocomplete
 autocomplete:
-	go install $(LIB_PKGS)
-
-.PHONY: restore
-restore:
-	gvt restore
-
-.PHONY: protocgorums
-protocgorums:
-	go install github.com/relab/gorums/cmd/protoc-gen-gorums
+	go install .
 
 .PHONY: proto
-proto: protocgorums
+proto:
 	protoc -I ../../../:. --gogofast_out=. raftpb/raft.proto
-	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. cmd/gorumspb/gorums.proto
-
-.PHONY: install
-install:
-	@for pkg in $(CMD_PKGS); do \
-		! go install $$pkg; \
-		echo $$pkg; \
-	done
 
 .PHONY: test
 test:
-	go test $(PKGS) -v
+	go test -v
 
 .PHONY: bench
 bench:
-	go test $(PKGS) -v -run ^none -bench .
+	go test -v -run ^none -bench .
 
-.PHONY: clean
-clean:
-	go clean -i $(CMD_PKGS)
