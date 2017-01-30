@@ -17,3 +17,6 @@ test:
 bench:
 	go test -v -run ^none -bench .
 
+.PHONY: lint
+check:
+	@gometalinter --config metalinter.json

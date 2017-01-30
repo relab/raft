@@ -1,0 +1,7 @@
+{
+    "Exclude": [
+        ".*_string.go.*underscores",
+        "defer tx.Rollback()"
+    ],
+    "Deadline": "60s"
+}
