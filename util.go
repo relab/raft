@@ -3,6 +3,8 @@ package raft
 import (
 	"math/rand"
 	"time"
+
+	gorums "github.com/relab/libraftgorums/gorumspb"
 )
 
 func min(a, b uint64) uint64 {
@@ -26,7 +28,7 @@ func randomTimeout(base time.Duration) time.Duration {
 }
 
 // NewQuorumSpec returns a QuorumSpec for len(peers).
-func NewQuorumSpec(peers int) *QuorumSpec {
+func NewQuorumSpec(peers int) gorums.QuorumSpec {
 	return &QuorumSpec{
 		N: peers - 1,
 		Q: peers / 2,
