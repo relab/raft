@@ -10,9 +10,9 @@ protocgorums:
 	go get github.com/relab/gorums-dev/cmd/protoc-gen-gorums
 
 .PHONY: proto
+proto: protocgorums
 	protoc -I ../../../:. --gorums_out=plugins=grpc+gorums:. gorumspb/gorums.proto
 	protoc -I ../../../:. --gogofast_out=. raftpb/raft.proto
-proto: protocgorums
 
 .PHONY: test
 test:
