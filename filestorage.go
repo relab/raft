@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/boltdb/bolt"
-	pb "github.com/relab/raft/raftpb"
+	pb "github.com/relab/libraftgorums/raftpb"
 )
 
 var (

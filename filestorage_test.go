@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/relab/raft"
-	pb "github.com/relab/raft/raftpb"
+	"github.com/relab/libraftgorums"
+	pb "github.com/relab/libraftgorums/raftpb"
 )
 
 func newFileStorage(t *testing.T) *raft.FileStorage {

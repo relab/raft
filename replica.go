@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/relab/raft/raftpb"
+	pb "github.com/relab/libraftgorums/raftpb"
 )
 
 // State represents one of the Raft server states.
