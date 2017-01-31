@@ -96,9 +96,9 @@ type Replica struct {
 	electionTimeout  time.Duration
 	heartbeatTimeout time.Duration
 
-	baseline  Timer
-	election  Timer
-	heartbeat Timer
+	resetElectionTimeout chan struct{}
+	electionNow          chan struct{}
+	becomeLeader         chan struct{}
 
 	preElection bool
 
@@ -126,9 +126,6 @@ func NewReplica(cfg *Config) *Replica {
 
 	electionTimeout := randomTimeout(cfg.ElectionTimeout)
 
-	heartbeat := NewTimer(0)
-	heartbeat.Stop()
-
 	var nodes []string
 
 	// Remove self
@@ -154,28 +151,27 @@ func NewReplica(cfg *Config) *Replica {
 
 	// TODO Order.
 	r := &Replica{
-		id:               cfg.ID,
-		currentTerm:      term,
-		votedFor:         votedFor,
-		storage:          cfg.Storage,
-		batch:            cfg.Batch,
-		addrs:            nodes,
-		nextIndex:        1,
-		baselineTimeout:  cfg.ElectionTimeout,
-		electionTimeout:  electionTimeout,
-		heartbeatTimeout: cfg.HeartbeatTimeout,
-		// TODO Fix Timer. Create new Timer instead of reusing.
-		baseline:         NewTimer(cfg.ElectionTimeout),
-		election:         NewTimer(randomTimeout(cfg.ElectionTimeout)),
-		heartbeat:        heartbeat,
-		preElection:      true,
-		pending:          make(map[UniqueCommand]chan<- *pb.ClientCommandRequest, BufferSize),
-		maxAppendEntries: cfg.MaxAppendEntries,
-		queue:            make(chan *pb.Entry, BufferSize),
-		commands:         make(map[UniqueCommand]*pb.ClientCommandRequest),
-		rvreqout:         make(chan *pb.RequestVoteRequest, BufferSize),
-		aereqout:         make(chan *pb.AppendEntriesRequest, BufferSize),
-		logger:           &Logger{cfg.ID, cfg.Logger},
+		id:                   cfg.ID,
+		currentTerm:          term,
+		votedFor:             votedFor,
+		storage:              cfg.Storage,
+		batch:                cfg.Batch,
+		addrs:                nodes,
+		nextIndex:            1,
+		baselineTimeout:      cfg.ElectionTimeout,
+		electionTimeout:      electionTimeout,
+		heartbeatTimeout:     cfg.HeartbeatTimeout,
+		resetElectionTimeout: make(chan struct{}),
+		electionNow:          make(chan struct{}),
+		becomeLeader:         make(chan struct{}),
+		preElection:          true,
+		pending:              make(map[UniqueCommand]chan<- *pb.ClientCommandRequest, BufferSize),
+		maxAppendEntries:     cfg.MaxAppendEntries,
+		queue:                make(chan *pb.Entry, BufferSize),
+		commands:             make(map[UniqueCommand]*pb.ClientCommandRequest),
+		rvreqout:             make(chan *pb.RequestVoteRequest, BufferSize),
+		aereqout:             make(chan *pb.AppendEntriesRequest, BufferSize),
+		logger:               &Logger{cfg.ID, cfg.Logger},
 	}
 
 	r.logger.Printf("ElectionTimeout: %v", r.electionTimeout)
@@ -200,17 +196,35 @@ func (r *Replica) AppendEntriesRequestChan() chan *pb.AppendEntriesRequest {
 // Run handles timeouts.
 // All RPCs are handled by Gorums.
 func (r *Replica) Run() {
+	var heartbeat <-chan time.Time
+	baseline := time.NewTimer(r.baselineTimeout).C
+	election := time.NewTimer(r.electionTimeout).C
+
 	for {
 		select {
-		case <-r.baseline.C:
+		case <-baseline:
 			r.heardFromLeader = false
-		case <-r.election.C:
+		case <-election:
 			// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader
 			// or granting vote to candidate: convert to candidate.
 			r.startElection()
 
-		case <-r.heartbeat.C:
+			// #C3 Reset election timer.
+			election = time.NewTimer(r.electionTimeout).C
+		case <-heartbeat:
 			r.sendAppendEntries()
+			heartbeat = time.NewTimer(r.heartbeatTimeout).C
+
+		case <-r.resetElectionTimeout:
+			heartbeat = nil
+			election = time.NewTimer(r.electionTimeout).C
+			baseline = time.NewTimer(r.baselineTimeout).C
+		case <-r.electionNow:
+			election = time.NewTimer(0).C
+		case <-r.becomeLeader:
+			baseline = nil
+			election = nil
+			heartbeat = time.NewTimer(0).C
 		}
 	}
 }
@@ -284,10 +298,11 @@ func (r *Replica) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.Reque
 			panic(fmt.Errorf("couldn't save VotedFor: %v", err))
 		}
 
-		// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader or granting a vote to candidate: convert to candidate.
-		// Here we are granting a vote to a candidate so we reset the election timeout.
-		r.election.Reset(r.electionTimeout)
-		r.baseline.Reset(r.baselineTimeout)
+		// #F2 If election timeout elapses without receiving
+		// AppendEntries RPC from current leader or granting a vote to
+		// candidate: convert to candidate. Here we are granting a vote
+		// to a candidate so we reset the election timeout.
+		r.resetElectionTimeout <- struct{}{}
 
 		return &pb.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm}
 	}
@@ -525,9 +540,6 @@ func (r *Replica) startElection() {
 		r.logger.log(fmt.Sprintf("Starting %s election for term %d", pre, term))
 	}
 
-	// #C3 Reset election timer.
-	r.election.Reset(r.electionTimeout)
-
 	// #C4 Send RequestVote RPCs to all other servers.
 	r.rvreqout <- &pb.RequestVoteRequest{
 		CandidateID:  r.id,
@@ -572,8 +584,8 @@ func (r *Replica) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 	if r.state == Candidate && response.VoteGranted {
 		if r.preElection {
 			r.preElection = false
-			// Start real election.
-			r.election.Reset(0)
+			// Immediately start real election.
+			r.electionNow <- struct{}{}
 
 			return
 		}
@@ -591,10 +603,7 @@ func (r *Replica) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		r.nextIndex = r.storage.NumEntries() + 1
 
 		// #L1 Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
-		r.heartbeat.Reset(0)
-
-		r.election.Stop()
-		r.baseline.Stop()
+		r.becomeLeader <- struct{}{}
 
 		return
 	}
@@ -660,8 +669,6 @@ LOOP:
 		CommitIndex:  r.commitIndex,
 		Entries:      entries,
 	}
-
-	r.heartbeat.Reset(r.heartbeatTimeout)
 }
 
 // HandleAppendEntriesResponse must be invoked when receiving an
@@ -723,9 +730,8 @@ func (r *Replica) becomeFollower(term uint64) {
 		}
 	}
 
-	r.election.Reset(r.electionTimeout)
-	r.baseline.Reset(r.baselineTimeout)
-	r.heartbeat.Stop()
+	// Reset election and baseline timeouts and disable heartbeat.
+	r.resetElectionTimeout <- struct{}{}
 }
 
 func (r *Replica) getHint() uint32 {
