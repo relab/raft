@@ -96,9 +96,11 @@ type Replica struct {
 	electionTimeout  time.Duration
 	heartbeatTimeout time.Duration
 
-	resetElection chan struct{}
-	electionNow   chan struct{}
-	becomeLeader  chan struct{}
+	baseline  *Timer
+	election  *Timer
+	heartbeat *Timer
+
+	cyclech chan struct{}
 
 	preElection bool
 
@@ -124,8 +126,6 @@ func NewReplica(cfg *Config) *Replica {
 		cfg.Logger = log.New(ioutil.Discard, "", 0)
 	}
 
-	electionTimeout := randomTimeout(cfg.ElectionTimeout)
-
 	var nodes []string
 
 	// Remove self
@@ -149,6 +149,10 @@ func NewReplica(cfg *Config) *Replica {
 		panic(fmt.Errorf("couldn't get VotedFor: %v", err))
 	}
 
+	electionTimeout := randomTimeout(cfg.ElectionTimeout)
+	heartbeat := NewTimer(cfg.HeartbeatTimeout)
+	heartbeat.Disable()
+
 	// TODO Order.
 	r := &Replica{
 		id:               cfg.ID,
@@ -161,9 +165,10 @@ func NewReplica(cfg *Config) *Replica {
 		baselineTimeout:  cfg.ElectionTimeout,
 		electionTimeout:  electionTimeout,
 		heartbeatTimeout: cfg.HeartbeatTimeout,
-		resetElection:    make(chan struct{}),
-		electionNow:      make(chan struct{}),
-		becomeLeader:     make(chan struct{}),
+		baseline:         NewTimer(cfg.ElectionTimeout),
+		election:         NewTimer(electionTimeout),
+		heartbeat:        heartbeat,
+		cyclech:          make(chan struct{}, 128),
 		preElection:      true,
 		pending:          make(map[UniqueCommand]chan<- *pb.ClientCommandRequest, BufferSize),
 		maxAppendEntries: cfg.MaxAppendEntries,
@@ -196,35 +201,22 @@ func (r *Replica) AppendEntriesRequestChan() chan *pb.AppendEntriesRequest {
 // Run handles timeouts.
 // All RPCs are handled by Gorums.
 func (r *Replica) Run() {
-	var heartbeat <-chan time.Time
-	baseline := time.NewTimer(r.baselineTimeout).C
-	election := time.NewTimer(r.electionTimeout).C
-
 	for {
 		select {
-		case <-baseline:
+		case <-r.baseline.C:
 			r.heardFromLeader = false
-		case <-election:
+		case <-r.election.C:
 			// #F2 If election timeout elapses without receiving AppendEntries RPC from current leader
 			// or granting vote to candidate: convert to candidate.
 			r.startElection()
 
 			// #C3 Reset election timer.
-			election = time.NewTimer(r.electionTimeout).C
-		case <-heartbeat:
+			r.election.Restart()
+		case <-r.heartbeat.C:
 			r.sendAppendEntries()
-			heartbeat = time.NewTimer(r.heartbeatTimeout).C
-
-		case <-r.resetElection:
-			heartbeat = nil
-			election = time.NewTimer(r.electionTimeout).C
-			baseline = time.NewTimer(r.baselineTimeout).C
-		case <-r.electionNow:
-			election = time.NewTimer(0).C
-		case <-r.becomeLeader:
-			baseline = nil
-			election = nil
-			heartbeat = time.NewTimer(0).C
+			r.heartbeat.Restart()
+		case <-r.cyclech:
+			// Refresh channel pointers.
 		}
 	}
 }
@@ -302,7 +294,10 @@ func (r *Replica) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.Reque
 		// AppendEntries RPC from current leader or granting a vote to
 		// candidate: convert to candidate. Here we are granting a vote
 		// to a candidate so we reset the election timeout.
-		r.resetElection <- struct{}{}
+		r.baseline.Restart()
+		r.election.Restart()
+		r.heartbeat.Disable()
+		r.cycle()
 
 		return &pb.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm}
 	}
@@ -585,7 +580,8 @@ func (r *Replica) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		if r.preElection {
 			r.preElection = false
 			// Immediately start real election.
-			r.electionNow <- struct{}{}
+			r.election.Timeout()
+			r.cycle()
 
 			return
 		}
@@ -603,7 +599,10 @@ func (r *Replica) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		r.nextIndex = r.storage.NumEntries() + 1
 
 		// #L1 Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
-		r.becomeLeader <- struct{}{}
+		r.baseline.Disable()
+		r.election.Disable()
+		r.heartbeat.Restart()
+		r.cycle()
 
 		return
 	}
@@ -731,7 +730,10 @@ func (r *Replica) becomeFollower(term uint64) {
 	}
 
 	// Reset election and baseline timeouts and disable heartbeat.
-	r.resetElection <- struct{}{}
+	r.baseline.Restart()
+	r.election.Restart()
+	r.heartbeat.Disable()
+	r.cycle()
 }
 
 func (r *Replica) getHint() uint32 {
@@ -768,4 +770,8 @@ func (r *Replica) State() State {
 	defer r.Unlock()
 
 	return r.state
+}
+
+func (r *Replica) cycle() {
+	r.cyclech <- struct{}{}
 }
