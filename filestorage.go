@@ -3,6 +3,7 @@ package raft
 import (
 	"encoding/binary"
 	"errors"
+	"os"
 
 	"github.com/boltdb/bolt"
 	pb "github.com/relab/libraftgorums/raftpb"
@@ -28,6 +29,26 @@ type FileStorage struct {
 // argument. Overwrite decides whether to use the database if it already exists
 // or overwrite it.
 func NewFileStorage(path string, overwrite bool) (*FileStorage, error) {
+	// Check if file already exists.
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			// We don't need to overwrite a file that doesn't exist.
+			overwrite = false
+		} else {
+			// If we are unable to verify the existence of the file,
+			// there is probably a permission problem.
+			return nil, err
+		}
+	}
+
+	// If overwrite is still true, the file must exist. Thus failing to
+	// remove it is an error.
+	if overwrite {
+		if err := os.Remove(path); err != nil {
+			return nil, err
+		}
+	}
+
 	db, err := bolt.Open(path, 0600, nil)
 
 	if err != nil {
@@ -41,18 +62,6 @@ func NewFileStorage(path string, overwrite bool) (*FileStorage, error) {
 	}
 
 	defer tx.Rollback()
-
-	if overwrite {
-		err := tx.DeleteBucket(stateBucket)
-		if err != nil && err != bolt.ErrBucketNotFound {
-			return nil, err
-		}
-
-		err = tx.DeleteBucket(logBucket)
-		if err != nil && err != bolt.ErrBucketNotFound {
-			return nil, err
-		}
-	}
 
 	if _, err := tx.CreateBucketIfNotExists(stateBucket); err != nil {
 		return nil, err
