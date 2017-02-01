@@ -373,7 +373,7 @@ var handleRequestVoteRequestTests = []struct {
 func TestHandleRequestVoteRequest(t *testing.T) {
 	for _, test := range handleRequestVoteRequestTests {
 		t.Run(test.name, func(t *testing.T) {
-			r := raft.NewReplica(&raft.Config{
+			r := raft.NewRaft(&raft.Config{
 				ElectionTimeout: time.Second,
 				Storage:         test.s,
 			})

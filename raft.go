@@ -43,7 +43,7 @@ var (
 	ErrLateCommit = errors.New("Entry not committed in time.")
 )
 
-// Config contains the configuration need to start a Replica.
+// Config contains the configuration needed to start an instance of Raft.
 type Config struct {
 	ID uint64
 
@@ -67,9 +67,9 @@ type UniqueCommand struct {
 	SequenceNumber uint64
 }
 
-// Replica represents a Raft server.
-type Replica struct {
-	// Must be acquired before mutating Replica state.
+// Raft represents an instance of the Raft algorithm.
+type Raft struct {
+	// Must be acquired before mutating Raft state.
 	sync.Mutex
 
 	id     uint64
@@ -118,8 +118,8 @@ type Replica struct {
 	logger *Logger
 }
 
-// NewReplica returns a new Replica given a configuration.
-func NewReplica(cfg *Config) *Replica {
+// NewRaft returns a new Raft given a configuration.
+func NewRaft(cfg *Config) *Raft {
 	// TODO Validate config, i.e., make sure to sensible defaults if an
 	// option is not configured.
 	if cfg.Logger == nil {
@@ -154,7 +154,7 @@ func NewReplica(cfg *Config) *Replica {
 	heartbeat.Disable()
 
 	// TODO Order.
-	r := &Replica{
+	r := &Raft{
 		id:               cfg.ID,
 		currentTerm:      term,
 		votedFor:         votedFor,
@@ -187,20 +187,20 @@ func NewReplica(cfg *Config) *Replica {
 // RequestVoteRequestChan returns a channel for outgoing RequestVoteRequests.
 // It's the implementers responsibility to make sure these requests are
 // delivered.
-func (r *Replica) RequestVoteRequestChan() chan *pb.RequestVoteRequest {
+func (r *Raft) RequestVoteRequestChan() chan *pb.RequestVoteRequest {
 	return r.rvreqout
 }
 
 // AppendEntriesRequestChan returns a channel for outgoing RequestVoteRequests.
 // It's the implementers responsibility to make sure these requests are
 // delivered.
-func (r *Replica) AppendEntriesRequestChan() chan *pb.AppendEntriesRequest {
+func (r *Raft) AppendEntriesRequestChan() chan *pb.AppendEntriesRequest {
 	return r.aereqout
 }
 
 // Run handles timeouts.
 // All RPCs are handled by Gorums.
-func (r *Replica) Run() {
+func (r *Raft) Run() {
 	for {
 		select {
 		case <-r.baseline.C:
@@ -223,7 +223,7 @@ func (r *Replica) Run() {
 
 // HandleRequestVoteRequest must be called when receiving a RequestVoteRequest,
 // the return value must be delivered to the requester.
-func (r *Replica) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestVoteResponse {
+func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestVoteResponse {
 	r.Lock()
 	defer r.Unlock()
 
@@ -308,7 +308,7 @@ func (r *Replica) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.Reque
 
 // HandleAppendEntriesRequest must be called when receiving a
 // AppendEntriesRequest, the return value must be delivered to the requester.
-func (r *Replica) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
+func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
 	r.Lock()
 	defer r.Unlock()
 
@@ -396,7 +396,7 @@ func (r *Replica) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.A
 
 // HandleClientCommandRequest must be called when receiving a
 // ClientCommandRequest, the return value must be delivered to the requester.
-func (r *Replica) HandleClientCommandRequest(request *pb.ClientCommandRequest) (*pb.ClientCommandResponse, error) {
+func (r *Raft) HandleClientCommandRequest(request *pb.ClientCommandRequest) (*pb.ClientCommandResponse, error) {
 	if response, isLeader := r.logCommand(request); isLeader {
 		if !r.batch {
 			r.sendAppendEntries()
@@ -419,7 +419,7 @@ func (r *Replica) HandleClientCommandRequest(request *pb.ClientCommandRequest) (
 	return &pb.ClientCommandResponse{Status: pb.NOT_LEADER, LeaderHint: hint}, nil
 }
 
-func (r *Replica) logCommand(request *pb.ClientCommandRequest) (<-chan *pb.ClientCommandRequest, bool) {
+func (r *Raft) logCommand(request *pb.ClientCommandRequest) (<-chan *pb.ClientCommandRequest, bool) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -456,7 +456,7 @@ func (r *Replica) logCommand(request *pb.ClientCommandRequest) (<-chan *pb.Clien
 	return nil, false
 }
 
-func (r *Replica) advanceCommitIndex() {
+func (r *Raft) advanceCommitIndex() {
 	r.Lock()
 	defer r.Unlock()
 
@@ -471,8 +471,8 @@ func (r *Replica) advanceCommitIndex() {
 	}
 }
 
-// TODO Assumes caller already holds lock on Replica
-func (r *Replica) newCommit(old uint64) {
+// TODO Assumes caller already holds lock on Raft.
+func (r *Raft) newCommit(old uint64) {
 	for i := old; i < r.commitIndex; i++ {
 		committed, err := r.storage.GetEntry(i)
 
@@ -499,7 +499,7 @@ func (r *Replica) newCommit(old uint64) {
 	}
 }
 
-func (r *Replica) startElection() {
+func (r *Raft) startElection() {
 	r.Lock()
 	defer r.Unlock()
 
@@ -550,7 +550,7 @@ func (r *Replica) startElection() {
 
 // HandleRequestVoteResponse must be invoked when receiving a
 // RequestVoteResponse.
-func (r *Replica) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
+func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -611,7 +611,7 @@ func (r *Replica) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 	// This will happened if we don't receive enough replies in time. Or we lose the election but don't see a higher term number.
 }
 
-func (r *Replica) sendAppendEntries() {
+func (r *Raft) sendAppendEntries() {
 	r.Lock()
 	defer r.Unlock()
 
@@ -672,7 +672,7 @@ LOOP:
 
 // HandleAppendEntriesResponse must be invoked when receiving an
 // AppendEntriesResponse.
-func (r *Replica) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse) {
+func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse) {
 	r.Lock()
 	defer func() {
 		r.Unlock()
@@ -705,7 +705,7 @@ func (r *Replica) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse
 }
 
 // TODO Tests.
-func (r *Replica) becomeFollower(term uint64) {
+func (r *Raft) becomeFollower(term uint64) {
 	r.state = Follower
 	r.preElection = true
 
@@ -736,7 +736,7 @@ func (r *Replica) becomeFollower(term uint64) {
 	r.cycle()
 }
 
-func (r *Replica) getHint() uint32 {
+func (r *Raft) getHint() uint32 {
 	r.Lock()
 	defer r.Unlock()
 
@@ -750,7 +750,7 @@ func (r *Replica) getHint() uint32 {
 	return hint
 }
 
-func (r *Replica) logTerm(index uint64) uint64 {
+func (r *Raft) logTerm(index uint64) uint64 {
 	if index < 1 || index > r.storage.NumEntries() {
 		return 0
 	}
@@ -765,13 +765,13 @@ func (r *Replica) logTerm(index uint64) uint64 {
 }
 
 // State returns the current raft state.
-func (r *Replica) State() State {
+func (r *Raft) State() State {
 	r.Lock()
 	defer r.Unlock()
 
 	return r.state
 }
 
-func (r *Replica) cycle() {
+func (r *Raft) cycle() {
 	r.cyclech <- struct{}{}
 }

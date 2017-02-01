@@ -9,7 +9,7 @@ const (
 	KeyLogLength
 )
 
-// Storage provides an interface for storing and retrieving Replica state.
+// Storage provides an interface for storing and retrieving Raft state.
 type Storage interface {
 	Set(key uint64, value uint64) error
 	Get(key uint64) (uint64, error)
