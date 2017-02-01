@@ -7,7 +7,7 @@ autocomplete:
 
 .PHONY: protocgorums
 protocgorums:
-	go get github.com/relab/gorums-dev/cmd/protoc-gen-gorums
+	go get github.com/relab/gorums/cmd/protoc-gen-gorums
 
 .PHONY: proto
 proto: protocgorums
