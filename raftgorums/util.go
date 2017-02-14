@@ -1,10 +1,10 @@
-package raft
+package raftgorums
 
 import (
 	"math/rand"
 	"time"
 
-	gorums "github.com/relab/libraftgorums/gorumspb"
+	gorums "github.com/relab/raft/raftgorums/gorumspb"
 )
 
 func min(a, b uint64) uint64 {

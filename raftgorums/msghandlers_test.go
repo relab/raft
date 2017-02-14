@@ -1,12 +1,12 @@
-package raft_test
+package raftgorums_test
 
 import (
 	"reflect"
 	"testing"
 	"time"
 
-	"github.com/relab/libraftgorums"
-	pb "github.com/relab/libraftgorums/raftpb"
+	"github.com/relab/raft/raftgorums"
+	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
 var log2 = []*pb.Entry{
@@ -28,29 +28,29 @@ var log2 = []*pb.Entry{
 	},
 }
 
-func newMemory(t uint64, l []*pb.Entry) *raft.Memory {
-	return raft.NewMemory(map[uint64]uint64{
-		raft.KeyTerm:     t,
-		raft.KeyVotedFor: raft.None,
+func newMemory(t uint64, l []*pb.Entry) *raftgorums.Memory {
+	return raftgorums.NewMemory(map[uint64]uint64{
+		raftgorums.KeyTerm:     t,
+		raftgorums.KeyVotedFor: raftgorums.None,
 	}, l)
 }
 
 var handleRequestVoteRequestTests = []struct {
 	name   string
-	s      raft.Storage
+	s      raftgorums.Storage
 	req    []*pb.RequestVoteRequest
 	res    []*pb.RequestVoteResponse
-	states []*raft.Memory
+	states []*raftgorums.Memory
 }{
 	{
 		"reject lower term",
 		newMemory(5, nil),
 		[]*pb.RequestVoteRequest{&pb.RequestVoteRequest{CandidateID: 1, Term: 1}},
 		[]*pb.RequestVoteResponse{&pb.RequestVoteResponse{Term: 5}},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: raft.None,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: raftgorums.None,
 			}, nil),
 		},
 	},
@@ -59,10 +59,10 @@ var handleRequestVoteRequestTests = []struct {
 		newMemory(5, nil),
 		[]*pb.RequestVoteRequest{&pb.RequestVoteRequest{CandidateID: 1, Term: 5}},
 		[]*pb.RequestVoteResponse{&pb.RequestVoteResponse{Term: 5, VoteGranted: true}},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: 1,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: 1,
 			}, nil),
 		},
 	},
@@ -82,18 +82,18 @@ var handleRequestVoteRequestTests = []struct {
 			// gives correct behavior even if the response is lost.
 			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
 		},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     6,
-				raft.KeyVotedFor: 1,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     6,
+				raftgorums.KeyVotedFor: 1,
 			}, nil),
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     6,
-				raft.KeyVotedFor: 1,
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     6,
+				raftgorums.KeyVotedFor: 1,
 			}, nil),
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     6,
-				raft.KeyVotedFor: 1,
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     6,
+				raftgorums.KeyVotedFor: 1,
 			}, nil),
 		},
 	},
@@ -110,18 +110,18 @@ var handleRequestVoteRequestTests = []struct {
 			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
 			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
 		},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: raft.None,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: raftgorums.None,
 			}, nil),
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: 2,
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: 2,
 			}, nil),
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     6,
-				raft.KeyVotedFor: 3,
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     6,
+				raftgorums.KeyVotedFor: 3,
 			}, nil),
 		},
 	},
@@ -134,10 +134,10 @@ var handleRequestVoteRequestTests = []struct {
 		[]*pb.RequestVoteResponse{
 			&pb.RequestVoteResponse{Term: 5},
 		},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: raft.None,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: raftgorums.None,
 			}, nil),
 		},
 	},
@@ -150,10 +150,10 @@ var handleRequestVoteRequestTests = []struct {
 		[]*pb.RequestVoteResponse{
 			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
 		},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: raft.None,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: raftgorums.None,
 			}, nil),
 		},
 	},
@@ -168,14 +168,14 @@ var handleRequestVoteRequestTests = []struct {
 			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
 			&pb.RequestVoteResponse{Term: 5},
 		},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: 1,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: 1,
 			}, nil),
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: 1,
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: 1,
 			}, nil),
 		},
 	},
@@ -189,10 +189,10 @@ var handleRequestVoteRequestTests = []struct {
 		[]*pb.RequestVoteResponse{
 			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
 		},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: raft.None,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: raftgorums.None,
 			}, nil),
 		},
 	},
@@ -209,14 +209,14 @@ var handleRequestVoteRequestTests = []struct {
 			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
 			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
 		},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: 1,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: 1,
 			}, nil),
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: 1,
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: 1,
 			}, nil),
 		},
 	},
@@ -234,10 +234,10 @@ var handleRequestVoteRequestTests = []struct {
 		[]*pb.RequestVoteResponse{
 			&pb.RequestVoteResponse{Term: 5},
 		},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: raft.None,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: raftgorums.None,
 			}, log2),
 		},
 	},
@@ -255,10 +255,10 @@ var handleRequestVoteRequestTests = []struct {
 		[]*pb.RequestVoteResponse{
 			&pb.RequestVoteResponse{Term: 5},
 		},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: raft.None,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: raftgorums.None,
 			}, log2),
 		},
 	},
@@ -276,10 +276,10 @@ var handleRequestVoteRequestTests = []struct {
 		[]*pb.RequestVoteResponse{
 			&pb.RequestVoteResponse{Term: 5},
 		},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: raft.None,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: raftgorums.None,
 			}, log2),
 		},
 	},
@@ -297,10 +297,10 @@ var handleRequestVoteRequestTests = []struct {
 		[]*pb.RequestVoteResponse{
 			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
 		},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: 1,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: 1,
 			}, log2),
 		},
 	},
@@ -325,14 +325,14 @@ var handleRequestVoteRequestTests = []struct {
 			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
 			&pb.RequestVoteResponse{Term: 5},
 		},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: 1,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: 1,
 			}, log2),
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: 1,
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: 1,
 			}, log2),
 		},
 	},
@@ -357,14 +357,14 @@ var handleRequestVoteRequestTests = []struct {
 			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
 			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
 		},
-		[]*raft.Memory{
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     5,
-				raft.KeyVotedFor: 1,
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     5,
+				raftgorums.KeyVotedFor: 1,
 			}, log2),
-			raft.NewMemory(map[uint64]uint64{
-				raft.KeyTerm:     6,
-				raft.KeyVotedFor: 2,
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:     6,
+				raftgorums.KeyVotedFor: 2,
 			}, log2),
 		},
 	},
@@ -373,7 +373,7 @@ var handleRequestVoteRequestTests = []struct {
 func TestHandleRequestVoteRequest(t *testing.T) {
 	for _, test := range handleRequestVoteRequestTests {
 		t.Run(test.name, func(t *testing.T) {
-			r := raft.NewRaft(&raft.Config{
+			r := raftgorums.NewRaft(&raftgorums.Config{
 				ElectionTimeout: time.Second,
 				Storage:         test.s,
 			})

@@ -1,4 +1,4 @@
-package raft
+package raftgorums
 
 import (
 	"errors"
@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/relab/libraftgorums/raftpb"
+	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
 // State represents one of the Raft server states.

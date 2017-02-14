@@ -1,4 +1,4 @@
-package raft
+package raftgorums
 
 import (
 	"encoding/binary"
@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/boltdb/bolt"
-	pb "github.com/relab/libraftgorums/raftpb"
+	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
 var (

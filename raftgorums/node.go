@@ -1,4 +1,4 @@
-package raft
+package raftgorums
 
 import (
 	"fmt"
@@ -9,8 +9,8 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
-	gorums "github.com/relab/libraftgorums/gorumspb"
-	pb "github.com/relab/libraftgorums/raftpb"
+	gorums "github.com/relab/raft/raftgorums/gorumspb"
+	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
 // Node ties an instance of Raft to the network.

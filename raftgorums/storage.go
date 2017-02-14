@@ -1,6 +1,6 @@
-package raft
+package raftgorums
 
-import pb "github.com/relab/libraftgorums/raftpb"
+import pb "github.com/relab/raft/raftgorums/raftpb"
 
 // Keys for indexing term and who was voted for.
 const (

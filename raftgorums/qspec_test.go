@@ -1,12 +1,12 @@
-package raft_test
+package raftgorums_test
 
 import (
 	"reflect"
 	"testing"
 
-	"github.com/relab/libraftgorums"
-	gorums "github.com/relab/libraftgorums/gorumspb"
-	pb "github.com/relab/libraftgorums/raftpb"
+	"github.com/relab/raft/raftgorums"
+	gorums "github.com/relab/raft/raftgorums/gorumspb"
+	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
 var requestVoteQFTests = []struct {
@@ -163,19 +163,19 @@ type spec struct {
 var (
 	n1q1 = spec{
 		"QuorumSpec N1 Q1",
-		raft.NewQuorumSpec(3),
+		raftgorums.NewQuorumSpec(3),
 	}
 	n2q1 = spec{
 		"QuorumSpec N2 Q1",
-		raft.NewQuorumSpec(3),
+		raftgorums.NewQuorumSpec(3),
 	}
 	n3q1 = spec{
 		"QuorumSpec N3 Q1",
-		raft.NewQuorumSpec(3),
+		raftgorums.NewQuorumSpec(3),
 	}
 	n7q4 = spec{
 		"QuorumSpec N7 Q4",
-		raft.NewQuorumSpec(3),
+		raftgorums.NewQuorumSpec(3),
 	}
 )
 

@@ -1,9 +1,9 @@
-package raft
+package raftgorums
 
 import (
 	"math"
 
-	pb "github.com/relab/libraftgorums/raftpb"
+	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
 // QuorumSpec holds information about the quorum size of the current
