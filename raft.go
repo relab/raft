@@ -608,7 +608,28 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		r.heardFromLeader = true
 		r.nextIndex = r.storage.NumEntries() + 1
 
-		// #L1 Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
+		// Empty queue.
+	EMPTYCH:
+		for {
+			select {
+			case <-r.queue:
+			default:
+				// Paper §8: We add a no-op, so that the leader
+				// commits an entry from its own term. This
+				// ensures that the leader knows which entries
+				// are committed.
+				r.queue <- &pb.Entry{
+					Term: r.currentTerm,
+					Data: &pb.ClientCommandRequest{Command: "noop"},
+				}
+				break EMPTYCH
+			}
+		}
+
+		r.pending = make(map[UniqueCommand]chan<- *pb.ClientCommandRequest, BufferSize)
+
+		// #L1 Upon election: send initial empty (no-op) AppendEntries
+		// RPCs (heartbeat) to each server.
 		r.baseline.Disable()
 		r.election.Restart()
 		r.heartbeat.Restart()
