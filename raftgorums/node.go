@@ -17,8 +17,7 @@ import (
 type Node struct {
 	r *Raft
 
-	server   *grpc.Server
-	listener net.Listener
+	server *grpc.Server
 
 	addr  string
 	peers []string
