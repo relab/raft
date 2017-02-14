@@ -15,7 +15,6 @@ import (
 
 // Node ties an instance of Raft to the network.
 type Node struct {
-	// TODO Rename to Raft.
 	r *Raft
 
 	server   *grpc.Server
