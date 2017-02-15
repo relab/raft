@@ -15,7 +15,7 @@ type ErrNotLeader struct {
 	Leader uint64
 }
 
-func (e *ErrNotLeader) Error() string {
+func (e ErrNotLeader) Error() string {
 	return fmt.Sprintf("not leader, %d is", e.Leader)
 }
 
