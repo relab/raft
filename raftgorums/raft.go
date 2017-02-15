@@ -600,11 +600,14 @@ func (r *Raft) sendAppendEntries() {
 	}
 
 	var toSave []*commonpb.Entry
+	assignIndex := r.storage.NumEntries()
 
 LOOP:
 	for i := r.maxAppendEntries; i > 0; i-- {
 		select {
 		case entry := <-r.queue:
+			entry.Index = assignIndex
+			assignIndex++
 			toSave = append(toSave, entry)
 		default:
 			break LOOP
