@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"golang.org/x/net/context"
+
+	pb "github.com/relab/raft/raftpb"
 )
 
 // ErrNotLeader is returned by Raft when a method is invoked requiring the
@@ -23,7 +25,7 @@ type Raft interface {
 	// ProposeCmd proposes a command. Blocks until Raft handles the message
 	// or the context is canceled, i.e., server is busy. Immediately returns
 	// an ErrNotLeader error if server isn't the leader.
-	ProposeCmd(ctx context.Context, cmd []byte) error
+	ProposeCmd(context.Context, []byte) error
 
 	// Read blocks until Raft has had a successful round of heartbeats in
 	// its current term, and the read index is read from Committed, i.e.,
@@ -42,8 +44,7 @@ type Raft interface {
 
 	// Committed returns a stream of committed commands which should be
 	// applied to the applications state machine.
-	Committed() chan<- TODOCommitted
+	Committed() chan<- []pb.Entry
 }
 
 type TODOConfChange struct{}
-type TODOCommitted struct{}
