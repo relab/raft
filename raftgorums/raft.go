@@ -408,10 +408,11 @@ func (r *Raft) Read(ctx context.Context) error {
 	r.Lock()
 	state := r.state
 	leader := r.leader
+	leaderAddr := r.addrs[leader]
 	r.Unlock()
 
 	if state != Leader {
-		return raft.ErrNotLeader{Leader: leader}
+		return raft.ErrNotLeader{Leader: leader, LeaderAddr: leaderAddr}
 	}
 
 	return nil
@@ -421,11 +422,12 @@ func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) error {
 	r.Lock()
 	state := r.state
 	leader := r.leader
+	leaderAddr := r.addrs[leader]
 	term := r.currentTerm
 	r.Unlock()
 
 	if state != Leader {
-		return raft.ErrNotLeader{Leader: leader}
+		return raft.ErrNotLeader{Leader: leader, LeaderAddr: leaderAddr}
 	}
 
 	select {

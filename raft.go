@@ -12,7 +12,8 @@ import (
 // server to be the leader, and it's not. A hint about the actual leader is
 // provided.
 type ErrNotLeader struct {
-	Leader uint64
+	Leader     uint64
+	LeaderAddr string
 }
 
 func (e ErrNotLeader) Error() string {
