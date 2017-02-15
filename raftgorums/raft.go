@@ -609,7 +609,7 @@ func (r *Raft) sendAppendEntries() {
 	}
 
 	var toSave []*commonpb.Entry
-	assignIndex := r.storage.NumEntries()
+	assignIndex := r.storage.NumEntries() + 1
 
 LOOP:
 	for i := r.maxAppendEntries; i > 0; i-- {
