@@ -399,6 +399,15 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	}
 }
 
+func (r *Raft) ProposeConf(ctx context.Context, conf raft.TODOConfChange) error {
+	panic("not implemented")
+}
+
+// TODO Implement.
+func (r *Raft) Read(ctx context.Context) error {
+	return nil
+}
+
 func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) error {
 	r.Lock()
 	state := r.state
