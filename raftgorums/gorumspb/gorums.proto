@@ -15,6 +15,4 @@ service Raft {
     option (gorums.qc) = true;
     option (gorums.qf_with_req) = true;
   }
-
-  rpc ClientCommand(raftpb.ClientCommandRequest) returns (raftpb.ClientCommandResponse);
 }

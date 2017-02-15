@@ -135,8 +135,3 @@ func (n *Node) RequestVote(ctx context.Context, req *pb.RequestVoteRequest) (*pb
 func (n *Node) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
 	return n.r.HandleAppendEntriesRequest(req), nil
 }
-
-// ClientCommand implements gorums.RaftServer.
-func (n *Node) ClientCommand(ctx context.Context, req *pb.ClientCommandRequest) (*pb.ClientCommandResponse, error) {
-	return n.r.HandleClientCommandRequest(req)
-}

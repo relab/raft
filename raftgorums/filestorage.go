@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/boltdb/bolt"
-	pb "github.com/relab/raft/raftgorums/raftpb"
+	commonpb "github.com/relab/raft/raftpb"
 )
 
 var (
@@ -136,7 +136,7 @@ func get(bucket *bolt.Bucket, key uint64) uint64 {
 }
 
 // StoreEntries implements the Storage interface.
-func (fs *FileStorage) StoreEntries(entries []*pb.Entry) error {
+func (fs *FileStorage) StoreEntries(entries []*commonpb.Entry) error {
 	tx, err := fs.Begin(true)
 
 	if err != nil {
@@ -172,7 +172,7 @@ func (fs *FileStorage) StoreEntries(entries []*pb.Entry) error {
 }
 
 // GetEntry implements the Storage interface.
-func (fs *FileStorage) GetEntry(index uint64) (*pb.Entry, error) {
+func (fs *FileStorage) GetEntry(index uint64) (*commonpb.Entry, error) {
 	tx, err := fs.Begin(false)
 
 	if err != nil {
@@ -187,7 +187,7 @@ func (fs *FileStorage) GetEntry(index uint64) (*pb.Entry, error) {
 	binary.BigEndian.PutUint64(k, index)
 
 	if val := bucket.Get(k); val != nil {
-		var entry pb.Entry
+		var entry commonpb.Entry
 		err := entry.Unmarshal(val)
 
 		if err != nil {
@@ -201,7 +201,7 @@ func (fs *FileStorage) GetEntry(index uint64) (*pb.Entry, error) {
 }
 
 // GetEntries implements the Storage interface.
-func (fs *FileStorage) GetEntries(from, to uint64) ([]*pb.Entry, error) {
+func (fs *FileStorage) GetEntries(from, to uint64) ([]*commonpb.Entry, error) {
 	tx, err := fs.Begin(false)
 
 	if err != nil {
@@ -212,14 +212,14 @@ func (fs *FileStorage) GetEntries(from, to uint64) ([]*pb.Entry, error) {
 
 	bucket := tx.Bucket(logBucket)
 
-	entries := make([]*pb.Entry, to-from)
+	entries := make([]*commonpb.Entry, to-from)
 	k := make([]byte, 8)
 
 	for i := from; i < to; i++ {
 		binary.BigEndian.PutUint64(k, i)
 
 		if val := bucket.Get(k); val != nil {
-			var entry pb.Entry
+			var entry commonpb.Entry
 			err := entry.Unmarshal(val)
 
 			if err != nil {

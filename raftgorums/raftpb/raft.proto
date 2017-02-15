@@ -1,14 +1,9 @@
 syntax = "proto3";
 
 import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+import "github.com/relab/raft/raftpb/raft.proto";
 
 package raftpb;
-
-message Entry {
-  uint64 term = 1;
-
-  ClientCommandRequest data = 2;
-}
 
 message RequestVoteRequest {
   uint64 candidateID = 1;
@@ -34,7 +29,7 @@ message AppendEntriesRequest {
   uint64 prevLogTerm = 4;
   uint64 commitIndex = 5;
 
-  repeated Entry entries = 6;
+  repeated raftpb.Entry entries = 6;
 }
 
 message AppendEntriesResponse {
@@ -42,30 +37,4 @@ message AppendEntriesResponse {
   uint64 matchIndex = 2;
 
   bool success = 3;
-}
-
-enum Status {
-  option (gogoproto.goproto_enum_prefix) = false;
-
-  OK = 0;
-  NOT_LEADER = -1;
-  SESSION_EXPIRED = -2;
-}
-
-message ClientCommandRequest {
-  uint32 clientID = 1;
-
-  uint64 sequenceNumber = 2;
-
-  string command = 3;
-}
-
-message ClientCommandResponse {
-  Status status = 1;
-
-  string response = 2;
-
-  uint32 leaderHint = 3;
-
-  uint32 clientID = 4;
 }

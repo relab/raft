@@ -16,7 +16,7 @@ import proto "github.com/gogo/protobuf/proto"
 import fmt "fmt"
 import math "math"
 import _ "github.com/relab/gorums"
-import raftpb "github.com/relab/raft/raftgorums/raftpb"
+import raftpb1 "github.com/relab/raft/raftgorums/raftpb"
 
 import (
 	"bytes"
@@ -60,7 +60,7 @@ var _ = codes.OK
 // It contains the id of each node of the quorum that replied and a single reply.
 type AppendEntriesReply struct {
 	NodeIDs []uint32
-	*raftpb.AppendEntriesResponse
+	*raftpb1.AppendEntriesResponse
 }
 
 func (r AppendEntriesReply) String() string {
@@ -69,7 +69,7 @@ func (r AppendEntriesReply) String() string {
 
 // AppendEntries invokes a AppendEntries quorum call on configuration c
 // and returns the result as a AppendEntriesReply.
-func (c *Configuration) AppendEntries(ctx context.Context, args *raftpb.AppendEntriesRequest) (*AppendEntriesReply, error) {
+func (c *Configuration) AppendEntries(ctx context.Context, args *raftpb1.AppendEntriesRequest) (*AppendEntriesReply, error) {
 	return c.mgr.appendEntries(ctx, c, args)
 }
 
@@ -77,7 +77,7 @@ func (c *Configuration) AppendEntries(ctx context.Context, args *raftpb.AppendEn
 // It contains the id of each node of the quorum that replied and a single reply.
 type RequestVoteReply struct {
 	NodeIDs []uint32
-	*raftpb.RequestVoteResponse
+	*raftpb1.RequestVoteResponse
 }
 
 func (r RequestVoteReply) String() string {
@@ -86,7 +86,7 @@ func (r RequestVoteReply) String() string {
 
 // RequestVote invokes a RequestVote quorum call on configuration c
 // and returns the result as a RequestVoteReply.
-func (c *Configuration) RequestVote(ctx context.Context, args *raftpb.RequestVoteRequest) (*RequestVoteReply, error) {
+func (c *Configuration) RequestVote(ctx context.Context, args *raftpb1.RequestVoteRequest) (*RequestVoteReply, error) {
 	return c.mgr.requestVote(ctx, c, args)
 }
 
@@ -94,11 +94,11 @@ func (c *Configuration) RequestVote(ctx context.Context, args *raftpb.RequestVot
 
 type appendEntriesReply struct {
 	nid   uint32
-	reply *raftpb.AppendEntriesResponse
+	reply *raftpb1.AppendEntriesResponse
 	err   error
 }
 
-func (m *Manager) appendEntries(ctx context.Context, c *Configuration, args *raftpb.AppendEntriesRequest) (r *AppendEntriesReply, err error) {
+func (m *Manager) appendEntries(ctx context.Context, c *Configuration, args *raftpb1.AppendEntriesRequest) (r *AppendEntriesReply, err error) {
 	var ti traceInfo
 	if m.opts.trace {
 		ti.tr = trace.New("gorums."+c.tstring()+".Sent", "AppendEntries")
@@ -133,7 +133,7 @@ func (m *Manager) appendEntries(ctx context.Context, c *Configuration, args *raf
 	}
 
 	var (
-		replyValues = make([]*raftpb.AppendEntriesResponse, 0, c.n)
+		replyValues = make([]*raftpb1.AppendEntriesResponse, 0, c.n)
 		reply       = &AppendEntriesReply{NodeIDs: make([]uint32, 0, c.n)}
 		errCount    int
 		quorum      bool
@@ -164,8 +164,8 @@ func (m *Manager) appendEntries(ctx context.Context, c *Configuration, args *raf
 	}
 }
 
-func callGRPCAppendEntries(ctx context.Context, node *Node, args *raftpb.AppendEntriesRequest, replyChan chan<- appendEntriesReply) {
-	reply := new(raftpb.AppendEntriesResponse)
+func callGRPCAppendEntries(ctx context.Context, node *Node, args *raftpb1.AppendEntriesRequest, replyChan chan<- appendEntriesReply) {
+	reply := new(raftpb1.AppendEntriesResponse)
 	start := time.Now()
 	err := grpc.Invoke(
 		ctx,
@@ -185,11 +185,11 @@ func callGRPCAppendEntries(ctx context.Context, node *Node, args *raftpb.AppendE
 
 type requestVoteReply struct {
 	nid   uint32
-	reply *raftpb.RequestVoteResponse
+	reply *raftpb1.RequestVoteResponse
 	err   error
 }
 
-func (m *Manager) requestVote(ctx context.Context, c *Configuration, args *raftpb.RequestVoteRequest) (r *RequestVoteReply, err error) {
+func (m *Manager) requestVote(ctx context.Context, c *Configuration, args *raftpb1.RequestVoteRequest) (r *RequestVoteReply, err error) {
 	var ti traceInfo
 	if m.opts.trace {
 		ti.tr = trace.New("gorums."+c.tstring()+".Sent", "RequestVote")
@@ -224,7 +224,7 @@ func (m *Manager) requestVote(ctx context.Context, c *Configuration, args *raftp
 	}
 
 	var (
-		replyValues = make([]*raftpb.RequestVoteResponse, 0, c.n)
+		replyValues = make([]*raftpb1.RequestVoteResponse, 0, c.n)
 		reply       = &RequestVoteReply{NodeIDs: make([]uint32, 0, c.n)}
 		errCount    int
 		quorum      bool
@@ -255,8 +255,8 @@ func (m *Manager) requestVote(ctx context.Context, c *Configuration, args *raftp
 	}
 }
 
-func callGRPCRequestVote(ctx context.Context, node *Node, args *raftpb.RequestVoteRequest, replyChan chan<- requestVoteReply) {
-	reply := new(raftpb.RequestVoteResponse)
+func callGRPCRequestVote(ctx context.Context, node *Node, args *raftpb1.RequestVoteRequest, replyChan chan<- requestVoteReply) {
+	reply := new(raftpb1.RequestVoteResponse)
 	start := time.Now()
 	err := grpc.Invoke(
 		ctx,
@@ -321,11 +321,11 @@ func (n *Node) close() error {
 type QuorumSpec interface {
 	// AppendEntriesQF is the quorum function for the AppendEntries
 	// quorum call method.
-	AppendEntriesQF(req *raftpb.AppendEntriesRequest, replies []*raftpb.AppendEntriesResponse) (*raftpb.AppendEntriesResponse, bool)
+	AppendEntriesQF(req *raftpb1.AppendEntriesRequest, replies []*raftpb1.AppendEntriesResponse) (*raftpb1.AppendEntriesResponse, bool)
 
 	// RequestVoteQF is the quorum function for the RequestVote
 	// quorum call method.
-	RequestVoteQF(req *raftpb.RequestVoteRequest, replies []*raftpb.RequestVoteResponse) (*raftpb.RequestVoteResponse, bool)
+	RequestVoteQF(req *raftpb1.RequestVoteRequest, replies []*raftpb1.RequestVoteResponse) (*raftpb1.RequestVoteResponse, bool)
 }
 
 /* Static resources */
@@ -949,9 +949,8 @@ const _ = grpc.SupportPackageIsVersion4
 // Client API for Raft service
 
 type RaftClient interface {
-	RequestVote(ctx context.Context, in *raftpb.RequestVoteRequest, opts ...grpc.CallOption) (*raftpb.RequestVoteResponse, error)
-	AppendEntries(ctx context.Context, in *raftpb.AppendEntriesRequest, opts ...grpc.CallOption) (*raftpb.AppendEntriesResponse, error)
-	ClientCommand(ctx context.Context, in *raftpb.ClientCommandRequest, opts ...grpc.CallOption) (*raftpb.ClientCommandResponse, error)
+	RequestVote(ctx context.Context, in *raftpb1.RequestVoteRequest, opts ...grpc.CallOption) (*raftpb1.RequestVoteResponse, error)
+	AppendEntries(ctx context.Context, in *raftpb1.AppendEntriesRequest, opts ...grpc.CallOption) (*raftpb1.AppendEntriesResponse, error)
 }
 
 type raftClient struct {
@@ -962,8 +961,8 @@ func NewRaftClient(cc *grpc.ClientConn) RaftClient {
 	return &raftClient{cc}
 }
 
-func (c *raftClient) RequestVote(ctx context.Context, in *raftpb.RequestVoteRequest, opts ...grpc.CallOption) (*raftpb.RequestVoteResponse, error) {
-	out := new(raftpb.RequestVoteResponse)
+func (c *raftClient) RequestVote(ctx context.Context, in *raftpb1.RequestVoteRequest, opts ...grpc.CallOption) (*raftpb1.RequestVoteResponse, error) {
+	out := new(raftpb1.RequestVoteResponse)
 	err := grpc.Invoke(ctx, "/gorums.Raft/RequestVote", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
@@ -971,18 +970,9 @@ func (c *raftClient) RequestVote(ctx context.Context, in *raftpb.RequestVoteRequ
 	return out, nil
 }
 
-func (c *raftClient) AppendEntries(ctx context.Context, in *raftpb.AppendEntriesRequest, opts ...grpc.CallOption) (*raftpb.AppendEntriesResponse, error) {
-	out := new(raftpb.AppendEntriesResponse)
+func (c *raftClient) AppendEntries(ctx context.Context, in *raftpb1.AppendEntriesRequest, opts ...grpc.CallOption) (*raftpb1.AppendEntriesResponse, error) {
+	out := new(raftpb1.AppendEntriesResponse)
 	err := grpc.Invoke(ctx, "/gorums.Raft/AppendEntries", in, out, c.cc, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *raftClient) ClientCommand(ctx context.Context, in *raftpb.ClientCommandRequest, opts ...grpc.CallOption) (*raftpb.ClientCommandResponse, error) {
-	out := new(raftpb.ClientCommandResponse)
-	err := grpc.Invoke(ctx, "/gorums.Raft/ClientCommand", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -992,9 +982,8 @@ func (c *raftClient) ClientCommand(ctx context.Context, in *raftpb.ClientCommand
 // Server API for Raft service
 
 type RaftServer interface {
-	RequestVote(context.Context, *raftpb.RequestVoteRequest) (*raftpb.RequestVoteResponse, error)
-	AppendEntries(context.Context, *raftpb.AppendEntriesRequest) (*raftpb.AppendEntriesResponse, error)
-	ClientCommand(context.Context, *raftpb.ClientCommandRequest) (*raftpb.ClientCommandResponse, error)
+	RequestVote(context.Context, *raftpb1.RequestVoteRequest) (*raftpb1.RequestVoteResponse, error)
+	AppendEntries(context.Context, *raftpb1.AppendEntriesRequest) (*raftpb1.AppendEntriesResponse, error)
 }
 
 func RegisterRaftServer(s *grpc.Server, srv RaftServer) {
@@ -1002,7 +991,7 @@ func RegisterRaftServer(s *grpc.Server, srv RaftServer) {
 }
 
 func _Raft_RequestVote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(raftpb.RequestVoteRequest)
+	in := new(raftpb1.RequestVoteRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1014,13 +1003,13 @@ func _Raft_RequestVote_Handler(srv interface{}, ctx context.Context, dec func(in
 		FullMethod: "/gorums.Raft/RequestVote",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RaftServer).RequestVote(ctx, req.(*raftpb.RequestVoteRequest))
+		return srv.(RaftServer).RequestVote(ctx, req.(*raftpb1.RequestVoteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _Raft_AppendEntries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(raftpb.AppendEntriesRequest)
+	in := new(raftpb1.AppendEntriesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1032,25 +1021,7 @@ func _Raft_AppendEntries_Handler(srv interface{}, ctx context.Context, dec func(
 		FullMethod: "/gorums.Raft/AppendEntries",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RaftServer).AppendEntries(ctx, req.(*raftpb.AppendEntriesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Raft_ClientCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(raftpb.ClientCommandRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RaftServer).ClientCommand(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/gorums.Raft/ClientCommand",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RaftServer).ClientCommand(ctx, req.(*raftpb.ClientCommandRequest))
+		return srv.(RaftServer).AppendEntries(ctx, req.(*raftpb1.AppendEntriesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1067,10 +1038,6 @@ var _Raft_serviceDesc = grpc.ServiceDesc{
 			MethodName: "AppendEntries",
 			Handler:    _Raft_AppendEntries_Handler,
 		},
-		{
-			MethodName: "ClientCommand",
-			Handler:    _Raft_ClientCommand_Handler,
-		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "gorumspb/gorums.proto",
@@ -1079,21 +1046,20 @@ var _Raft_serviceDesc = grpc.ServiceDesc{
 func init() { proto.RegisterFile("gorumspb/gorums.proto", fileDescriptorGorums) }
 
 var fileDescriptorGorums = []byte{
-	// 251 bytes of a gzipped FileDescriptorProto
+	// 225 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xe2, 0x12, 0x4d, 0xcf, 0x2f, 0x2a,
 	0xcd, 0x2d, 0x2e, 0x48, 0xd2, 0x87, 0x30, 0xf4, 0x0a, 0x8a, 0xf2, 0x4b, 0xf2, 0x85, 0xd8, 0x20,
 	0x3c, 0x29, 0x95, 0xf4, 0xcc, 0x92, 0x8c, 0xd2, 0x24, 0xbd, 0xe4, 0xfc, 0x5c, 0xfd, 0xa2, 0xd4,
 	0x9c, 0x44, 0x98, 0x32, 0x14, 0xd5, 0x52, 0x46, 0x18, 0xaa, 0x8a, 0x12, 0xd3, 0x4a, 0xc0, 0x04,
-	0x54, 0x39, 0x88, 0x59, 0x00, 0x11, 0x86, 0xe8, 0x31, 0xfa, 0xc7, 0xc8, 0xc5, 0x12, 0x94, 0x98,
+	0x54, 0x39, 0x88, 0x59, 0x00, 0x11, 0x86, 0xe8, 0x31, 0xda, 0xc0, 0xc8, 0xc5, 0x12, 0x94, 0x98,
 	0x56, 0x22, 0x14, 0xc0, 0xc5, 0x1d, 0x94, 0x5a, 0x58, 0x9a, 0x5a, 0x5c, 0x12, 0x96, 0x5f, 0x92,
 	0x2a, 0x24, 0xa5, 0x07, 0x51, 0xab, 0x87, 0x24, 0x08, 0x65, 0x4a, 0x49, 0x63, 0x95, 0x2b, 0x2e,
 	0xc8, 0xcf, 0x2b, 0x4e, 0x55, 0xe2, 0x68, 0xd8, 0x2a, 0xc1, 0xb8, 0x62, 0xab, 0x04, 0xa3, 0x50,
 	0x18, 0x17, 0xaf, 0x63, 0x41, 0x41, 0x6a, 0x5e, 0x8a, 0x6b, 0x5e, 0x49, 0x51, 0x66, 0x6a, 0xb1,
-	0x90, 0x0c, 0x4c, 0x1f, 0x8a, 0x30, 0xcc, 0x54, 0x59, 0x1c, 0xb2, 0x18, 0xe6, 0xfa, 0x70, 0xf1,
-	0x3a, 0xe7, 0x64, 0xa6, 0xe6, 0x95, 0x38, 0xe7, 0xe7, 0xe6, 0x26, 0xe6, 0xa5, 0x20, 0xcc, 0x45,
-	0x11, 0xc6, 0x30, 0x17, 0x4d, 0x16, 0x62, 0xae, 0x93, 0xce, 0x85, 0x87, 0x72, 0x0c, 0x37, 0x1e,
-	0xca, 0x31, 0x3c, 0x78, 0x28, 0xc7, 0xd8, 0xf0, 0x48, 0x8e, 0x71, 0xc5, 0x23, 0x39, 0xc6, 0x13,
-	0x8f, 0xe4, 0x18, 0x2f, 0x3c, 0x92, 0x63, 0x7c, 0xf0, 0x48, 0x8e, 0xf1, 0xc5, 0x23, 0x39, 0x86,
-	0x0f, 0x8f, 0xe4, 0x18, 0x27, 0x3c, 0x96, 0x63, 0x48, 0x62, 0x03, 0x87, 0x9a, 0x31, 0x20, 0x00,
-	0x00, 0xff, 0xff, 0x7e, 0x2e, 0x28, 0xae, 0xb0, 0x01, 0x00, 0x00,
+	0x90, 0x0c, 0x4c, 0x1f, 0x8a, 0x30, 0xcc, 0x54, 0x59, 0x1c, 0xb2, 0xe8, 0xe6, 0x3a, 0xe9, 0x5c,
+	0x78, 0x28, 0xc7, 0x70, 0xe3, 0xa1, 0x1c, 0xc3, 0x83, 0x87, 0x72, 0x8c, 0x0d, 0x8f, 0xe4, 0x18,
+	0x57, 0x3c, 0x92, 0x63, 0x3c, 0xf1, 0x48, 0x8e, 0xf1, 0xc2, 0x23, 0x39, 0xc6, 0x07, 0x8f, 0xe4,
+	0x18, 0x5f, 0x3c, 0x92, 0x63, 0xf8, 0xf0, 0x48, 0x8e, 0x71, 0xc2, 0x63, 0x39, 0x86, 0x24, 0x36,
+	0xb0, 0x3f, 0x8d, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0x8d, 0x7c, 0x89, 0xdb, 0x62, 0x01, 0x00,
+	0x00,
 }

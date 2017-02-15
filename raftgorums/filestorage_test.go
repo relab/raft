@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/relab/raft/raftgorums"
-	pb "github.com/relab/raft/raftgorums/raftpb"
+	commonpb "github.com/relab/raft/raftpb"
 )
 
 func newFileStorage(t *testing.T, overwrite bool, filepath ...string) (fs *raftgorums.FileStorage, path string, cleanup func()) {
@@ -93,9 +93,9 @@ func TestFileStorageStoreEntry(t *testing.T) {
 	storage, _, cleanup := newFileStorage(t, true)
 	defer cleanup()
 
-	expected := &pb.Entry{Term: 5}
+	expected := &commonpb.Entry{Term: 5}
 
-	err := storage.StoreEntries([]*pb.Entry{expected})
+	err := storage.StoreEntries([]*commonpb.Entry{expected})
 
 	if err != nil {
 		t.Fatal(err)

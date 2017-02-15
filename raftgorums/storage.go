@@ -1,6 +1,6 @@
 package raftgorums
 
-import pb "github.com/relab/raft/raftgorums/raftpb"
+import commonpb "github.com/relab/raft/raftpb"
 
 // Keys for indexing term and who was voted for.
 const (
@@ -14,9 +14,9 @@ type Storage interface {
 	Set(key uint64, value uint64) error
 	Get(key uint64) (uint64, error)
 
-	StoreEntries([]*pb.Entry) error
-	GetEntry(index uint64) (*pb.Entry, error)
-	GetEntries(from, to uint64) ([]*pb.Entry, error)
+	StoreEntries([]*commonpb.Entry) error
+	GetEntry(index uint64) (*commonpb.Entry, error)
+	GetEntries(from, to uint64) ([]*commonpb.Entry, error)
 	RemoveEntriesFrom(index uint64) error
 
 	NumEntries() uint64
@@ -25,11 +25,11 @@ type Storage interface {
 // Memory implements the Storage interface as an in-memory storage.
 type Memory struct {
 	kvstore map[uint64]uint64
-	log     []*pb.Entry
+	log     []*commonpb.Entry
 }
 
 // NewMemory returns a memory backed storage.
-func NewMemory(kvstore map[uint64]uint64, log []*pb.Entry) *Memory {
+func NewMemory(kvstore map[uint64]uint64, log []*commonpb.Entry) *Memory {
 	return &Memory{
 		kvstore: kvstore,
 		log:     log,
@@ -48,18 +48,18 @@ func (m *Memory) Get(key uint64) (uint64, error) {
 }
 
 // StoreEntries implements the Storage interface.
-func (m *Memory) StoreEntries(entries []*pb.Entry) error {
+func (m *Memory) StoreEntries(entries []*commonpb.Entry) error {
 	m.log = append(m.log, entries...)
 	return nil
 }
 
 // GetEntry implements the Storage interface.
-func (m *Memory) GetEntry(index uint64) (*pb.Entry, error) {
+func (m *Memory) GetEntry(index uint64) (*commonpb.Entry, error) {
 	return m.log[int(index)], nil
 }
 
 // GetEntries implements the Storage interface.
-func (m *Memory) GetEntries(from, to uint64) ([]*pb.Entry, error) {
+func (m *Memory) GetEntries(from, to uint64) ([]*commonpb.Entry, error) {
 	return m.log[int(from):int(to)], nil
 }
 

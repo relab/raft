@@ -7,28 +7,21 @@ import (
 
 	"github.com/relab/raft/raftgorums"
 	pb "github.com/relab/raft/raftgorums/raftpb"
+	commonpb "github.com/relab/raft/raftpb"
 )
 
-var log2 = []*pb.Entry{
-	&pb.Entry{
+var log2 = []*commonpb.Entry{
+	&commonpb.Entry{
 		Term: 4,
-		Data: &pb.ClientCommandRequest{
-			ClientID:       123,
-			SequenceNumber: 456,
-			Command:        "first",
-		},
+		Data: []byte("first"),
 	},
-	&pb.Entry{
+	&commonpb.Entry{
 		Term: 5,
-		Data: &pb.ClientCommandRequest{
-			ClientID:       123,
-			SequenceNumber: 457,
-			Command:        "second",
-		},
+		Data: []byte("second"),
 	},
 }
 
-func newMemory(t uint64, l []*pb.Entry) *raftgorums.Memory {
+func newMemory(t uint64, l []*commonpb.Entry) *raftgorums.Memory {
 	return raftgorums.NewMemory(map[uint64]uint64{
 		raftgorums.KeyTerm:     t,
 		raftgorums.KeyVotedFor: raftgorums.None,
