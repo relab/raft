@@ -15,7 +15,7 @@ import (
 
 // Node ties an instance of Raft to the network.
 type Node struct {
-	r *Raft
+	Raft *Raft
 
 	server *grpc.Server
 
@@ -37,7 +37,7 @@ func NewNode(cfg *Config) *Node {
 	peers = append(peers[:id-1], peers[id:]...)
 
 	n := &Node{
-		r:      NewRaft(cfg),
+		Raft:   NewRaft(cfg),
 		server: grpc.NewServer(),
 		addr:   addr,
 		peers:  peers,
@@ -80,11 +80,11 @@ func (n *Node) Run() (ferr error) {
 		return err
 	}
 
-	go n.r.Run()
+	go n.Raft.Run()
 
 	for {
-		rvreqout := n.r.RequestVoteRequestChan()
-		aereqout := n.r.AppendEntriesRequestChan()
+		rvreqout := n.Raft.RequestVoteRequestChan()
+		aereqout := n.Raft.AppendEntriesRequestChan()
 
 		select {
 		case req := <-rvreqout:
@@ -102,7 +102,7 @@ func (n *Node) Run() (ferr error) {
 				continue
 			}
 
-			n.r.HandleRequestVoteResponse(res.RequestVoteResponse)
+			n.Raft.HandleRequestVoteResponse(res.RequestVoteResponse)
 		case req := <-aereqout:
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
 			res, err := n.conf.AppendEntries(ctx, req)
@@ -121,17 +121,17 @@ func (n *Node) Run() (ferr error) {
 				cancel()
 			}
 
-			n.r.HandleAppendEntriesResponse(res.AppendEntriesResponse)
+			n.Raft.HandleAppendEntriesResponse(res.AppendEntriesResponse)
 		}
 	}
 }
 
 // RequestVote implements gorums.RaftServer.
 func (n *Node) RequestVote(ctx context.Context, req *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
-	return n.r.HandleRequestVoteRequest(req), nil
+	return n.Raft.HandleRequestVoteRequest(req), nil
 }
 
 // AppendEntries implements gorums.RaftServer.
 func (n *Node) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
-	return n.r.HandleAppendEntriesRequest(req), nil
+	return n.Raft.HandleAppendEntriesRequest(req), nil
 }
