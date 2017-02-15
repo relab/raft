@@ -7,6 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/net/context"
+
+	"github.com/relab/raft"
 	pb "github.com/relab/raft/raftgorums/raftpb"
 	commonpb "github.com/relab/raft/raftpb"
 )
@@ -101,6 +104,8 @@ type Raft struct {
 	maxAppendEntries uint64
 	queue            chan *commonpb.Entry
 
+	committed chan []commonpb.Entry
+
 	batch bool
 
 	rvreqout chan *pb.RequestVoteRequest
@@ -163,6 +168,7 @@ func NewRaft(cfg *Config) *Raft {
 		preElection:      true,
 		maxAppendEntries: cfg.MaxAppendEntries,
 		queue:            make(chan *commonpb.Entry, BufferSize),
+		committed:        make(chan []commonpb.Entry, BufferSize),
 		rvreqout:         make(chan *pb.RequestVoteRequest, BufferSize),
 		aereqout:         make(chan *pb.AppendEntriesRequest, BufferSize),
 		logger:           &Logger{cfg.ID, cfg.Logger},
@@ -393,6 +399,29 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	}
 }
 
+func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) error {
+	r.Lock()
+	state := r.state
+	leader := r.leader
+	term := r.currentTerm
+	r.Unlock()
+
+	if state != Leader {
+		return raft.ErrNotLeader{Leader: leader}
+	}
+
+	select {
+	case r.queue <- &commonpb.Entry{
+		EntryType: commonpb.EntryNormal,
+		Term:      term,
+		Data:      cmd,
+	}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (r *Raft) advanceCommitIndex() {
 	r.Lock()
 	defer r.Unlock()
@@ -410,6 +439,9 @@ func (r *Raft) advanceCommitIndex() {
 
 // TODO Assumes caller already holds lock on Raft.
 func (r *Raft) newCommit(old uint64) {
+	entries := make([]commonpb.Entry, r.commitIndex-old)
+
+	// TODO Change to GetEntries -> then ring buffer.
 	for i := old; i < r.commitIndex; i++ {
 		committed, err := r.storage.GetEntry(i)
 
@@ -417,8 +449,14 @@ func (r *Raft) newCommit(old uint64) {
 			panic(fmt.Errorf("couldn't retrieve entry: %v", err))
 		}
 
-		log.Println("Commited:", committed)
+		entries[i] = *committed
 	}
+
+	r.committed <- entries
+}
+
+func (r *Raft) Committed() chan<- []commonpb.Entry {
+	return r.committed
 }
 
 func (r *Raft) startElection() {
@@ -531,8 +569,9 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 				// ensures that the leader knows which entries
 				// are committed.
 				r.queue <- &commonpb.Entry{
-					Term: r.currentTerm,
-					Data: []byte("noop"),
+					EntryType: commonpb.EntryNormal,
+					Term:      r.currentTerm,
+					Data:      []byte("noop"),
 				}
 				break EMPTYCH
 			}
