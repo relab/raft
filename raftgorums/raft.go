@@ -405,6 +405,15 @@ func (r *Raft) ProposeConf(ctx context.Context, conf raft.TODOConfChange) error 
 
 // TODO Implement.
 func (r *Raft) Read(ctx context.Context) error {
+	r.Lock()
+	state := r.state
+	leader := r.leader
+	r.Unlock()
+
+	if state != Leader {
+		return raft.ErrNotLeader{Leader: leader}
+	}
+
 	return nil
 }
 
