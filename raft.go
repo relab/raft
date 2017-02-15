@@ -45,7 +45,7 @@ type Raft interface {
 
 	// Committed returns a stream of committed commands which should be
 	// applied to the applications state machine.
-	Committed() chan<- []commonpb.Entry
+	Committed() <-chan []commonpb.Entry
 }
 
 type TODOConfChange struct{}

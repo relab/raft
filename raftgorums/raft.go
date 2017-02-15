@@ -464,7 +464,7 @@ func (r *Raft) newCommit(old uint64) {
 	r.committed <- entries
 }
 
-func (r *Raft) Committed() chan<- []commonpb.Entry {
+func (r *Raft) Committed() <-chan []commonpb.Entry {
 	return r.committed
 }
 
