@@ -1,7 +1,6 @@
 package raftgorums
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -37,11 +36,6 @@ const None = 0
 // BufferSize is the initial buffer size used for maps and buffered channels
 // that directly depend on the number of requests being serviced.
 const BufferSize = 10000
-
-var (
-	// ErrLateCommit indicates an entry taking too long to commit.
-	ErrLateCommit = errors.New("Entry not committed in time.")
-)
 
 // Config contains the configuration needed to start an instance of Raft.
 type Config struct {
