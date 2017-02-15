@@ -579,7 +579,7 @@ LOOP:
 	}
 
 	// #L1
-	entries := []*commonpb.Entry{}
+	var entries []*commonpb.Entry
 
 	next := r.nextIndex - 1
 
