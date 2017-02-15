@@ -22,6 +22,6 @@ test:
 bench:
 	go test -v -run ^none -bench .
 
-.PHONY: lint
+.PHONY: check
 check:
 	@gometalinter --config metalinter.json

@@ -24,4 +24,4 @@ bench:
 
 .PHONY: check
 check:
-	@gometalinter --config metalinter.json
+	@gometalinter --config ../metalinter.json
