@@ -458,7 +458,7 @@ func (r *Raft) newCommit(old uint64) {
 			panic(fmt.Errorf("couldn't retrieve entry: %v", err))
 		}
 
-		entries[i] = *committed
+		entries[i-old] = *committed
 	}
 
 	r.committed <- entries
