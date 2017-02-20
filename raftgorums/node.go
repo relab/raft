@@ -19,27 +19,26 @@ type Node struct {
 
 	server *grpc.Server
 
-	addr  string
+	lis   net.Listener
 	peers []string
 
 	conf *gorums.Configuration
 }
 
 // NewNode returns a Node with an instance of Raft given the configuration.
-func NewNode(cfg *Config) *Node {
+func NewNode(lis net.Listener, cfg *Config) *Node {
 	peers := make([]string, len(cfg.Nodes))
 	// We don't want to mutate cfg.Nodes.
 	copy(peers, cfg.Nodes)
 
 	id := cfg.ID
-	addr := cfg.Nodes[id-1]
 	// Exclude self.
 	peers = append(peers[:id-1], peers[id:]...)
 
 	n := &Node{
 		Raft:   NewRaft(cfg),
 		server: grpc.NewServer(),
-		addr:   addr,
+		lis:    lis,
 		peers:  peers,
 	}
 
@@ -50,14 +49,8 @@ func NewNode(cfg *Config) *Node {
 
 // Run start listening for incoming messages, and delivers outgoing messages.
 func (n *Node) Run() (ferr error) {
-	lis, err := net.Listen("tcp", n.addr)
-
-	if err != nil {
-		return err
-	}
-
 	go func() {
-		ferr = n.server.Serve(lis)
+		ferr = n.server.Serve(n.lis)
 	}()
 
 	opts := []gorums.ManagerOption{
