@@ -8,6 +8,9 @@ import (
 	commonpb "github.com/relab/raft/raftpb"
 )
 
+// NOOP is used in the data field for a no-op entry.
+var NOOP = []byte("noop")
+
 // ErrNotLeader is returned by Raft when a method is invoked requiring the
 // server to be the leader, and it's not. A hint about the actual leader is
 // provided.

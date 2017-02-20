@@ -580,7 +580,7 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 				r.queue <- &commonpb.Entry{
 					EntryType: commonpb.EntryNormal,
 					Term:      r.currentTerm,
-					Data:      []byte("noop"),
+					Data:      raft.NOOP,
 				}
 				break EMPTYCH
 			}
