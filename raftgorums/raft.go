@@ -106,12 +106,21 @@ type Raft struct {
 
 	committed chan []commonpb.Entry
 
+	allowRead      chan uint64
+	registerReader chan reader
+	readers        map[uint64][]chan struct{}
+
 	batch bool
 
 	rvreqout chan *pb.RequestVoteRequest
 	aereqout chan *pb.AppendEntriesRequest
 
 	logger *Logger
+}
+
+type reader struct {
+	index uint64
+	done  chan struct{}
 }
 
 // NewRaft returns a new Raft given a configuration.
@@ -158,6 +167,9 @@ func NewRaft(cfg *Config) *Raft {
 		maxAppendEntries: cfg.MaxAppendEntries,
 		queue:            make(chan *commonpb.Entry, BufferSize),
 		committed:        make(chan []commonpb.Entry, BufferSize),
+		allowRead:        make(chan uint64),
+		registerReader:   make(chan reader),
+		readers:          make(map[uint64][]chan struct{}),
 		rvreqout:         make(chan *pb.RequestVoteRequest, BufferSize),
 		aereqout:         make(chan *pb.AppendEntriesRequest, BufferSize),
 		logger:           &Logger{cfg.ID, cfg.Logger},
@@ -209,6 +221,17 @@ func (r *Raft) Run() {
 		case <-r.heartbeat.C:
 			r.sendAppendEntries()
 			r.heartbeat.Restart()
+		case reader := <-r.registerReader:
+			i := reader.index
+			r.readers[i] = append(r.readers[i], reader.done)
+		case commitIndex := <-r.allowRead:
+			readers := r.readers[commitIndex]
+
+			for _, reader := range readers {
+				close(reader)
+			}
+
+			delete(r.readers, commitIndex)
 		case <-r.cyclech:
 			// Refresh channel pointers.
 		}
@@ -394,17 +417,27 @@ func (r *Raft) ProposeConf(ctx context.Context, conf raft.TODOConfChange) error 
 
 // TODO Implement.
 func (r *Raft) Read(ctx context.Context) error {
+	done := make(chan struct{})
+
 	r.Lock()
 	state := r.state
 	leader := r.leader
 	leaderAddr := r.addrs[leader-1]
+	read := reader{r.commitIndex, done}
 	r.Unlock()
 
 	if state != Leader {
 		return raft.ErrNotLeader{Leader: leader, LeaderAddr: leaderAddr}
 	}
 
-	return nil
+	r.registerReader <- read
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) error {
@@ -437,12 +470,16 @@ func (r *Raft) advanceCommitIndex() {
 
 	old := r.commitIndex
 
-	if r.state == Leader && r.logTerm(r.matchIndex) == r.currentTerm {
+	if r.logTerm(r.matchIndex) == r.currentTerm {
 		r.commitIndex = max(r.commitIndex, r.matchIndex)
 	}
 
 	if r.commitIndex > old {
 		r.newCommit(old)
+	}
+
+	if r.logTerm(r.storage.NumEntries()) == r.currentTerm {
+		r.allowRead <- r.commitIndex
 	}
 }
 
@@ -668,7 +705,9 @@ func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse) {
 	r.Lock()
 	defer func() {
 		r.Unlock()
-		r.advanceCommitIndex()
+		if r.state == Leader {
+			r.advanceCommitIndex()
+		}
 	}()
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
