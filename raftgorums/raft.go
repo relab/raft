@@ -416,7 +416,7 @@ func (r *Raft) ProposeConf(ctx context.Context, conf raft.TODOConfChange) error 
 }
 
 // TODO Implement.
-func (r *Raft) Read(ctx context.Context) error {
+func (r *Raft) Read(ctx context.Context) (uint64, error) {
 	done := make(chan struct{})
 
 	r.Lock()
@@ -427,16 +427,16 @@ func (r *Raft) Read(ctx context.Context) error {
 	r.Unlock()
 
 	if state != Leader {
-		return raft.ErrNotLeader{Leader: leader, LeaderAddr: leaderAddr}
+		return 0, raft.ErrNotLeader{Leader: leader, LeaderAddr: leaderAddr}
 	}
 
 	r.registerReader <- read
 
 	select {
 	case <-done:
-		return nil
+		return read.index, nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return 0, ctx.Err()
 	}
 }
 
