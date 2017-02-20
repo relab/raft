@@ -479,7 +479,9 @@ func (r *Raft) advanceCommitIndex() {
 	}
 
 	if r.logTerm(r.storage.NumEntries()) == r.currentTerm {
-		r.allowRead <- r.commitIndex
+		for i := old; i <= r.commitIndex; i++ {
+			r.allowRead <- i
+		}
 	}
 }
 
