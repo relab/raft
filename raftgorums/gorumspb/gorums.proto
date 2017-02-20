@@ -7,12 +7,12 @@ package gorums;
 
 service Raft {
   rpc RequestVote(raftpb.RequestVoteRequest) returns (raftpb.RequestVoteResponse) {
-    option (gorums.qc) 	= true;
+    option (gorums.qc)          = true;
     option (gorums.qf_with_req) = true;
   }
 
   rpc AppendEntries(raftpb.AppendEntriesRequest) returns (raftpb.AppendEntriesResponse) {
-    option (gorums.qc) = true;
+    option (gorums.qc)          = true;
     option (gorums.qf_with_req) = true;
   }
 }
