@@ -5,9 +5,13 @@ all: test
 autocomplete:
 	go install .
 
+.PHONY: protoc
+protoc:
+	go get github.com/gogo/protobuf/protoc-gen-gogofaster
+
 .PHONY: proto
-proto:
-	protoc -I ../../../:. --gogofast_out=. raftpb/raft.proto
+proto: protoc
+	protoc -I ../../../:. --gogofaster_out=. raftpb/raft.proto
 
 .PHONY: test
 test:
