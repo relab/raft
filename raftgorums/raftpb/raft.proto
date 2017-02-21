@@ -5,6 +5,9 @@ import "github.com/relab/raft/raftpb/raft.proto";
 
 package raftpb;
 
+option (gogoproto.goproto_enum_prefix_all) = false;
+option (gogoproto.goproto_getters_all) = false;
+
 message RequestVoteRequest {
   uint64 candidateID = 1;
 

@@ -4,9 +4,10 @@ import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 
 package raftpb;
 
-enum EntryType {
-  option (gogoproto.goproto_enum_prefix) = false;
+option (gogoproto.goproto_enum_prefix_all) = false;
+option (gogoproto.goproto_getters_all) = false;
 
+enum EntryType {
   EntryNormal     = 0;
   EntryConfChange = 1;
 }
