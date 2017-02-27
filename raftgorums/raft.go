@@ -395,14 +395,6 @@ func (r *Raft) ProposeConf(ctx context.Context, conf raft.TODOConfChange) error 
 	panic("not implemented")
 }
 
-// TODO Implement.
-func (r *Raft) Read(ctx context.Context) (uint64, error) {
-	select {
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	}
-}
-
 // ProposeCmd implements raft.Raft.
 func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) (raft.Future, error) {
 	r.Lock()
