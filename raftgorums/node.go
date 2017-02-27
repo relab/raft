@@ -18,15 +18,15 @@ type Node struct {
 	Raft *Raft
 
 	server *grpc.Server
+	lis    net.Listener
 
-	lis   net.Listener
 	peers []string
 
 	conf *gorums.Configuration
 }
 
 // NewNode returns a Node with an instance of Raft given the configuration.
-func NewNode(lis net.Listener, cfg *Config) *Node {
+func NewNode(server *grpc.Server, lis net.Listener, cfg *Config) *Node {
 	peers := make([]string, len(cfg.Nodes))
 	// We don't want to mutate cfg.Nodes.
 	copy(peers, cfg.Nodes)
@@ -37,7 +37,7 @@ func NewNode(lis net.Listener, cfg *Config) *Node {
 
 	n := &Node{
 		Raft:   NewRaft(cfg),
-		server: grpc.NewServer(),
+		server: server,
 		lis:    lis,
 		peers:  peers,
 	}
