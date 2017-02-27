@@ -495,12 +495,17 @@ func (r *Raft) advanceCommitIndex() {
 func (r *Raft) newCommit(old uint64) {
 	// TODO Change to GetEntries -> then ring buffer.
 	for i := old; i < r.commitIndex; i++ {
-		if r.state == Leader {
+		switch r.state {
+		case Leader:
 			e := r.pending.Front()
-			future := e.Value.(*raft.EntryFuture)
-			r.apply(future.Entry, future)
-			r.pending.Remove(e)
-		} else {
+			if e != nil {
+				future := e.Value.(*raft.EntryFuture)
+				r.apply(future.Entry, future)
+				r.pending.Remove(e)
+				break
+			}
+			fallthrough
+		default:
 			committed, err := r.storage.GetEntry(i)
 
 			if err != nil {
