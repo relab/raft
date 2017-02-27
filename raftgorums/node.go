@@ -8,6 +8,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
+	"github.com/relab/raft"
 	gorums "github.com/relab/raft/raftgorums/gorumspb"
 	pb "github.com/relab/raft/raftgorums/raftpb"
 )
@@ -22,7 +23,7 @@ type Node struct {
 }
 
 // NewNode returns a Node with an instance of Raft given the configuration.
-func NewNode(server *grpc.Server, cfg *Config) *Node {
+func NewNode(server *grpc.Server, sm raft.StateMachine, cfg *Config) *Node {
 	peers := make([]string, len(cfg.Nodes))
 	// We don't want to mutate cfg.Nodes.
 	copy(peers, cfg.Nodes)
@@ -32,7 +33,7 @@ func NewNode(server *grpc.Server, cfg *Config) *Node {
 	peers = append(peers[:id-1], peers[id:]...)
 
 	n := &Node{
-		Raft:  NewRaft(cfg),
+		Raft:  NewRaft(sm, cfg),
 		peers: peers,
 	}
 

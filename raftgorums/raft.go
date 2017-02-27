@@ -76,6 +76,8 @@ type Raft struct {
 	currentTerm uint64
 	votedFor    uint64
 
+	sm raft.StateMachine
+
 	storage Storage
 
 	seenLeader      bool
@@ -106,8 +108,6 @@ type Raft struct {
 	queue            chan *raft.EntryFuture
 	pending          *list.List
 
-	committed chan []commonpb.Entry
-
 	allowRead      chan uint64
 	registerReader chan reader
 	readers        map[uint64][]chan struct{}
@@ -126,7 +126,7 @@ type reader struct {
 }
 
 // NewRaft returns a new Raft given a configuration.
-func NewRaft(cfg *Config) *Raft {
+func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 	// TODO Validate config, i.e., make sure to sensible defaults if an
 	// option is not configured.
 	if cfg.Logger == nil {
@@ -154,6 +154,7 @@ func NewRaft(cfg *Config) *Raft {
 		id:               cfg.ID,
 		currentTerm:      term,
 		votedFor:         votedFor,
+		sm:               sm,
 		storage:          cfg.Storage,
 		batch:            cfg.Batch,
 		addrs:            cfg.Nodes,
@@ -168,7 +169,6 @@ func NewRaft(cfg *Config) *Raft {
 		preElection:      true,
 		maxAppendEntries: cfg.MaxAppendEntries,
 		queue:            make(chan *raft.EntryFuture, BufferSize),
-		committed:        make(chan []commonpb.Entry, BufferSize),
 		allowRead:        make(chan uint64),
 		registerReader:   make(chan reader),
 		readers:          make(map[uint64][]chan struct{}),
@@ -513,15 +513,12 @@ func (r *Raft) newCommit(old uint64) {
 }
 
 func (r *Raft) apply(entry *commonpb.Entry, future *raft.EntryFuture) {
-	r.logger.Println(entry, future)
+	res := r.sm.Apply(entry)
 
 	if future != nil {
+		future.Res = res
 		future.Respond()
 	}
-}
-
-func (r *Raft) Committed() <-chan []commonpb.Entry {
-	return r.committed
 }
 
 func (r *Raft) startElection() {
