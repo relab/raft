@@ -26,8 +26,14 @@ func (e ErrNotLeader) Error() string {
 type Raft interface {
 	// ProposeCmd proposes a command. Blocks until Raft handles the message
 	// or the context is canceled, i.e., server is busy. Immediately returns
-	// an ErrNotLeader error if server isn't the leader.
+	// an ErrNotLeader error if server isn't the leader. If everything works
+	// out the command will be applied to the state machine and the result
+	// available through the future returned.
 	ProposeCmd(context.Context, []byte) (Future, error)
+
+	// ReadCmd works the same way as ProposeCmd but does not write any
+	// entries to the log.
+	ReadCmd(context.Context, []byte) (Future, error)
 
 	// ProposeConf proposes a new configuration. Blocks until Raft handles
 	// the message or the context is canceled, i.e., server is busy.

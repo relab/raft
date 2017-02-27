@@ -108,6 +108,8 @@ type Raft struct {
 	queue            chan *raft.EntryFuture
 	pending          *list.List
 
+	pendingReads []*raft.EntryFuture
+
 	batch bool
 
 	rvreqout chan *pb.RequestVoteRequest
@@ -397,6 +399,36 @@ func (r *Raft) ProposeConf(ctx context.Context, conf raft.TODOConfChange) error 
 
 // ProposeCmd implements raft.Raft.
 func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) (raft.Future, error) {
+	future, err := r.cmdToFuture(cmd)
+
+	if err != nil {
+		return nil, err
+	}
+
+	select {
+	case r.queue <- future:
+		return future, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// ReadCmd implements raft.Raft.
+func (r *Raft) ReadCmd(ctx context.Context, cmd []byte) (raft.Future, error) {
+	future, err := r.cmdToFuture(cmd)
+
+	if err != nil {
+		return nil, err
+	}
+
+	r.Lock()
+	r.pendingReads = append(r.pendingReads, future)
+	r.Unlock()
+
+	return future, nil
+}
+
+func (r *Raft) cmdToFuture(cmd []byte) (*raft.EntryFuture, error) {
 	r.Lock()
 	state := r.state
 	leader := r.leader
@@ -414,19 +446,16 @@ func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) (raft.Future, error) 
 		Data:      cmd,
 	}
 
-	future := raft.NewFuture(entry)
-
-	select {
-	case r.queue <- future:
-		return future, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+	return raft.NewFuture(entry), nil
 }
 
 func (r *Raft) advanceCommitIndex() {
 	r.Lock()
 	defer r.Unlock()
+
+	if r.state != Leader {
+		return
+	}
 
 	old := r.commitIndex
 
@@ -437,6 +466,12 @@ func (r *Raft) advanceCommitIndex() {
 	if r.commitIndex > old {
 		r.newCommit(old)
 	}
+
+	for _, future := range r.pendingReads {
+		r.apply(future.Entry, future)
+	}
+
+	r.pendingReads = nil
 }
 
 // TODO Assumes caller already holds lock on Raft.
@@ -574,8 +609,8 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		r.seenLeader = true
 		r.heardFromLeader = true
 		r.nextIndex = r.storage.NumEntries() + 1
-
 		r.pending = list.New()
+		r.pendingReads = nil
 
 		// Empty queue.
 	EMPTYCH:
@@ -675,17 +710,16 @@ LOOP:
 
 // HandleAppendEntriesResponse must be invoked when receiving an
 // AppendEntriesResponse.
-func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse) {
+func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse, responders int) {
 	r.Lock()
 	defer func() {
 		r.Unlock()
-		if r.state == Leader {
-			r.advanceCommitIndex()
-		}
+		r.advanceCommitIndex()
 	}()
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
-	if response.Term > r.currentTerm {
+	// If we didn't get a response from a majority (excluding self) step down.
+	if response.Term > r.currentTerm || responders < len(r.addrs)/2 {
 		r.becomeFollower(response.Term)
 
 		return

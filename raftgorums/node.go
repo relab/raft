@@ -105,7 +105,7 @@ func (n *Node) Run() error {
 				cancel()
 			}
 
-			n.Raft.HandleAppendEntriesResponse(res.AppendEntriesResponse)
+			n.Raft.HandleAppendEntriesResponse(res.AppendEntriesResponse, len(res.NodeIDs))
 		}
 	}
 }
