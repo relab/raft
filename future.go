@@ -7,20 +7,19 @@ import commonpb "github.com/relab/raft/raftpb"
 type Future interface {
 	// Must not be called until Result has been read.
 	Index() uint64
-	Result() interface{}
+	Result() <-chan interface{}
 }
 
 type EntryFuture struct {
 	Entry *commonpb.Entry
 
-	Res  interface{}
-	done chan struct{}
+	res chan interface{}
 }
 
 func NewFuture(entry *commonpb.Entry) *EntryFuture {
 	return &EntryFuture{
 		Entry: entry,
-		done:  make(chan struct{}),
+		res:   make(chan interface{}, 1),
 	}
 }
 
@@ -28,11 +27,10 @@ func (f *EntryFuture) Index() uint64 {
 	return f.Entry.Index
 }
 
-func (f *EntryFuture) Result() interface{} {
-	<-f.done
-	return f.Res
+func (f *EntryFuture) Result() <-chan interface{} {
+	return f.res
 }
 
-func (f *EntryFuture) Respond() {
-	close(f.done)
+func (f *EntryFuture) Respond(res interface{}) {
+	f.res <- res
 }

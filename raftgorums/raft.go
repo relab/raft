@@ -521,8 +521,7 @@ func (r *Raft) apply(entry *commonpb.Entry, future *raft.EntryFuture) {
 	res := r.sm.Apply(entry)
 
 	if future != nil {
-		future.Res = res
-		future.Respond()
+		future.Respond(res)
 	}
 }
 
