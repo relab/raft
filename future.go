@@ -10,12 +10,14 @@ type Future interface {
 	Result() <-chan interface{}
 }
 
+// EntryFuture implements the Future interface.
 type EntryFuture struct {
 	Entry *commonpb.Entry
 
 	res chan interface{}
 }
 
+// NewFuture initializes and returns a new *EntryFuture.
 func NewFuture(entry *commonpb.Entry) *EntryFuture {
 	return &EntryFuture{
 		Entry: entry,
@@ -23,14 +25,18 @@ func NewFuture(entry *commonpb.Entry) *EntryFuture {
 	}
 }
 
+// Index implements Future.
 func (f *EntryFuture) Index() uint64 {
 	return f.Entry.Index
 }
 
+// Result implements Future.
 func (f *EntryFuture) Result() <-chan interface{} {
 	return f.res
 }
 
+// Respond stores res on a buffered channel so that it can be consumed by
+// reading from Result().
 func (f *EntryFuture) Respond(res interface{}) {
 	f.res <- res
 }
