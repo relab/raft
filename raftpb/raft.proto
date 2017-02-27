@@ -8,8 +8,9 @@ option (gogoproto.goproto_enum_prefix_all) = false;
 option (gogoproto.goproto_getters_all) = false;
 
 enum EntryType {
-  EntryNormal     = 0;
-  EntryConfChange = 1;
+  EntryInternal   = 0;
+  EntryNormal     = 1;
+  EntryConfChange = 2;
 }
 
 message Entry {

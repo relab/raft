@@ -472,7 +472,10 @@ func (r *Raft) newCommit(old uint64) {
 }
 
 func (r *Raft) apply(entry *commonpb.Entry, future *raft.EntryFuture) {
-	res := r.sm.Apply(entry)
+	var res interface{}
+	if entry.EntryType != commonpb.EntryInternal {
+		res = r.sm.Apply(entry)
+	}
 
 	if future != nil {
 		future.Respond(res)
@@ -591,7 +594,7 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 				// ensures that the leader knows which entries
 				// are committed.
 				r.queue <- raft.NewFuture(&commonpb.Entry{
-					EntryType: commonpb.EntryNormal,
+					EntryType: commonpb.EntryInternal,
 					Term:      r.currentTerm,
 					Data:      raft.NOOP,
 				})
