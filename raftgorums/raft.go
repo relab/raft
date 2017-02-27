@@ -1,6 +1,7 @@
 package raftgorums
 
 import (
+	"container/list"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -102,7 +103,8 @@ type Raft struct {
 	preElection bool
 
 	maxAppendEntries uint64
-	queue            chan *commonpb.Entry
+	queue            chan *raft.EntryFuture
+	pending          *list.List
 
 	committed chan []commonpb.Entry
 
@@ -165,7 +167,7 @@ func NewRaft(cfg *Config) *Raft {
 		cyclech:          make(chan struct{}, 128),
 		preElection:      true,
 		maxAppendEntries: cfg.MaxAppendEntries,
-		queue:            make(chan *commonpb.Entry, BufferSize),
+		queue:            make(chan *raft.EntryFuture, BufferSize),
 		committed:        make(chan []commonpb.Entry, BufferSize),
 		allowRead:        make(chan uint64),
 		registerReader:   make(chan reader),
@@ -440,7 +442,7 @@ func (r *Raft) Read(ctx context.Context) (uint64, error) {
 	}
 }
 
-func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) error {
+func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) (raft.Future, error) {
 	r.Lock()
 	state := r.state
 	leader := r.leader
@@ -449,18 +451,22 @@ func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) error {
 	r.Unlock()
 
 	if state != Leader {
-		return raft.ErrNotLeader{Leader: leader, LeaderAddr: leaderAddr}
+		return nil, raft.ErrNotLeader{Leader: leader, LeaderAddr: leaderAddr}
 	}
 
-	select {
-	case r.queue <- &commonpb.Entry{
+	entry := &commonpb.Entry{
 		EntryType: commonpb.EntryNormal,
 		Term:      term,
 		Data:      cmd,
-	}:
-		return nil
+	}
+
+	future := raft.NewFuture(entry)
+
+	select {
+	case r.queue <- future:
+		return future, nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, ctx.Err()
 	}
 }
 
@@ -487,20 +493,31 @@ func (r *Raft) advanceCommitIndex() {
 
 // TODO Assumes caller already holds lock on Raft.
 func (r *Raft) newCommit(old uint64) {
-	entries := make([]commonpb.Entry, r.commitIndex-old)
-
 	// TODO Change to GetEntries -> then ring buffer.
 	for i := old; i < r.commitIndex; i++ {
-		committed, err := r.storage.GetEntry(i)
+		if r.state == Leader {
+			e := r.pending.Front()
+			future := e.Value.(*raft.EntryFuture)
+			r.apply(future.Entry, future)
+			r.pending.Remove(e)
+		} else {
+			committed, err := r.storage.GetEntry(i)
 
-		if err != nil {
-			panic(fmt.Errorf("couldn't retrieve entry: %v", err))
+			if err != nil {
+				panic(fmt.Errorf("couldn't retrieve entry: %v", err))
+			}
+
+			r.apply(committed, nil)
 		}
-
-		entries[i-old] = *committed
 	}
+}
 
-	r.committed <- entries
+func (r *Raft) apply(entry *commonpb.Entry, future *raft.EntryFuture) {
+	r.logger.Println(entry, future)
+
+	if future != nil {
+		future.Respond()
+	}
 }
 
 func (r *Raft) Committed() <-chan []commonpb.Entry {
@@ -606,6 +623,8 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		r.heardFromLeader = true
 		r.nextIndex = r.storage.NumEntries() + 1
 
+		r.pending = list.New()
+
 		// Empty queue.
 	EMPTYCH:
 		for {
@@ -616,11 +635,11 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 				// commits an entry from its own term. This
 				// ensures that the leader knows which entries
 				// are committed.
-				r.queue <- &commonpb.Entry{
+				r.queue <- raft.NewFuture(&commonpb.Entry{
 					EntryType: commonpb.EntryNormal,
 					Term:      r.currentTerm,
 					Data:      raft.NOOP,
-				}
+				})
 				break EMPTYCH
 			}
 		}
@@ -653,10 +672,11 @@ func (r *Raft) sendAppendEntries() {
 LOOP:
 	for i := r.maxAppendEntries; i > 0; i-- {
 		select {
-		case entry := <-r.queue:
-			entry.Index = assignIndex
+		case future := <-r.queue:
+			future.Entry.Index = assignIndex
 			assignIndex++
-			toSave = append(toSave, entry)
+			toSave = append(toSave, future.Entry)
+			r.pending.PushBack(future)
 		default:
 			break LOOP
 		}
