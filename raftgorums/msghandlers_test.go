@@ -363,10 +363,16 @@ var handleRequestVoteRequestTests = []struct {
 	},
 }
 
+type noopMachine struct{}
+
+func (n *noopMachine) Apply(*commonpb.Entry) interface{} {
+	return nil
+}
+
 func TestHandleRequestVoteRequest(t *testing.T) {
 	for _, test := range handleRequestVoteRequestTests {
 		t.Run(test.name, func(t *testing.T) {
-			r := raftgorums.NewRaft(&raftgorums.Config{
+			r := raftgorums.NewRaft(&noopMachine{}, &raftgorums.Config{
 				ElectionTimeout: time.Second,
 				Storage:         test.s,
 			})
