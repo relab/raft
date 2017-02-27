@@ -3,7 +3,6 @@ package raftgorums
 import (
 	"fmt"
 	"log"
-	"net"
 	"time"
 
 	"golang.org/x/net/context"
@@ -17,16 +16,13 @@ import (
 type Node struct {
 	Raft *Raft
 
-	server *grpc.Server
-	lis    net.Listener
-
 	peers []string
 
 	conf *gorums.Configuration
 }
 
 // NewNode returns a Node with an instance of Raft given the configuration.
-func NewNode(server *grpc.Server, lis net.Listener, cfg *Config) *Node {
+func NewNode(server *grpc.Server, cfg *Config) *Node {
 	peers := make([]string, len(cfg.Nodes))
 	// We don't want to mutate cfg.Nodes.
 	copy(peers, cfg.Nodes)
@@ -36,23 +32,17 @@ func NewNode(server *grpc.Server, lis net.Listener, cfg *Config) *Node {
 	peers = append(peers[:id-1], peers[id:]...)
 
 	n := &Node{
-		Raft:   NewRaft(cfg),
-		server: server,
-		lis:    lis,
-		peers:  peers,
+		Raft:  NewRaft(cfg),
+		peers: peers,
 	}
 
-	gorums.RegisterRaftServer(n.server, n)
+	gorums.RegisterRaftServer(server, n)
 
 	return n
 }
 
 // Run start listening for incoming messages, and delivers outgoing messages.
-func (n *Node) Run() (ferr error) {
-	go func() {
-		ferr = n.server.Serve(n.lis)
-	}()
-
+func (n *Node) Run() error {
 	opts := []gorums.ManagerOption{
 		gorums.WithGrpcDialOptions(
 			grpc.WithBlock(),
