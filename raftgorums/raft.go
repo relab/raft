@@ -516,7 +516,7 @@ func (r *Raft) startElection() {
 	defer r.Unlock()
 
 	r.state = Candidate
-	r.electionTimeout = randomTimeout(r.electionTimeout)
+	r.electionTimeout = randomTimeout(r.baselineTimeout)
 
 	term := r.currentTerm + 1
 	pre := "pre"
