@@ -108,21 +108,12 @@ type Raft struct {
 	queue            chan *raft.EntryFuture
 	pending          *list.List
 
-	allowRead      chan uint64
-	registerReader chan reader
-	readers        map[uint64][]chan struct{}
-
 	batch bool
 
 	rvreqout chan *pb.RequestVoteRequest
 	aereqout chan *pb.AppendEntriesRequest
 
 	logger *Logger
-}
-
-type reader struct {
-	index uint64
-	done  chan struct{}
 }
 
 // NewRaft returns a new Raft given a configuration.
@@ -169,9 +160,6 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		preElection:      true,
 		maxAppendEntries: cfg.MaxAppendEntries,
 		queue:            make(chan *raft.EntryFuture, BufferSize),
-		allowRead:        make(chan uint64),
-		registerReader:   make(chan reader),
-		readers:          make(map[uint64][]chan struct{}),
 		rvreqout:         make(chan *pb.RequestVoteRequest, BufferSize),
 		aereqout:         make(chan *pb.AppendEntriesRequest, BufferSize),
 		logger:           &Logger{cfg.ID, cfg.Logger},
@@ -223,17 +211,6 @@ func (r *Raft) Run() {
 		case <-r.heartbeat.C:
 			r.sendAppendEntries()
 			r.heartbeat.Restart()
-		case reader := <-r.registerReader:
-			i := reader.index
-			r.readers[i] = append(r.readers[i], reader.done)
-		case commitIndex := <-r.allowRead:
-			readers := r.readers[commitIndex]
-
-			for _, reader := range readers {
-				close(reader)
-			}
-
-			delete(r.readers, commitIndex)
 		case <-r.cyclech:
 			// Refresh channel pointers.
 		}
@@ -419,24 +396,7 @@ func (r *Raft) ProposeConf(ctx context.Context, conf raft.TODOConfChange) error 
 
 // TODO Implement.
 func (r *Raft) Read(ctx context.Context) (uint64, error) {
-	done := make(chan struct{})
-
-	r.Lock()
-	state := r.state
-	leader := r.leader
-	leaderAddr := r.addrs[leader-1]
-	read := reader{r.commitIndex, done}
-	r.Unlock()
-
-	if state != Leader {
-		return 0, raft.ErrNotLeader{Leader: leader, LeaderAddr: leaderAddr}
-	}
-
-	r.registerReader <- read
-
 	select {
-	case <-done:
-		return read.index, nil
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	}
@@ -482,12 +442,6 @@ func (r *Raft) advanceCommitIndex() {
 
 	if r.commitIndex > old {
 		r.newCommit(old)
-	}
-
-	if r.logTerm(r.storage.NumEntries()) == r.currentTerm {
-		for i := old; i <= r.commitIndex; i++ {
-			r.allowRead <- i
-		}
 	}
 }
 
