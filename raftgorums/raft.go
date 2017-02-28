@@ -432,12 +432,11 @@ func (r *Raft) cmdToFuture(cmd []byte) (*raft.EntryFuture, error) {
 	r.Lock()
 	state := r.state
 	leader := r.leader
-	leaderAddr := r.addrs[leader-1]
 	term := r.currentTerm
 	r.Unlock()
 
 	if state != Leader {
-		return nil, raft.ErrNotLeader{Leader: leader, LeaderAddr: leaderAddr}
+		return nil, raft.ErrNotLeader{Leader: leader}
 	}
 
 	entry := &commonpb.Entry{

@@ -13,8 +13,7 @@ var NOOP = []byte("noop")
 // server to be the leader, and it's not. A hint about the actual leader is
 // provided.
 type ErrNotLeader struct {
-	Leader     uint64
-	LeaderAddr string
+	Leader uint64
 }
 
 func (e ErrNotLeader) Error() string {
