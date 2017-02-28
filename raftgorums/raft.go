@@ -640,6 +640,8 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		return
 	}
 
+	r.preElection = true
+
 	// #C7 If election timeout elapses: start new election.
 	// This will happened if we don't receive enough replies in time. Or we lose the election but don't see a higher term number.
 }
