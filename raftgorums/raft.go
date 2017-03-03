@@ -192,14 +192,22 @@ func (r *Raft) Run() {
 	for {
 		select {
 		case <-r.baseline.C:
+			r.Lock()
 			r.heardFromLeader = false
+			r.Unlock()
 		case <-r.election.C:
-			if r.state == Leader {
+			r.Lock()
+			state := r.state
+			r.Unlock()
+
+			if state == Leader {
 				// Thesis §6.2: A leader in Raft steps down if
 				// an election timeout elapses without a
 				// successful round of heartbeats to a majority
 				// of its cluster.
+				r.Lock()
 				r.becomeFollower(r.currentTerm)
+				r.Unlock()
 			} else {
 				// #F2 If election timeout elapses without
 				// receiving AppendEntries RPC from current
@@ -748,6 +756,7 @@ func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse, r
 }
 
 // TODO Tests.
+// TODO Assumes caller already holds lock on Raft.
 func (r *Raft) becomeFollower(term uint64) {
 	r.state = Follower
 	r.preElection = true
@@ -793,6 +802,7 @@ func (r *Raft) getHint() uint32 {
 	return hint
 }
 
+// TODO Assumes caller already holds lock on Raft.
 func (r *Raft) logTerm(index uint64) uint64 {
 	if index < 1 || index > r.storage.NumEntries() {
 		return 0
