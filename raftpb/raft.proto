@@ -19,3 +19,9 @@ message Entry {
   EntryType entryType = 3;
   bytes data          = 4;
 }
+
+message Snapshot {
+  uint64 term  = 1;
+  uint64 index = 2;
+  bytes data   = 3;
+}

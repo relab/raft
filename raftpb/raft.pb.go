@@ -10,6 +10,7 @@
 
 	It has these top-level messages:
 		Entry
+		Snapshot
 */
 package raftpb
 
@@ -67,8 +68,20 @@ func (m *Entry) String() string            { return proto.CompactTextString(m) }
 func (*Entry) ProtoMessage()               {}
 func (*Entry) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{0} }
 
+type Snapshot struct {
+	Term  uint64 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
+	Index uint64 `protobuf:"varint,2,opt,name=index,proto3" json:"index,omitempty"`
+	Data  []byte `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
+}
+
+func (m *Snapshot) Reset()                    { *m = Snapshot{} }
+func (m *Snapshot) String() string            { return proto.CompactTextString(m) }
+func (*Snapshot) ProtoMessage()               {}
+func (*Snapshot) Descriptor() ([]byte, []int) { return fileDescriptorRaft, []int{1} }
+
 func init() {
 	proto.RegisterType((*Entry)(nil), "raftpb.Entry")
+	proto.RegisterType((*Snapshot)(nil), "raftpb.Snapshot")
 	proto.RegisterEnum("raftpb.EntryType", EntryType_name, EntryType_value)
 }
 func (m *Entry) Marshal() (dAtA []byte, err error) {
@@ -103,6 +116,40 @@ func (m *Entry) MarshalTo(dAtA []byte) (int, error) {
 	}
 	if len(m.Data) > 0 {
 		dAtA[i] = 0x22
+		i++
+		i = encodeVarintRaft(dAtA, i, uint64(len(m.Data)))
+		i += copy(dAtA[i:], m.Data)
+	}
+	return i, nil
+}
+
+func (m *Snapshot) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Snapshot) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.Term != 0 {
+		dAtA[i] = 0x8
+		i++
+		i = encodeVarintRaft(dAtA, i, uint64(m.Term))
+	}
+	if m.Index != 0 {
+		dAtA[i] = 0x10
+		i++
+		i = encodeVarintRaft(dAtA, i, uint64(m.Index))
+	}
+	if len(m.Data) > 0 {
+		dAtA[i] = 0x1a
 		i++
 		i = encodeVarintRaft(dAtA, i, uint64(len(m.Data)))
 		i += copy(dAtA[i:], m.Data)
@@ -148,6 +195,22 @@ func (m *Entry) Size() (n int) {
 	}
 	if m.EntryType != 0 {
 		n += 1 + sovRaft(uint64(m.EntryType))
+	}
+	l = len(m.Data)
+	if l > 0 {
+		n += 1 + l + sovRaft(uint64(l))
+	}
+	return n
+}
+
+func (m *Snapshot) Size() (n int) {
+	var l int
+	_ = l
+	if m.Term != 0 {
+		n += 1 + sovRaft(uint64(m.Term))
+	}
+	if m.Index != 0 {
+		n += 1 + sovRaft(uint64(m.Index))
 	}
 	l = len(m.Data)
 	if l > 0 {
@@ -307,6 +370,125 @@ func (m *Entry) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+func (m *Snapshot) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowRaft
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Snapshot: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Snapshot: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Term", wireType)
+			}
+			m.Term = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowRaft
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Term |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Index", wireType)
+			}
+			m.Index = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowRaft
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Index |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Data", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowRaft
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthRaft
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Data = append(m.Data[:0], dAtA[iNdEx:postIndex]...)
+			if m.Data == nil {
+				m.Data = []byte{}
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipRaft(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthRaft
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
 func skipRaft(dAtA []byte) (n int, err error) {
 	l := len(dAtA)
 	iNdEx := 0
@@ -415,7 +597,7 @@ var (
 func init() { proto.RegisterFile("raftpb/raft.proto", fileDescriptorRaft) }
 
 var fileDescriptorRaft = []byte{
-	// 245 bytes of a gzipped FileDescriptorProto
+	// 265 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xe2, 0x12, 0x2c, 0x4a, 0x4c, 0x2b,
 	0x29, 0x48, 0xd2, 0x07, 0x51, 0x7a, 0x05, 0x45, 0xf9, 0x25, 0xf9, 0x42, 0x6c, 0x10, 0x21, 0x29,
 	0xdd, 0xf4, 0xcc, 0x92, 0x8c, 0xd2, 0x24, 0xbd, 0xe4, 0xfc, 0x5c, 0xfd, 0xf4, 0xfc, 0xf4, 0x7c,
@@ -425,11 +607,12 @@ var fileDescriptorRaft = []byte{
 	0x04, 0x13, 0x58, 0x10, 0xc2, 0x11, 0xd2, 0xe7, 0xe2, 0x4c, 0x05, 0x69, 0x09, 0xa9, 0x2c, 0x48,
 	0x95, 0x60, 0x56, 0x60, 0xd4, 0xe0, 0x33, 0x12, 0xd4, 0x83, 0xd8, 0xae, 0xe7, 0x0a, 0x93, 0x08,
 	0x42, 0xa8, 0x01, 0x19, 0x9d, 0x92, 0x58, 0x92, 0x28, 0xc1, 0xa2, 0xc0, 0xa8, 0xc1, 0x13, 0x04,
-	0x66, 0x6b, 0xb9, 0x70, 0x71, 0xc2, 0xd5, 0x0a, 0x09, 0x72, 0xf1, 0x82, 0x39, 0x9e, 0x79, 0x25,
-	0xa9, 0x45, 0x79, 0x89, 0x39, 0x02, 0x0c, 0x42, 0xfc, 0x5c, 0xdc, 0x60, 0x21, 0xbf, 0xfc, 0xa2,
-	0xdc, 0xc4, 0x1c, 0x01, 0x46, 0x21, 0x61, 0x2e, 0x7e, 0xb0, 0x80, 0x73, 0x7e, 0x5e, 0x9a, 0x73,
-	0x46, 0x62, 0x5e, 0x7a, 0xaa, 0x00, 0x93, 0x93, 0xc4, 0x89, 0x87, 0x72, 0x0c, 0x17, 0x1e, 0xca,
-	0x31, 0x9c, 0x78, 0x24, 0xc7, 0x78, 0xe1, 0x91, 0x1c, 0xe3, 0x83, 0x47, 0x72, 0x8c, 0x13, 0x1e,
-	0xcb, 0x31, 0x24, 0xb1, 0x81, 0xbd, 0x67, 0x0c, 0x08, 0x00, 0x00, 0xff, 0xff, 0x7c, 0xbb, 0x36,
-	0x76, 0x2a, 0x01, 0x00, 0x00,
+	0x66, 0x2b, 0x79, 0x70, 0x71, 0x04, 0xe7, 0x25, 0x16, 0x14, 0x67, 0xe4, 0x97, 0x90, 0x60, 0x35,
+	0xcc, 0x24, 0x66, 0x84, 0x49, 0x5a, 0x2e, 0x5c, 0x9c, 0x70, 0x5b, 0x85, 0x04, 0xb9, 0x78, 0xc1,
+	0x1c, 0xcf, 0xbc, 0x92, 0xd4, 0xa2, 0xbc, 0xc4, 0x1c, 0x01, 0x06, 0x21, 0x7e, 0x2e, 0x6e, 0xb0,
+	0x90, 0x5f, 0x7e, 0x51, 0x6e, 0x62, 0x8e, 0x00, 0xa3, 0x90, 0x30, 0x17, 0x3f, 0x58, 0xc0, 0x39,
+	0x3f, 0x2f, 0xcd, 0x39, 0x23, 0x31, 0x2f, 0x3d, 0x55, 0x80, 0xc9, 0x49, 0xe2, 0xc4, 0x43, 0x39,
+	0x86, 0x0b, 0x0f, 0xe5, 0x18, 0x4e, 0x3c, 0x92, 0x63, 0xbc, 0xf0, 0x48, 0x8e, 0xf1, 0xc1, 0x23,
+	0x39, 0xc6, 0x09, 0x8f, 0xe5, 0x18, 0x92, 0xd8, 0xc0, 0x01, 0x65, 0x0c, 0x08, 0x00, 0x00, 0xff,
+	0xff, 0xe9, 0x5d, 0x8b, 0x26, 0x74, 0x01, 0x00, 0x00,
 }
