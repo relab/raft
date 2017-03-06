@@ -408,8 +408,11 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 			r.logger.to(req.LeaderID, fmt.Sprintf("AppendEntries persisted %d entries to stable storage", len(toSave)))
 		}
 
-		old := r.commitIndex
+		if len(toSave) > 0 {
+			lcd = toSave[len(toSave)-1].Index
+		}
 
+		old := r.commitIndex
 		r.commitIndex = min(req.CommitIndex, lcd)
 
 		if r.commitIndex > old {
@@ -723,9 +726,20 @@ LOOP:
 	}
 
 	// #L1
+	entries := r.getNextEntries(r.majorityNextIndex)
+
+	if logLevel >= DEBUG {
+		r.logger.log(fmt.Sprintf("Sending %d entries", len(entries)))
+	}
+
+	r.aereqout <- r.getAppendEntriesRequest(r.majorityNextIndex, entries)
+}
+
+// TODO Assumes caller holds lock on Raft.
+func (r *Raft) getNextEntries(nextIndex uint64) []*commonpb.Entry {
 	var entries []*commonpb.Entry
 
-	next := r.majorityNextIndex - 1
+	next := nextIndex - 1
 
 	if r.storage.NumEntries() > next {
 		maxEntries := min(next+r.maxAppendEntries, r.storage.NumEntries())
@@ -734,6 +748,7 @@ LOOP:
 			maxEntries = next + 1
 		}
 
+		var err error
 		entries, err = r.storage.GetEntries(next, maxEntries)
 
 		if err != nil {
@@ -741,15 +756,16 @@ LOOP:
 		}
 	}
 
-	if logLevel >= DEBUG {
-		r.logger.log(fmt.Sprintf("Sending %d entries", len(entries)))
-	}
+	return entries
+}
 
-	r.aereqout <- &pb.AppendEntriesRequest{
+// TODO Assumes caller holds lock on Raft.
+func (r *Raft) getAppendEntriesRequest(nextIndex uint64, entries []*commonpb.Entry) *pb.AppendEntriesRequest {
+	return &pb.AppendEntriesRequest{
 		LeaderID:     r.id,
 		Term:         r.currentTerm,
-		PrevLogIndex: next,
-		PrevLogTerm:  r.logTerm(next),
+		PrevLogIndex: nextIndex - 1,
+		PrevLogTerm:  r.logTerm(nextIndex - 1),
 		CommitIndex:  r.commitIndex,
 		Entries:      entries,
 	}
@@ -840,7 +856,6 @@ func (r *Raft) getHint() uint32 {
 	return hint
 }
 
-// TODO Assumes caller already holds lock on Raft.
 func (r *Raft) logTerm(index uint64) uint64 {
 	if index < 1 || index > r.storage.NumEntries() {
 		return 0

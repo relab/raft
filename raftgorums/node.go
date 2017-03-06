@@ -16,10 +16,18 @@ import (
 
 // Node ties an instance of Raft to the network.
 type Node struct {
-	Raft *Raft
+	id uint64
 
-	peers []string
+	Raft    *Raft
+	storage Storage
 
+	lookup map[uint64]int
+	peers  []string
+
+	catchingUp map[uint32]chan uint64
+	catchUp    chan *catchUpRequest
+
+	mgr  *gorums.Manager
 	conf *gorums.Configuration
 }
 
@@ -33,9 +41,26 @@ func NewNode(server *grpc.Server, sm raft.StateMachine, cfg *Config) *Node {
 	// Exclude self.
 	peers = append(peers[:id-1], peers[id:]...)
 
+	var pos int
+	lookup := make(map[uint64]int)
+
+	for i := 0; i < len(cfg.Nodes); i++ {
+		if uint64(i) == id {
+			continue
+		}
+
+		lookup[uint64(i)] = pos
+		pos++
+	}
+
 	n := &Node{
-		Raft:  NewRaft(sm, cfg),
-		peers: peers,
+		id:         id,
+		Raft:       NewRaft(sm, cfg),
+		storage:    cfg.Storage,
+		lookup:     lookup,
+		peers:      peers,
+		catchingUp: make(map[uint32]chan uint64),
+		catchUp:    make(chan *catchUpRequest),
 	}
 
 	gorums.RegisterRaftServer(server, n)
@@ -59,6 +84,7 @@ func (n *Node) Run() error {
 		return err
 	}
 
+	n.mgr = mgr
 	n.conf, err = mgr.NewConfiguration(mgr.NodeIDs(), NewQuorumSpec(len(n.peers)+1))
 
 	if err != nil {
@@ -107,6 +133,67 @@ func (n *Node) Run() error {
 			}
 
 			n.Raft.HandleAppendEntriesResponse(res.AppendEntriesResponse, len(res.NodeIDs))
+
+			for nodeID, matchIndex := range n.catchingUp {
+				select {
+				case index, ok := <-matchIndex:
+					if !ok {
+						delete(n.catchingUp, nodeID)
+						continue
+					}
+
+					matchIndex <- res.MatchIndex
+
+					if index == res.MatchIndex {
+						delete(n.catchingUp, nodeID)
+
+						newSet := append(n.conf.NodeIDs(), nodeID)
+						n.conf, err = mgr.NewConfiguration(newSet, NewQuorumSpec(len(n.peers)+1))
+					}
+				default:
+				}
+			}
+		case creq := <-n.catchUp:
+			oldSet := n.conf.NodeIDs()
+
+			// Don't remove servers when we would've gone below the
+			// quorum size. The quorum function handles recovery
+			// when a majority fails.
+			if len(oldSet)-1 < len(n.peers)/2 {
+				continue
+			}
+
+			nodes := n.mgr.NodeIDs()
+			node := nodes[n.lookup[creq.followerID]]
+			// We use 2 peers as we need to count the leader.
+			single, err := n.mgr.NewConfiguration([]uint32{node}, NewQuorumSpec(2))
+
+			if err != nil {
+				panic(fmt.Sprintf("tried to catch up node %d->%d: %v", creq.followerID, node, err))
+			}
+
+			tmpSet := make([]uint32, len(oldSet)-1)
+
+			var i int
+			for _, id := range oldSet {
+				if id == node {
+					continue
+				}
+
+				tmpSet[i] = id
+				i++
+			}
+
+			// It's important not to change the quorum size when removing the server.
+			n.conf, err = mgr.NewConfiguration(tmpSet, NewQuorumSpec(len(n.peers)+1))
+
+			if err != nil {
+				panic(fmt.Sprintf("tried to create new configuration %v: %v", tmpSet, err))
+			}
+
+			matchIndex := make(chan uint64)
+			go n.doCatchUp(single, creq.nextIndex, matchIndex)
+			n.catchingUp[node] = matchIndex
 		}
 	}
 }
@@ -127,11 +214,66 @@ func (n *Node) GetState(ctx context.Context, req *pb.SnapshotRequest) (*commonpb
 
 	select {
 	case snapshot := <-future:
-		// TODO Disable follower in majority conf.
-		// TODO Asynchronously start a single conf.
-		// TODO Re-enable follower when indexes match.
+		n.catchUp <- &catchUpRequest{
+			snapshot.Index,
+			req.FollowerID,
+		}
 		return snapshot, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+}
+
+type catchUpRequest struct {
+	nextIndex  uint64
+	followerID uint64
+}
+
+func (n *Node) doCatchUp(conf *gorums.Configuration, nextIndex uint64, matchIndex chan uint64) {
+	for {
+		state := n.Raft.State()
+
+		if state != Leader {
+			close(matchIndex)
+			return
+		}
+
+		n.Raft.Lock()
+		entries := n.Raft.getNextEntries(nextIndex)
+		request := n.Raft.getAppendEntriesRequest(nextIndex, entries)
+		n.Raft.Unlock()
+
+		ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
+		res, err := conf.AppendEntries(ctx, request)
+
+		if err != nil {
+			// TODO Better error message.
+			log.Println(fmt.Sprintf("AppendEntries failed = %v", err))
+
+			if res.AppendEntriesResponse == nil {
+				continue
+			}
+		}
+
+		cancel()
+
+		response := res.AppendEntriesResponse
+
+		if response.Success {
+			matchIndex <- response.MatchIndex
+			index := <-matchIndex
+
+			if response.MatchIndex == index {
+				close(matchIndex)
+				return
+			}
+
+			nextIndex = response.MatchIndex + 1
+
+			continue
+		}
+
+		// If AppendEntries was not successful lower match index.
+		nextIndex = max(1, response.MatchIndex)
 	}
 }
