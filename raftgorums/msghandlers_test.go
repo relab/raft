@@ -369,6 +369,12 @@ func (n *noopMachine) Apply(*commonpb.Entry) interface{} {
 	return nil
 }
 
+func (n *noopMachine) Snapshot() *commonpb.Snapshot {
+	return nil
+}
+
+func (n *noopMachine) Restore(*commonpb.Snapshot) {}
+
 func TestHandleRequestVoteRequest(t *testing.T) {
 	for _, test := range handleRequestVoteRequestTests {
 		t.Run(test.name, func(t *testing.T) {
