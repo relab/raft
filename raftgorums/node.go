@@ -96,8 +96,23 @@ func (n *Node) Run() error {
 	for {
 		rvreqout := n.Raft.RequestVoteRequestChan()
 		aereqout := n.Raft.AppendEntriesRequestChan()
+		sreqout := n.Raft.SnapshotRequestChan()
 
 		select {
+		case req := <-sreqout:
+			ctx, cancel := context.WithTimeout(context.Background(), TCPConnect*time.Millisecond)
+			node, _ := n.mgr.Node(n.getNodeID(req.FollowerID))
+			snapshot, err := node.RaftClient.GetState(ctx, req)
+			cancel()
+
+			if err != nil {
+				// TODO Better error message.
+				log.Println(fmt.Sprintf("Snapshot request failed = %v", err))
+
+			}
+
+			n.Raft.restoreCh <- snapshot
+
 		case req := <-rvreqout:
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
 			res, err := n.conf.RequestVote(ctx, req)
@@ -114,6 +129,7 @@ func (n *Node) Run() error {
 			}
 
 			n.Raft.HandleRequestVoteResponse(res.RequestVoteResponse)
+
 		case req := <-aereqout:
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
 			res, err := n.conf.AppendEntries(ctx, req)
@@ -139,6 +155,9 @@ func (n *Node) Run() error {
 				case index, ok := <-matchIndex:
 					if !ok {
 						delete(n.catchingUp, nodeID)
+
+						newSet := append(n.conf.NodeIDs(), nodeID)
+						n.conf, err = mgr.NewConfiguration(newSet, NewQuorumSpec(len(n.peers)+1))
 						continue
 					}
 
@@ -153,6 +172,7 @@ func (n *Node) Run() error {
 				default:
 				}
 			}
+
 		case creq := <-n.catchUp:
 			oldSet := n.conf.NodeIDs()
 
@@ -163,8 +183,7 @@ func (n *Node) Run() error {
 				continue
 			}
 
-			nodes := n.mgr.NodeIDs()
-			node := nodes[n.lookup[creq.followerID]]
+			node := n.getNodeID(creq.followerID)
 			// We use 2 peers as we need to count the leader.
 			single, err := n.mgr.NewConfiguration([]uint32{node}, NewQuorumSpec(2))
 
@@ -273,7 +292,13 @@ func (n *Node) doCatchUp(conf *gorums.Configuration, nextIndex uint64, matchInde
 			continue
 		}
 
-		// If AppendEntries was not successful lower match index.
-		nextIndex = max(1, response.MatchIndex)
+		// If AppendEntries was unsuccessful a new catch-up process will
+		// start.
+		close(matchIndex)
+		return
 	}
+}
+
+func (n *Node) getNodeID(raftID uint64) uint32 {
+	return n.mgr.NodeIDs()[n.lookup[raftID]]
 }

@@ -87,7 +87,8 @@ type Raft struct {
 
 	addrs []string
 
-	commitIndex uint64
+	commitIndex  uint64
+	appliedIndex uint64
 
 	majorityNextIndex  uint64
 	majorityMatchIndex uint64
@@ -115,12 +116,13 @@ type Raft struct {
 
 	applyCh   chan *entryFuture
 	snapCh    chan chan<- *commonpb.Snapshot
-	restoreCh chan *restoreFuture
+	restoreCh chan *commonpb.Snapshot
 
 	batch bool
 
 	rvreqout chan *pb.RequestVoteRequest
 	aereqout chan *pb.AppendEntriesRequest
+	sreqout  chan *pb.SnapshotRequest
 
 	logger *Logger
 }
@@ -128,11 +130,6 @@ type Raft struct {
 type entryFuture struct {
 	entry  *commonpb.Entry
 	future *raft.EntryFuture
-}
-
-type restoreFuture struct {
-	snapshot *commonpb.Snapshot
-	done     chan struct{}
 }
 
 // NewRaft returns a new Raft given a configuration.
@@ -183,8 +180,9 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		queue:             make(chan *raft.EntryFuture, BufferSize),
 		applyCh:           make(chan *entryFuture, 128),
 		snapCh:            make(chan chan<- *commonpb.Snapshot),
-		restoreCh:         make(chan *restoreFuture),
-		rvreqout:          make(chan *pb.RequestVoteRequest, BufferSize),
+		restoreCh:         make(chan *commonpb.Snapshot),
+		sreqout:           make(chan *pb.SnapshotRequest),
+		rvreqout:          make(chan *pb.RequestVoteRequest, 128),
 		aereqout:          make(chan *pb.AppendEntriesRequest, BufferSize),
 		logger:            &Logger{cfg.ID, cfg.Logger},
 	}
@@ -201,11 +199,17 @@ func (r *Raft) RequestVoteRequestChan() chan *pb.RequestVoteRequest {
 	return r.rvreqout
 }
 
-// AppendEntriesRequestChan returns a channel for outgoing RequestVoteRequests.
-// It's the implementers responsibility to make sure these requests are
-// delivered.
+// AppendEntriesRequestChan returns a channel for outgoing
+// AppendEntriesRequests. It's the implementers responsibility to make sure
+// these requests are delivered.
 func (r *Raft) AppendEntriesRequestChan() chan *pb.AppendEntriesRequest {
 	return r.aereqout
+}
+
+// SnapshotRequestChan returns a channel for outgoing SnapshotRequests. It's the
+// implementers responsibility to make sure these requests are delivered.
+func (r *Raft) SnapshotRequestChan() chan *pb.SnapshotRequest {
+	return r.sreqout
 }
 
 // Run handles timeouts.
@@ -420,6 +424,12 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		}
 	}
 
+	if !success {
+		go func() {
+			r.sreqout <- &pb.SnapshotRequest{FollowerID: r.id}
+		}()
+	}
+
 	return &pb.AppendEntriesResponse{
 		Term:       req.Term,
 		MatchIndex: r.storage.NumEntries(),
@@ -539,6 +549,7 @@ func (r *Raft) runStateMachine() {
 		var res interface{}
 		if entry.EntryType != commonpb.EntryInternal {
 			res = r.sm.Apply(entry)
+			r.appliedIndex = entry.Index
 		}
 
 		if future != nil {
@@ -549,12 +560,17 @@ func (r *Raft) runStateMachine() {
 	for {
 		select {
 		case commit := <-r.applyCh:
+			// Reads have Index set to 0, so don't skip those.
+			if commit.entry.Index > 0 && commit.entry.Index <= r.appliedIndex {
+				continue
+			}
+
 			apply(commit.entry, commit.future)
 		case future := <-r.snapCh:
 			future <- r.sm.Snapshot()
-		case future := <-r.restoreCh:
-			r.sm.Restore(future.snapshot)
-			close(future.done)
+		case snapshot := <-r.restoreCh:
+			r.sm.Restore(snapshot)
+			r.appliedIndex = snapshot.Index
 		}
 	}
 }
