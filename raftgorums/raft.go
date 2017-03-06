@@ -89,8 +89,11 @@ type Raft struct {
 
 	commitIndex uint64
 
-	nextIndex  uint64
-	matchIndex uint64
+	majorityNextIndex  uint64
+	majorityMatchIndex uint64
+
+	nextIndex  map[uint64]uint64
+	matchIndex map[uint64]uint64
 
 	baselineTimeout  time.Duration
 	electionTimeout  time.Duration
@@ -158,30 +161,32 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 
 	// TODO Order.
 	r := &Raft{
-		id:               cfg.ID,
-		currentTerm:      term,
-		votedFor:         votedFor,
-		sm:               sm,
-		storage:          cfg.Storage,
-		batch:            cfg.Batch,
-		addrs:            cfg.Nodes,
-		nextIndex:        1,
-		baselineTimeout:  cfg.ElectionTimeout,
-		electionTimeout:  electionTimeout,
-		heartbeatTimeout: cfg.HeartbeatTimeout,
-		baseline:         NewTimer(cfg.ElectionTimeout),
-		election:         NewTimer(electionTimeout),
-		heartbeat:        heartbeat,
-		cyclech:          make(chan struct{}, 128),
-		preElection:      true,
-		maxAppendEntries: cfg.MaxAppendEntries,
-		queue:            make(chan *raft.EntryFuture, BufferSize),
-		applyCh:          make(chan *entryFuture, 128),
-		snapCh:           make(chan chan *commonpb.Snapshot),
-		restoreCh:        make(chan *restoreFuture),
-		rvreqout:         make(chan *pb.RequestVoteRequest, BufferSize),
-		aereqout:         make(chan *pb.AppendEntriesRequest, BufferSize),
-		logger:           &Logger{cfg.ID, cfg.Logger},
+		id:                cfg.ID,
+		currentTerm:       term,
+		votedFor:          votedFor,
+		sm:                sm,
+		storage:           cfg.Storage,
+		batch:             cfg.Batch,
+		addrs:             cfg.Nodes,
+		majorityNextIndex: 1,
+		nextIndex:         make(map[uint64]uint64),
+		matchIndex:        make(map[uint64]uint64),
+		baselineTimeout:   cfg.ElectionTimeout,
+		electionTimeout:   electionTimeout,
+		heartbeatTimeout:  cfg.HeartbeatTimeout,
+		baseline:          NewTimer(cfg.ElectionTimeout),
+		election:          NewTimer(electionTimeout),
+		heartbeat:         heartbeat,
+		cyclech:           make(chan struct{}, 128),
+		preElection:       true,
+		maxAppendEntries:  cfg.MaxAppendEntries,
+		queue:             make(chan *raft.EntryFuture, BufferSize),
+		applyCh:           make(chan *entryFuture, 128),
+		snapCh:            make(chan chan *commonpb.Snapshot),
+		restoreCh:         make(chan *restoreFuture),
+		rvreqout:          make(chan *pb.RequestVoteRequest, BufferSize),
+		aereqout:          make(chan *pb.AppendEntriesRequest, BufferSize),
+		logger:            &Logger{cfg.ID, cfg.Logger},
 	}
 
 	r.logger.Printf("ElectionTimeout: %v", r.electionTimeout)
@@ -485,8 +490,8 @@ func (r *Raft) advanceCommitIndex() {
 
 	old := r.commitIndex
 
-	if r.logTerm(r.matchIndex) == r.currentTerm {
-		r.commitIndex = max(r.commitIndex, r.matchIndex)
+	if r.logTerm(r.majorityMatchIndex) == r.currentTerm {
+		r.commitIndex = max(r.commitIndex, r.majorityMatchIndex)
 	}
 
 	if r.commitIndex > old {
@@ -648,7 +653,7 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		r.leader = r.id
 		r.seenLeader = true
 		r.heardFromLeader = true
-		r.nextIndex = r.storage.NumEntries() + 1
+		r.majorityNextIndex = r.storage.NumEntries() + 1
 		r.pending = list.New()
 		r.pendingReads = nil
 
@@ -720,7 +725,7 @@ LOOP:
 	// #L1
 	var entries []*commonpb.Entry
 
-	next := r.nextIndex - 1
+	next := r.majorityNextIndex - 1
 
 	if r.storage.NumEntries() > next {
 		maxEntries := min(next+r.maxAppendEntries, r.storage.NumEntries())
@@ -777,14 +782,14 @@ func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse, r
 			// Successful heartbeat to a majority.
 			r.election.Restart()
 
-			r.matchIndex = response.MatchIndex
-			r.nextIndex = r.matchIndex + 1
+			r.majorityMatchIndex = response.MatchIndex
+			r.majorityNextIndex = r.majorityMatchIndex + 1
 
 			return
 		}
 
 		// If AppendEntries was not successful lower match index.
-		r.nextIndex = max(1, response.MatchIndex)
+		r.majorityNextIndex = max(1, response.MatchIndex)
 	}
 }
 
