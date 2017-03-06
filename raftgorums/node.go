@@ -75,7 +75,6 @@ func (n *Node) Run() error {
 			grpc.WithBlock(),
 			grpc.WithInsecure(),
 			grpc.WithTimeout(TCPConnect*time.Millisecond)),
-		// TODO WithLogger?
 	}
 
 	mgr, err := gorums.NewManager(n.peers, opts...)
@@ -154,20 +153,14 @@ func (n *Node) Run() error {
 				select {
 				case index, ok := <-matchIndex:
 					if !ok {
-						delete(n.catchingUp, nodeID)
-
-						newSet := append(n.conf.NodeIDs(), nodeID)
-						n.conf, err = mgr.NewConfiguration(newSet, NewQuorumSpec(len(n.peers)+1))
+						n.addBackNode(nodeID)
 						continue
 					}
 
 					matchIndex <- res.MatchIndex
 
 					if index == res.MatchIndex {
-						delete(n.catchingUp, nodeID)
-
-						newSet := append(n.conf.NodeIDs(), nodeID)
-						n.conf, err = mgr.NewConfiguration(newSet, NewQuorumSpec(len(n.peers)+1))
+						n.addBackNode(nodeID)
 					}
 				default:
 				}
@@ -203,17 +196,40 @@ func (n *Node) Run() error {
 				i++
 			}
 
-			// It's important not to change the quorum size when removing the server.
-			n.conf, err = mgr.NewConfiguration(tmpSet, NewQuorumSpec(len(n.peers)+1))
+			// It's important not to change the quorum size when
+			// removing the server. We reduce N by one so we don't
+			// wait on the recovering server.
+			n.conf, err = mgr.NewConfiguration(tmpSet, &QuorumSpec{
+				N: len(tmpSet),
+				Q: (len(n.peers) + 1) / 2,
+			})
 
 			if err != nil {
 				panic(fmt.Sprintf("tried to create new configuration %v: %v", tmpSet, err))
 			}
 
 			matchIndex := make(chan uint64)
-			go n.doCatchUp(single, creq.nextIndex, matchIndex)
 			n.catchingUp[node] = matchIndex
+			go n.doCatchUp(single, creq.nextIndex, matchIndex)
 		}
+	}
+}
+
+func (n *Node) addBackNode(nodeID uint32) {
+	n.Raft.Lock()
+	n.Raft.catchingUp = false
+	n.Raft.Unlock()
+	delete(n.catchingUp, nodeID)
+
+	newSet := append(n.conf.NodeIDs(), nodeID)
+	var err error
+	n.conf, err = n.mgr.NewConfiguration(newSet, &QuorumSpec{
+		N: len(newSet),
+		Q: (len(n.peers) + 1) / 2,
+	})
+
+	if err != nil {
+		panic(fmt.Sprintf("tried to create new configuration %v: %v", newSet, err))
 	}
 }
 
@@ -234,8 +250,8 @@ func (n *Node) GetState(ctx context.Context, req *pb.SnapshotRequest) (*commonpb
 	select {
 	case snapshot := <-future:
 		n.catchUp <- &catchUpRequest{
-			snapshot.Index,
-			req.FollowerID,
+			nextIndex:  snapshot.Index,
+			followerID: req.FollowerID,
 		}
 		return snapshot, nil
 	case <-ctx.Done():
@@ -267,7 +283,7 @@ func (n *Node) doCatchUp(conf *gorums.Configuration, nextIndex uint64, matchInde
 
 		if err != nil {
 			// TODO Better error message.
-			log.Println(fmt.Sprintf("AppendEntries failed = %v", err))
+			log.Println(fmt.Sprintf("Catch-up AppendEntries failed = %v", err))
 
 			if res.AppendEntriesResponse == nil {
 				continue

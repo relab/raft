@@ -118,6 +118,8 @@ type Raft struct {
 	snapCh    chan chan<- *commonpb.Snapshot
 	restoreCh chan *commonpb.Snapshot
 
+	catchingUp bool
+
 	batch bool
 
 	rvreqout chan *pb.RequestVoteRequest
@@ -424,7 +426,8 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		}
 	}
 
-	if !success {
+	if !success && !r.catchingUp {
+		r.catchingUp = true
 		go func() {
 			r.sreqout <- &pb.SnapshotRequest{FollowerID: r.id}
 		}()
@@ -570,6 +573,7 @@ func (r *Raft) runStateMachine() {
 			future <- r.sm.Snapshot()
 		case snapshot := <-r.restoreCh:
 			r.sm.Restore(snapshot)
+			r.commitIndex = snapshot.Index
 			r.appliedIndex = snapshot.Index
 		}
 	}
