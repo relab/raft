@@ -110,12 +110,26 @@ type Raft struct {
 
 	pendingReads []*raft.EntryFuture
 
+	applyCh   chan *entryFuture
+	snapCh    chan chan *commonpb.Snapshot
+	restoreCh chan *restoreFuture
+
 	batch bool
 
 	rvreqout chan *pb.RequestVoteRequest
 	aereqout chan *pb.AppendEntriesRequest
 
 	logger *Logger
+}
+
+type entryFuture struct {
+	entry  *commonpb.Entry
+	future *raft.EntryFuture
+}
+
+type restoreFuture struct {
+	snapshot *commonpb.Snapshot
+	done     chan struct{}
 }
 
 // NewRaft returns a new Raft given a configuration.
@@ -162,6 +176,9 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		preElection:      true,
 		maxAppendEntries: cfg.MaxAppendEntries,
 		queue:            make(chan *raft.EntryFuture, BufferSize),
+		applyCh:          make(chan *entryFuture, 128),
+		snapCh:           make(chan chan *commonpb.Snapshot),
+		restoreCh:        make(chan *restoreFuture),
 		rvreqout:         make(chan *pb.RequestVoteRequest, BufferSize),
 		aereqout:         make(chan *pb.AppendEntriesRequest, BufferSize),
 		logger:           &Logger{cfg.ID, cfg.Logger},
@@ -189,6 +206,8 @@ func (r *Raft) AppendEntriesRequestChan() chan *pb.AppendEntriesRequest {
 // Run handles timeouts.
 // All RPCs are handled by Gorums.
 func (r *Raft) Run() {
+	go r.runStateMachine()
+
 	for {
 		select {
 		case <-r.baseline.C:
@@ -475,7 +494,7 @@ func (r *Raft) advanceCommitIndex() {
 	}
 
 	for _, future := range r.pendingReads {
-		r.apply(future.Entry, future)
+		r.applyCh <- &entryFuture{future.Entry, future}
 	}
 
 	r.pendingReads = nil
@@ -490,7 +509,7 @@ func (r *Raft) newCommit(old uint64) {
 			e := r.pending.Front()
 			if e != nil {
 				future := e.Value.(*raft.EntryFuture)
-				r.apply(future.Entry, future)
+				r.applyCh <- &entryFuture{future.Entry, future}
 				r.pending.Remove(e)
 				break
 			}
@@ -502,19 +521,33 @@ func (r *Raft) newCommit(old uint64) {
 				panic(fmt.Errorf("couldn't retrieve entry: %v", err))
 			}
 
-			r.apply(committed, nil)
+			r.applyCh <- &entryFuture{committed, nil}
 		}
 	}
 }
 
-func (r *Raft) apply(entry *commonpb.Entry, future *raft.EntryFuture) {
-	var res interface{}
-	if entry.EntryType != commonpb.EntryInternal {
-		res = r.sm.Apply(entry)
+func (r *Raft) runStateMachine() {
+	apply := func(entry *commonpb.Entry, future *raft.EntryFuture) {
+		var res interface{}
+		if entry.EntryType != commonpb.EntryInternal {
+			res = r.sm.Apply(entry)
+		}
+
+		if future != nil {
+			future.Respond(res)
+		}
 	}
 
-	if future != nil {
-		future.Respond(res)
+	for {
+		select {
+		case commit := <-r.applyCh:
+			apply(commit.entry, commit.future)
+		case future := <-r.snapCh:
+			future <- r.sm.Snapshot()
+		case future := <-r.restoreCh:
+			r.sm.Restore(future.snapshot)
+			close(future.done)
+		}
 	}
 }
 
