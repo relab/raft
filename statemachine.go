@@ -1,6 +1,6 @@
 package raft
 
-import commonpb "github.com/relab/raft/raftpb"
+import "github.com/relab/raft/commonpb"
 
 // StateMachine provides an interface for state machines using the Raft log.
 // Raft will not call any of these methods concurrently, i.e., your StateMachine

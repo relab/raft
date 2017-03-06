@@ -1,6 +1,6 @@
 package raftgorums
 
-import commonpb "github.com/relab/raft/raftpb"
+import "github.com/relab/raft/commonpb"
 
 // Keys for indexing term and who was voted for.
 const (

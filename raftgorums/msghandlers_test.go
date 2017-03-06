@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/relab/raft/commonpb"
 	"github.com/relab/raft/raftgorums"
 	pb "github.com/relab/raft/raftgorums/raftpb"
-	commonpb "github.com/relab/raft/raftpb"
 )
 
 var log2 = []*commonpb.Entry{

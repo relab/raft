@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/relab/raft"
+	"github.com/relab/raft/commonpb"
 	gorums "github.com/relab/raft/raftgorums/gorumspb"
 	pb "github.com/relab/raft/raftgorums/raftpb"
 )
@@ -118,4 +119,19 @@ func (n *Node) RequestVote(ctx context.Context, req *pb.RequestVoteRequest) (*pb
 // AppendEntries implements gorums.RaftServer.
 func (n *Node) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
 	return n.Raft.HandleAppendEntriesRequest(req), nil
+}
+
+func (n *Node) GetState(ctx context.Context, req *pb.SnapshotRequest) (*commonpb.Snapshot, error) {
+	future := make(chan *commonpb.Snapshot)
+	n.Raft.snapCh <- future
+
+	select {
+	case snapshot := <-future:
+		// TODO Disable follower in majority conf.
+		// TODO Asynchronously start a single conf.
+		// TODO Re-enable follower when indexes match.
+		return snapshot, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }

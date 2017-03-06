@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/relab/raft/commonpb"
 	"github.com/relab/raft/raftgorums"
-	commonpb "github.com/relab/raft/raftpb"
 )
 
 func newFileStorage(t *testing.T, overwrite bool, filepath ...string) (fs *raftgorums.FileStorage, path string, cleanup func()) {

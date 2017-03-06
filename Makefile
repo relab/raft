@@ -11,7 +11,7 @@ protoc:
 
 .PHONY: proto
 proto: protoc
-	protoc -I ../../../:. --gogofaster_out=. raftpb/raft.proto
+	protoc -I ../../../:. --gogofaster_out=. commonpb/raft.proto
 
 .PHONY: test
 test:

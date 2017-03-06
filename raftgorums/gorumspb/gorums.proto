@@ -2,6 +2,7 @@ syntax = "proto3";
 
 import "github.com/relab/gorums/gorums.proto";
 import "github.com/relab/raft/raftgorums/raftpb/raft.proto";
+import "github.com/relab/raft/commonpb/raft.proto";
 
 package gorums;
 
@@ -15,4 +16,6 @@ service Raft {
     option (gorums.qc)          = true;
     option (gorums.qf_with_req) = true;
   }
+
+  rpc GetState(raftpb.SnapshotRequest) returns (commonpb.Snapshot);
 }

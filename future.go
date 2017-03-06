@@ -1,6 +1,6 @@
 package raft
 
-import commonpb "github.com/relab/raft/raftpb"
+import "github.com/relab/raft/commonpb"
 
 // Future allows a result to be read after the operation who created it has
 // completed.

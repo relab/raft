@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/boltdb/bolt"
-	commonpb "github.com/relab/raft/raftpb"
+	"github.com/relab/raft/commonpb"
 )
 
 var (

@@ -11,8 +11,8 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/relab/raft"
+	"github.com/relab/raft/commonpb"
 	pb "github.com/relab/raft/raftgorums/raftpb"
-	commonpb "github.com/relab/raft/raftpb"
 )
 
 // State represents one of the Raft server states.
@@ -114,7 +114,7 @@ type Raft struct {
 	pendingReads []*raft.EntryFuture
 
 	applyCh   chan *entryFuture
-	snapCh    chan chan *commonpb.Snapshot
+	snapCh    chan chan<- *commonpb.Snapshot
 	restoreCh chan *restoreFuture
 
 	batch bool
@@ -182,7 +182,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		maxAppendEntries:  cfg.MaxAppendEntries,
 		queue:             make(chan *raft.EntryFuture, BufferSize),
 		applyCh:           make(chan *entryFuture, 128),
-		snapCh:            make(chan chan *commonpb.Snapshot),
+		snapCh:            make(chan chan<- *commonpb.Snapshot),
 		restoreCh:         make(chan *restoreFuture),
 		rvreqout:          make(chan *pb.RequestVoteRequest, BufferSize),
 		aereqout:          make(chan *pb.AppendEntriesRequest, BufferSize),

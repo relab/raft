@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 import "github.com/gogo/protobuf/gogoproto/gogo.proto";
-import "github.com/relab/raft/raftpb/raft.proto";
+import "github.com/relab/raft/commonpb/raft.proto";
 
 package raftpb;
 
@@ -32,7 +32,7 @@ message AppendEntriesRequest {
   uint64 prevLogTerm = 4;
   uint64 commitIndex = 5;
 
-  repeated raftpb.Entry entries = 6;
+  repeated commonpb.Entry entries = 6;
 }
 
 message AppendEntriesResponse {
@@ -40,4 +40,8 @@ message AppendEntriesResponse {
   uint64 matchIndex = 2;
 
   bool success = 3;
+}
+
+message SnapshotRequest {
+  uint64 followerID = 1;
 }
