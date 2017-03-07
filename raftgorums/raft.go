@@ -631,7 +631,14 @@ func (r *Raft) runStateMachine() {
 
 		// If last entry in snapshot exists in our log.
 		log.Println(snapshot.Index, r.storage.NextIndex())
-		if snapshot.Index < r.storage.NextIndex() {
+		switch {
+		case snapshot.Index == r.snapshotIndex:
+			// Snapshot is already a prefix of our log, so
+			// discard it.
+			if snapshot.Term == r.snapshotTerm {
+				return
+			}
+		case snapshot.Index < r.storage.NextIndex():
 			entry, err := r.storage.GetEntry(snapshot.Index)
 
 			if err != nil {
