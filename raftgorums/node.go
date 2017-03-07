@@ -254,7 +254,7 @@ func (n *Node) GetState(ctx context.Context, req *pb.SnapshotRequest) (*commonpb
 	select {
 	case snapshot := <-future:
 		n.catchUp <- &catchUpRequest{
-			nextIndex:  snapshot.Index,
+			nextIndex:  snapshot.Index + 1,
 			followerID: req.FollowerID,
 		}
 		return snapshot, nil

@@ -76,6 +76,9 @@ type Raft struct {
 	currentTerm uint64
 	votedFor    uint64
 
+	snapshotTerm  uint64
+	snapshotIndex uint64
+
 	sm raft.StateMachine
 
 	storage Storage
@@ -154,6 +157,21 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		panic(fmt.Errorf("couldn't get VotedFor: %v", err))
 	}
 
+	var commitIndex uint64
+	var appliedIndex uint64
+	var snapshotTerm uint64
+	var snaphotIndex uint64
+	snapshot, err := cfg.Storage.GetSnapshot()
+
+	// Restore state machine if snapshot exists.
+	if err == nil {
+		sm.Restore(snapshot)
+		commitIndex = snapshot.Index
+		appliedIndex = snapshot.Index
+		snapshotTerm = snapshot.Term
+		snaphotIndex = snapshot.Index
+	}
+
 	electionTimeout := randomTimeout(cfg.ElectionTimeout)
 	heartbeat := NewTimer(cfg.HeartbeatTimeout)
 	heartbeat.Disable()
@@ -163,6 +181,10 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		id:                cfg.ID,
 		currentTerm:       term,
 		votedFor:          votedFor,
+		commitIndex:       commitIndex,
+		appliedIndex:      appliedIndex,
+		snapshotTerm:      snapshotTerm,
+		snapshotIndex:     snaphotIndex,
 		sm:                sm,
 		storage:           cfg.Storage,
 		batch:             cfg.Batch,
@@ -363,21 +385,24 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		}
 	}
 
-	var prevEntry *commonpb.Entry
+	var prevTerm uint64
 	logLen := r.storage.NextIndex()
 
-	// TODO Wrap storage with functions that panic.
-	if req.PrevLogIndex > 0 && req.PrevLogIndex-1 < logLen {
-		var err error
-		prevEntry, err = r.storage.GetEntry(req.PrevLogIndex - 1)
+	switch {
+	case req.PrevLogIndex <= r.snapshotIndex:
+		prevTerm = r.snapshotTerm
+	case req.PrevLogIndex > 0 && req.PrevLogIndex-1 < logLen:
+		prevEntry, err := r.storage.GetEntry(req.PrevLogIndex - 1)
 
 		if err != nil {
 			panic(fmt.Errorf("couldn't retrieve entry: %v", err))
 		}
+
+		prevTerm = prevEntry.Term
 	}
 
 	// TODO Refactor so it's understandable.
-	success := req.PrevLogIndex == 0 || (req.PrevLogIndex-1 < logLen && prevEntry.Term == req.PrevLogTerm)
+	success := req.PrevLogIndex == 0 || (req.PrevLogIndex-1 < logLen && prevTerm == req.PrevLogTerm)
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	if req.Term > r.currentTerm {
@@ -576,9 +601,35 @@ func (r *Raft) runStateMachine() {
 		case future := <-r.snapCh:
 			future <- r.sm.Snapshot()
 		case snapshot := <-r.restoreCh:
+			// Discard old snapshot.
+			if snapshot.Term < r.currentTerm || snapshot.Index < r.storage.FirstIndex() {
+				continue
+			}
+
+			// If last entry in snapshot exists in our log.
+			if snapshot.Index < r.storage.NextIndex() {
+				entry, err := r.storage.GetEntry(snapshot.Index)
+
+				if err != nil {
+					panic(fmt.Errorf("couldn't retrieve entry: %v", err))
+				}
+
+				// Snapshot is already a prefix of our log, so
+				// discard it.
+				if entry.Term == snapshot.Term {
+					continue
+				}
+			}
+
+			// Restore state machine using snapshots contents.
 			r.sm.Restore(snapshot)
 			r.commitIndex = snapshot.Index
 			r.appliedIndex = snapshot.Index
+			r.becomeFollower(snapshot.Term)
+
+			if err := r.storage.SetSnapshot(snapshot); err != nil {
+				panic(fmt.Errorf("couldn't save snapshot: %v", err))
+			}
 		}
 	}
 }
