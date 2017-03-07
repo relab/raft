@@ -246,6 +246,7 @@ func (n *Node) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest) 
 	return n.Raft.HandleAppendEntriesRequest(req), nil
 }
 
+// GetState implements gorums.RaftServer.
 func (n *Node) GetState(ctx context.Context, req *pb.SnapshotRequest) (*commonpb.Snapshot, error) {
 	future := make(chan *commonpb.Snapshot)
 	n.Raft.snapCh <- future
