@@ -456,6 +456,8 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	}
 
 	if !success && !r.catchingUp {
+		r.logger.log("sending catch-up request")
+
 		// Allow leader to be set on unsuccessful if there is no
 		// previous leader.
 		if r.leader == None {
@@ -606,6 +608,7 @@ func (r *Raft) runStateMachine() {
 		// Lock to prevent Appendentries before the snapshot has
 		// been applied.
 		r.Lock()
+		r.logger.log(fmt.Sprintf("received snapshot index:%d term:%d", snapshot.Index, snapshot.Term))
 
 		// Disable baseline/election timeout as we are not handling
 		// append entries while applying the snapshot.
@@ -621,23 +624,33 @@ func (r *Raft) runStateMachine() {
 
 		// Snapshot might be nil if the request failed.
 		if snapshot == nil {
+			r.logger.log("received nil snapshot")
 			return
 		}
 
 		// Discard old snapshot.
 		if snapshot.Term < r.currentTerm || snapshot.Index < r.storage.FirstIndex() {
+			r.logger.log(fmt.Sprintf("received old snapshot index:%d term:%d < %d %d",
+				snapshot.Index, snapshot.Term,
+				r.currentTerm, r.storage.NextIndex()-1,
+			))
 			return
 		}
 
 		// If last entry in snapshot exists in our log.
-		log.Println(snapshot.Index, r.storage.NextIndex())
 		switch {
 		case snapshot.Index == r.snapshotIndex:
 			// Snapshot is already a prefix of our log, so
 			// discard it.
 			if snapshot.Term == r.snapshotTerm {
+				r.logger.log("received identical snapshot")
 				return
 			}
+
+			r.logger.log(fmt.Sprintf("received snapshot with same index %d but different term %d != %d",
+				snapshot.Index, snapshot.Term, r.snapshotTerm,
+			))
+
 		case snapshot.Index < r.storage.NextIndex():
 			entry, err := r.storage.GetEntry(snapshot.Index)
 
@@ -648,9 +661,14 @@ func (r *Raft) runStateMachine() {
 			// Snapshot is already a prefix of our log, so
 			// discard it.
 			if entry.Term == snapshot.Term {
+				r.logger.log("snapshot is already part of our log")
 				return
 			}
 		}
+
+		r.logger.log(fmt.Sprintf("restoring state machine from snapshot index:%d term:%d",
+			snapshot.Index, snapshot.Term,
+		))
 
 		// Restore state machine using snapshots contents.
 		r.sm.Restore(snapshot)

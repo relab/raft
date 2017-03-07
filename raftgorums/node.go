@@ -283,10 +283,14 @@ func (n *Node) doCatchUp(conf *gorums.Configuration, nextIndex uint64, matchInde
 		res, err := conf.AppendEntries(ctx, request)
 		cancel()
 
+		log.Printf("Sending catch-up prevIndex:%d prevTerm:%d entries:%d",
+			request.PrevLogIndex, request.PrevLogTerm, len(entries),
+		)
+
 		if err != nil {
 
 			// TODO Better error message.
-			log.Println(fmt.Sprintf("Catch-up AppendEntries failed = %v", err))
+			log.Printf("Catch-up AppendEntries failed = %v\n", err)
 
 			close(matchIndex)
 			return
