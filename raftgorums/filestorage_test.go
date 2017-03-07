@@ -2,6 +2,7 @@ package raftgorums_test
 
 import (
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"reflect"
 	"testing"
@@ -10,7 +11,7 @@ import (
 	"github.com/relab/raft/raftgorums"
 )
 
-func newFileStorage(t *testing.T, overwrite bool, filepath ...string) (fs *raftgorums.FileStorage, path string, cleanup func()) {
+func newFileStorage(t testing.TB, overwrite bool, filepath ...string) (fs *raftgorums.FileStorage, path string, cleanup func()) {
 	var dbfile string
 
 	if len(filepath) < 1 {
@@ -109,5 +110,23 @@ func TestFileStorageStoreEntry(t *testing.T) {
 
 	if !reflect.DeepEqual(got, expected) {
 		t.Errorf("got %+v, want %+v", got, expected)
+	}
+}
+
+func BenchmarkSnapshot(b *testing.B) {
+	storage, _, cleanup := newFileStorage(b, true)
+	defer cleanup()
+
+	// 2MB.
+	data := make([]byte, 2000000)
+	rand.Read(data)
+
+	snapshot := &commonpb.Snapshot{Data: data}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := storage.SetSnapshot(snapshot); err != nil {
+			b.Error(err)
+		}
 	}
 }
