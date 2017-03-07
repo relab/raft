@@ -404,7 +404,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 
 		toSave := req.Entries[req.PrevLogIndex-lcd+1:]
 
-		err = r.storage.StoreEntries(toSave)
+		err = r.storage.SetEntries(toSave)
 
 		if err != nil {
 			panic(fmt.Errorf("couldn't save entries: %v", err))
@@ -739,7 +739,7 @@ LOOP:
 		}
 	}
 
-	err := r.storage.StoreEntries(toSave)
+	err := r.storage.SetEntries(toSave)
 
 	if err != nil {
 		panic(fmt.Errorf("couldn't save entries: %v", err))

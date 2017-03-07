@@ -136,7 +136,7 @@ func get(bucket *bolt.Bucket, key uint64) uint64 {
 }
 
 // StoreEntries implements the Storage interface.
-func (fs *FileStorage) StoreEntries(entries []*commonpb.Entry) error {
+func (fs *FileStorage) SetEntries(entries []*commonpb.Entry) error {
 	tx, err := fs.Begin(true)
 
 	if err != nil {

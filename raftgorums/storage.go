@@ -14,7 +14,7 @@ type Storage interface {
 	Set(key uint64, value uint64) error
 	Get(key uint64) (uint64, error)
 
-	StoreEntries([]*commonpb.Entry) error
+	SetEntries([]*commonpb.Entry) error
 	GetEntry(index uint64) (*commonpb.Entry, error)
 	GetEntries(from, to uint64) ([]*commonpb.Entry, error)
 	RemoveEntriesFrom(index uint64) error
@@ -48,7 +48,7 @@ func (m *Memory) Get(key uint64) (uint64, error) {
 }
 
 // StoreEntries implements the Storage interface.
-func (m *Memory) StoreEntries(entries []*commonpb.Entry) error {
+func (m *Memory) SetEntries(entries []*commonpb.Entry) error {
 	m.log = append(m.log, entries...)
 	return nil
 }
