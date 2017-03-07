@@ -114,11 +114,11 @@ func TestFileStorageStoreEntry(t *testing.T) {
 }
 
 func BenchmarkSnapshot(b *testing.B) {
-	storage, _, cleanup := newFileStorage(b, true)
+	storage, _, cleanup := newFileStorage(b, true, "benchsnap.bolt")
 	defer cleanup()
 
-	// 2MB.
-	data := make([]byte, 2000000)
+	// 200kb.
+	data := make([]byte, 200000)
 	rand.Read(data)
 
 	snapshot := &commonpb.Snapshot{Data: data}
