@@ -230,7 +230,10 @@ func (fs *FileStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error)
 			}
 
 			entries[i-first] = &entry
+			continue
 		}
+
+		panic(fmt.Sprintf("filestorage: gap in range [%d, %d)", first, last))
 	}
 
 	return entries, nil
