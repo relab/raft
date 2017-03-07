@@ -637,6 +637,8 @@ func (r *Raft) runStateMachine() {
 			r.sm.Restore(snapshot)
 			r.commitIndex = snapshot.Index
 			r.appliedIndex = snapshot.Index
+			r.snapshotTerm = snapshot.Term
+			r.snapshotIndex = snapshot.Index
 			r.becomeFollower(snapshot.Term)
 
 			if err := r.storage.SetSnapshot(snapshot); err != nil {
