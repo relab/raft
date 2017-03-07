@@ -113,11 +113,7 @@ func (n *Node) Run() error {
 
 			}
 
-			// Lock to prevent Appendentries before the snapshot has
-			// been applied.
-			n.Raft.Lock()
 			n.Raft.restoreCh <- snapshot
-			n.Raft.Unlock()
 
 		case req := <-rvreqout:
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)

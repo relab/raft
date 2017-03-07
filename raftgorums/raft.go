@@ -597,6 +597,62 @@ func (r *Raft) runStateMachine() {
 		}
 	}
 
+	restore := func(snapshot *commonpb.Snapshot) {
+		// Lock to prevent Appendentries before the snapshot has
+		// been applied.
+		r.Lock()
+
+		// Disable baseline/election timeout as we are not handling
+		// append entries while applying the snapshot.
+		r.baseline.Disable()
+		r.election.Disable()
+
+		defer func() {
+			r.catchingUp = false
+			r.baseline.Restart()
+			r.election.Restart()
+			r.Unlock()
+		}()
+
+		// Snapshot might be nil if the request failed.
+		if snapshot == nil {
+			return
+		}
+
+		// Discard old snapshot.
+		if snapshot.Term < r.currentTerm || snapshot.Index < r.storage.FirstIndex() {
+			return
+		}
+
+		// If last entry in snapshot exists in our log.
+		log.Println(snapshot.Index, r.storage.NextIndex())
+		if snapshot.Index < r.storage.NextIndex() {
+			entry, err := r.storage.GetEntry(snapshot.Index)
+
+			if err != nil {
+				panic(fmt.Errorf("couldn't retrieve entry: %v", err))
+			}
+
+			// Snapshot is already a prefix of our log, so
+			// discard it.
+			if entry.Term == snapshot.Term {
+				return
+			}
+		}
+
+		// Restore state machine using snapshots contents.
+		r.sm.Restore(snapshot)
+		r.commitIndex = snapshot.Index
+		r.appliedIndex = snapshot.Index
+		r.snapshotTerm = snapshot.Term
+		r.snapshotIndex = snapshot.Index
+		r.becomeFollower(snapshot.Term)
+
+		if err := r.storage.SetSnapshot(snapshot); err != nil {
+			panic(fmt.Errorf("couldn't save snapshot: %v", err))
+		}
+	}
+
 	for {
 		select {
 		case commit := <-r.applyCh:
@@ -609,55 +665,7 @@ func (r *Raft) runStateMachine() {
 		case future := <-r.snapCh:
 			future <- r.sm.Snapshot()
 		case snapshot := <-r.restoreCh:
-			// Disable election timeout as we are not handling
-			// append entries while applying the snapshot.
-			r.election.Disable()
-
-			// Snapshot might be nil if the request failed.
-			if snapshot == nil {
-				r.catchingUp = false
-				r.election.Restart()
-				continue
-			}
-
-			// Discard old snapshot.
-			if snapshot.Term < r.currentTerm || snapshot.Index < r.storage.FirstIndex() {
-				r.catchingUp = false
-				r.election.Restart()
-				continue
-			}
-
-			// If last entry in snapshot exists in our log.
-			log.Println(snapshot.Index, r.storage.NextIndex())
-			if snapshot.Index < r.storage.NextIndex() {
-				entry, err := r.storage.GetEntry(snapshot.Index)
-
-				if err != nil {
-					panic(fmt.Errorf("couldn't retrieve entry: %v", err))
-				}
-
-				// Snapshot is already a prefix of our log, so
-				// discard it.
-				if entry.Term == snapshot.Term {
-					r.catchingUp = false
-					r.election.Restart()
-					continue
-				}
-			}
-
-			// Restore state machine using snapshots contents.
-			r.sm.Restore(snapshot)
-			r.commitIndex = snapshot.Index
-			r.appliedIndex = snapshot.Index
-			r.snapshotTerm = snapshot.Term
-			r.snapshotIndex = snapshot.Index
-			r.becomeFollower(snapshot.Term)
-
-			if err := r.storage.SetSnapshot(snapshot); err != nil {
-				panic(fmt.Errorf("couldn't save snapshot: %v", err))
-			}
-
-			r.catchingUp = false
+			restore(snapshot)
 		}
 	}
 }
