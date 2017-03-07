@@ -596,7 +596,10 @@ func (r *Raft) runStateMachine() {
 		var res interface{}
 		if commit.entry.EntryType != commonpb.EntryInternal {
 			res = r.sm.Apply(commit.entry)
-			r.appliedIndex = commit.entry.Index
+			// TODO Revise appliedIndex and its need.
+			if commit.entry.Index > 0 {
+				r.appliedIndex = commit.entry.Index
+			}
 		}
 
 		if commit.future != nil {
