@@ -616,16 +616,19 @@ func (r *Raft) runStateMachine() {
 			// Snapshot might be nil if the request failed.
 			if snapshot == nil {
 				r.catchingUp = false
+				r.election.Restart()
 				continue
 			}
 
 			// Discard old snapshot.
 			if snapshot.Term < r.currentTerm || snapshot.Index < r.storage.FirstIndex() {
 				r.catchingUp = false
+				r.election.Restart()
 				continue
 			}
 
 			// If last entry in snapshot exists in our log.
+			log.Println(snapshot.Index, r.storage.NextIndex())
 			if snapshot.Index < r.storage.NextIndex() {
 				entry, err := r.storage.GetEntry(snapshot.Index)
 
@@ -637,6 +640,7 @@ func (r *Raft) runStateMachine() {
 				// discard it.
 				if entry.Term == snapshot.Term {
 					r.catchingUp = false
+					r.election.Restart()
 					continue
 				}
 			}
