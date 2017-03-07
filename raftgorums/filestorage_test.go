@@ -1,7 +1,9 @@
 package raftgorums_test
 
 import (
+	"fmt"
 	"io/ioutil"
+	"math"
 	"math/rand"
 	"os"
 	"reflect"
@@ -128,5 +130,50 @@ func BenchmarkSnapshot(b *testing.B) {
 		if err := storage.SetSnapshot(snapshot); err != nil {
 			b.Error(err)
 		}
+	}
+}
+
+func BenchmarkThroughput(b *testing.B) {
+	rand.Seed(500)
+
+	type benchmark struct {
+		name           string
+		numEntries     int
+		payloadInBytes int
+	}
+
+	var benchmarks []benchmark
+
+	for i := 0; i < 5; i++ {
+		for _, payload := range []int{10, 50, 100, 200, 500, 1000} {
+			numEntries := int(math.Pow(10, float64(i)))
+			name := fmt.Sprintf("%d entries with %d bytes", numEntries, payload)
+			benchmarks = append(benchmarks, benchmark{
+				name,
+				numEntries,
+				payload,
+			})
+		}
+	}
+
+	for _, bm := range benchmarks {
+		storage, _, cleanup := newFileStorage(b, true, "benchthroughput.bolt")
+		entries := make([]*commonpb.Entry, bm.numEntries)
+
+		for i := 0; i < bm.numEntries; i++ {
+			b := make([]byte, bm.payloadInBytes)
+			rand.Read(b)
+			entries[i] = &commonpb.Entry{Data: b}
+		}
+
+		b.Run(bm.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				if err := storage.StoreEntries(entries); err != nil {
+					b.Error(err)
+				}
+			}
+		})
+
+		cleanup()
 	}
 }
