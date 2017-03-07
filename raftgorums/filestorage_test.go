@@ -95,7 +95,7 @@ func TestFileStorageStoreEntry(t *testing.T) {
 
 	expected := &commonpb.Entry{Term: 5}
 
-	err := storage.SetEntries([]*commonpb.Entry{expected})
+	err := storage.StoreEntries([]*commonpb.Entry{expected})
 
 	if err != nil {
 		t.Fatal(err)

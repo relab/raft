@@ -10,18 +10,18 @@ import (
 	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
-var log2 = []*commonpb.Entry{
-	&commonpb.Entry{
+var log2 = map[uint64]*commonpb.Entry{
+	0: &commonpb.Entry{
 		Term: 4,
 		Data: []byte("first"),
 	},
-	&commonpb.Entry{
+	1: &commonpb.Entry{
 		Term: 5,
 		Data: []byte("second"),
 	},
 }
 
-func newMemory(t uint64, l []*commonpb.Entry) *raftgorums.Memory {
+func newMemory(t uint64, l map[uint64]*commonpb.Entry) *raftgorums.Memory {
 	return raftgorums.NewMemory(map[uint64]uint64{
 		raftgorums.KeyTerm:     t,
 		raftgorums.KeyVotedFor: raftgorums.None,

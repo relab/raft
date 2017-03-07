@@ -10,11 +10,12 @@ import (
 )
 
 var (
-	stateBucket = []byte("state")
-	logBucket   = []byte("log")
+	stateBucket    = []byte("state")
+	logBucket      = []byte("log")
+	snapshotBucket = []byte("snapshot")
 )
 
-// ErrKeyNotFound that the given key could not be found in the storage.
+// ErrKeyNotFound means that the given key could not be found in the storage.
 var ErrKeyNotFound = errors.New("key not found")
 
 // FileStorage is an implementation of the Storage interface for file based
@@ -22,7 +23,8 @@ var ErrKeyNotFound = errors.New("key not found")
 type FileStorage struct {
 	*bolt.DB
 
-	nextIndex uint64
+	firstIndex uint64
+	nextIndex  uint64
 }
 
 // NewFileStorage returns a new FileStorage using the file given with the path
@@ -71,15 +73,17 @@ func NewFileStorage(path string, overwrite bool) (*FileStorage, error) {
 		return nil, err
 	}
 
-	nextIndex := get(tx.Bucket(stateBucket), KeyLogLength)
+	firstIndex := get(tx.Bucket(stateBucket), KeyFirstIndex)
+	nextIndex := get(tx.Bucket(stateBucket), KeyNextIndex)
 
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
 	return &FileStorage{
-		DB:        db,
-		nextIndex: nextIndex,
+		DB:         db,
+		firstIndex: firstIndex,
+		nextIndex:  nextIndex,
 	}, nil
 }
 
@@ -130,13 +134,12 @@ func get(bucket *bolt.Bucket, key uint64) uint64 {
 		return binary.BigEndian.Uint64(val)
 	}
 
-	// Default to 0. This lets us get KeyTerm and KeyVotedFor without having
-	// to set them first.
+	// Default to 0. This lets us get values not yet set.
 	return 0
 }
 
 // StoreEntries implements the Storage interface.
-func (fs *FileStorage) SetEntries(entries []*commonpb.Entry) error {
+func (fs *FileStorage) StoreEntries(entries []*commonpb.Entry) error {
 	tx, err := fs.Begin(true)
 
 	if err != nil {
@@ -164,7 +167,7 @@ func (fs *FileStorage) SetEntries(entries []*commonpb.Entry) error {
 		fs.nextIndex++
 	}
 
-	if err := set(tx.Bucket(stateBucket), KeyLogLength, fs.nextIndex); err != nil {
+	if err := set(tx.Bucket(stateBucket), KeyNextIndex, fs.nextIndex); err != nil {
 		return err
 	}
 
@@ -201,7 +204,7 @@ func (fs *FileStorage) GetEntry(index uint64) (*commonpb.Entry, error) {
 }
 
 // GetEntries implements the Storage interface.
-func (fs *FileStorage) GetEntries(from, to uint64) ([]*commonpb.Entry, error) {
+func (fs *FileStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error) {
 	tx, err := fs.Begin(false)
 
 	if err != nil {
@@ -212,10 +215,10 @@ func (fs *FileStorage) GetEntries(from, to uint64) ([]*commonpb.Entry, error) {
 
 	bucket := tx.Bucket(logBucket)
 
-	entries := make([]*commonpb.Entry, to-from)
+	entries := make([]*commonpb.Entry, last-first)
 	k := make([]byte, 8)
 
-	for i := from; i < to; i++ {
+	for i := first; i < last; i++ {
 		binary.BigEndian.PutUint64(k, i)
 
 		if val := bucket.Get(k); val != nil {
@@ -226,15 +229,15 @@ func (fs *FileStorage) GetEntries(from, to uint64) ([]*commonpb.Entry, error) {
 				return nil, err
 			}
 
-			entries[i-from] = &entry
+			entries[i-first] = &entry
 		}
 	}
 
 	return entries, nil
 }
 
-// RemoveEntriesFrom implements the Storage interface.
-func (fs *FileStorage) RemoveEntriesFrom(index uint64) error {
+// RemoveEntries implements the Storage interface.
+func (fs *FileStorage) RemoveEntries(first, last uint64) error {
 	tx, err := fs.Begin(true)
 
 	if err != nil {
@@ -245,10 +248,10 @@ func (fs *FileStorage) RemoveEntriesFrom(index uint64) error {
 
 	c := tx.Bucket(logBucket).Cursor()
 	k := make([]byte, 8)
-	binary.BigEndian.PutUint64(k, index)
+	binary.BigEndian.PutUint64(k, first)
 	c.Seek(k)
 
-	for i := index; i < fs.nextIndex; i++ {
+	for i := first; i <= last; i++ {
 		if err := c.Delete(); err != nil {
 			return err
 		}
@@ -256,16 +259,31 @@ func (fs *FileStorage) RemoveEntriesFrom(index uint64) error {
 		c.Next()
 	}
 
-	fs.nextIndex = index
+	fs.nextIndex = first
 
-	if err := set(tx.Bucket(stateBucket), KeyLogLength, fs.nextIndex); err != nil {
+	if err := set(tx.Bucket(stateBucket), KeyNextIndex, fs.nextIndex); err != nil {
 		return err
 	}
 
 	return tx.Commit()
 }
 
-// NumEntries implements the Storage interface.
-func (fs *FileStorage) NumEntries() uint64 {
+// FirstIndex implements the Storage interface.
+func (fs *FileStorage) FirstIndex() uint64 {
+	return fs.firstIndex
+}
+
+// NextIndex implements the Storage interface.
+func (fs *FileStorage) NextIndex() uint64 {
 	return fs.nextIndex
+}
+
+// SetSnapshot implements the Storage interface.
+func (fs *FileStorage) SetSnapshot(*commonpb.Snapshot) error {
+	panic("not implemented")
+}
+
+// GetSnapshot implements the Storage interface.
+func (fs *FileStorage) GetSnapshot() (*commonpb.Snapshot, error) {
+	panic("not implemented")
 }
