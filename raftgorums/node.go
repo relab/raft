@@ -219,9 +219,6 @@ func (n *Node) Run() error {
 }
 
 func (n *Node) addBackNode(nodeID uint32) {
-	n.Raft.Lock()
-	n.Raft.catchingUp = false
-	n.Raft.Unlock()
 	delete(n.catchingUp, nodeID)
 
 	newSet := append(n.conf.NodeIDs(), nodeID)

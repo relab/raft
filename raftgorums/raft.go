@@ -601,8 +601,15 @@ func (r *Raft) runStateMachine() {
 		case future := <-r.snapCh:
 			future <- r.sm.Snapshot()
 		case snapshot := <-r.restoreCh:
+			// Snapshot might be nil if the request failed.
+			if snapshot == nil {
+				r.catchingUp = false
+				continue
+			}
+
 			// Discard old snapshot.
 			if snapshot.Term < r.currentTerm || snapshot.Index < r.storage.FirstIndex() {
+				r.catchingUp = false
 				continue
 			}
 
@@ -617,6 +624,7 @@ func (r *Raft) runStateMachine() {
 				// Snapshot is already a prefix of our log, so
 				// discard it.
 				if entry.Term == snapshot.Term {
+					r.catchingUp = false
 					continue
 				}
 			}
@@ -630,6 +638,8 @@ func (r *Raft) runStateMachine() {
 			if err := r.storage.SetSnapshot(snapshot); err != nil {
 				panic(fmt.Errorf("couldn't save snapshot: %v", err))
 			}
+
+			r.catchingUp = false
 		}
 	}
 }
