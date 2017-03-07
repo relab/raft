@@ -136,5 +136,5 @@ func (m *Memory) SetSnapshot(*commonpb.Snapshot) error {
 
 // GetSnapshot implements the Storage interface.
 func (m *Memory) GetSnapshot() (*commonpb.Snapshot, error) {
-	panic("not implemented")
+	return &commonpb.Snapshot{}, nil
 }
