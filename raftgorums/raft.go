@@ -878,11 +878,20 @@ func (r *Raft) getNextEntries(nextIndex uint64) []*commonpb.Entry {
 
 // TODO Assumes caller holds lock on Raft.
 func (r *Raft) getAppendEntriesRequest(nextIndex uint64, entries []*commonpb.Entry) *pb.AppendEntriesRequest {
+	var prevTerm, prevIndex uint64 = 0, nextIndex - 1
+
+	if prevIndex == r.snapshotIndex {
+		prevIndex = r.snapshotIndex
+		prevTerm = r.snapshotTerm
+	} else {
+		prevTerm = r.logTerm(prevIndex)
+	}
+
 	return &pb.AppendEntriesRequest{
 		LeaderID:     r.id,
 		Term:         r.currentTerm,
-		PrevLogIndex: nextIndex - 1,
-		PrevLogTerm:  r.logTerm(nextIndex - 1),
+		PrevLogIndex: prevIndex,
+		PrevLogTerm:  prevTerm,
 		CommitIndex:  r.commitIndex,
 		Entries:      entries,
 	}
