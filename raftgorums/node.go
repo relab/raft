@@ -179,19 +179,19 @@ func (n *Node) Run() error {
 				continue
 			}
 
-			node := n.getNodeID(creq.followerID)
+			nodeID := n.getNodeID(creq.followerID)
 			// We use 2 peers as we need to count the leader.
-			single, err := n.mgr.NewConfiguration([]uint32{node}, NewQuorumSpec(2))
+			single, err := n.mgr.NewConfiguration([]uint32{nodeID}, NewQuorumSpec(2))
 
 			if err != nil {
-				panic(fmt.Sprintf("tried to catch up node %d->%d: %v", creq.followerID, node, err))
+				panic(fmt.Sprintf("tried to catch up node %d->%d: %v", creq.followerID, nodeID, err))
 			}
 
 			tmpSet := make([]uint32, len(oldSet)-1)
 
 			var i int
 			for _, id := range oldSet {
-				if id == node {
+				if id == nodeID {
 					continue
 				}
 
@@ -212,7 +212,7 @@ func (n *Node) Run() error {
 			}
 
 			matchIndex := make(chan uint64)
-			n.catchingUp[node] = matchIndex
+			n.catchingUp[nodeID] = matchIndex
 			go n.doCatchUp(single, creq.nextIndex, matchIndex)
 		}
 	}
