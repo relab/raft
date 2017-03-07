@@ -160,7 +160,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 	var commitIndex uint64
 	var appliedIndex uint64
 	var snapshotTerm uint64
-	var snaphotIndex uint64
+	var snapshotIndex uint64
 	snapshot, err := cfg.Storage.GetSnapshot()
 
 	// Restore state machine if snapshot exists.
@@ -169,7 +169,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		commitIndex = snapshot.Index
 		appliedIndex = snapshot.Index
 		snapshotTerm = snapshot.Term
-		snaphotIndex = snapshot.Index
+		snapshotIndex = snapshot.Index
 	}
 
 	electionTimeout := randomTimeout(cfg.ElectionTimeout)
@@ -184,7 +184,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		commitIndex:       commitIndex,
 		appliedIndex:      appliedIndex,
 		snapshotTerm:      snapshotTerm,
-		snapshotIndex:     snaphotIndex,
+		snapshotIndex:     snapshotIndex,
 		sm:                sm,
 		storage:           cfg.Storage,
 		batch:             cfg.Batch,
