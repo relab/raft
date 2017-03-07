@@ -281,17 +281,16 @@ func (n *Node) doCatchUp(conf *gorums.Configuration, nextIndex uint64, matchInde
 
 		ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
 		res, err := conf.AppendEntries(ctx, request)
+		cancel()
 
 		if err != nil {
+
 			// TODO Better error message.
 			log.Println(fmt.Sprintf("Catch-up AppendEntries failed = %v", err))
 
-			if res.AppendEntriesResponse == nil {
-				continue
-			}
+			close(matchIndex)
+			return
 		}
-
-		cancel()
 
 		response := res.AppendEntriesResponse
 
