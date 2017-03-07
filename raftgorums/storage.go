@@ -12,6 +12,7 @@ const (
 	KeyVotedFor
 	KeyFirstIndex
 	KeyNextIndex
+	KeySnapshot
 )
 
 // Storage provides an interface for storing and retrieving Raft state.

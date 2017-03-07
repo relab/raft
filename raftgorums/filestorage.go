@@ -3,6 +3,7 @@ package raftgorums
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/boltdb/bolt"
@@ -282,11 +283,59 @@ func (fs *FileStorage) NextIndex() uint64 {
 }
 
 // SetSnapshot implements the Storage interface.
-func (fs *FileStorage) SetSnapshot(*commonpb.Snapshot) error {
-	panic("not implemented")
+func (fs *FileStorage) SetSnapshot(snapshot *commonpb.Snapshot) error {
+	tx, err := fs.Begin(true)
+
+	if err != nil {
+		return err
+	}
+
+	defer tx.Rollback()
+
+	k := make([]byte, 8)
+	binary.BigEndian.PutUint64(k, KeySnapshot)
+
+	v, err := snapshot.Marshal()
+
+	if err != nil {
+		return err
+	}
+
+	if err := tx.Bucket(stateBucket).Put(k, v); err != nil {
+		return err
+	}
+
+	fs.firstIndex = snapshot.Index
+	fs.nextIndex = snapshot.Index + 1
+
+	return tx.Commit()
 }
 
 // GetSnapshot implements the Storage interface.
 func (fs *FileStorage) GetSnapshot() (*commonpb.Snapshot, error) {
-	panic("not implemented")
+	tx, err := fs.Begin(false)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer tx.Rollback()
+
+	k := make([]byte, 8)
+	binary.BigEndian.PutUint64(k, KeySnapshot)
+
+	val := tx.Bucket(stateBucket).Get(k)
+
+	if val != nil {
+		var snapshot commonpb.Snapshot
+		err := snapshot.Unmarshal(val)
+
+		if err != nil {
+			return nil, err
+		}
+
+		return &snapshot, nil
+	}
+
+	return nil, ErrKeyNotFound
 }
