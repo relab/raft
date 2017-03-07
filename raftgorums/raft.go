@@ -585,15 +585,20 @@ func (r *Raft) newCommit(old uint64) {
 }
 
 func (r *Raft) runStateMachine() {
-	apply := func(entry *commonpb.Entry, future *raft.EntryFuture) {
-		var res interface{}
-		if entry.EntryType != commonpb.EntryInternal {
-			res = r.sm.Apply(entry)
-			r.appliedIndex = entry.Index
+	apply := func(commit *entryFuture) {
+		// Reads have Index set to 0, so don't skip those.
+		if commit.entry.Index > 0 && commit.entry.Index <= r.appliedIndex {
+			return
 		}
 
-		if future != nil {
-			future.Respond(res)
+		var res interface{}
+		if commit.entry.EntryType != commonpb.EntryInternal {
+			res = r.sm.Apply(commit.entry)
+			r.appliedIndex = commit.entry.Index
+		}
+
+		if commit.future != nil {
+			commit.future.Respond(res)
 		}
 	}
 
@@ -656,12 +661,7 @@ func (r *Raft) runStateMachine() {
 	for {
 		select {
 		case commit := <-r.applyCh:
-			// Reads have Index set to 0, so don't skip those.
-			if commit.entry.Index > 0 && commit.entry.Index <= r.appliedIndex {
-				continue
-			}
-
-			apply(commit.entry, commit.future)
+			apply(commit)
 		case future := <-r.snapCh:
 			future <- r.sm.Snapshot()
 		case snapshot := <-r.restoreCh:
