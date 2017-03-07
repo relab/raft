@@ -45,7 +45,7 @@ func NewNode(server *grpc.Server, sm raft.StateMachine, cfg *Config) *Node {
 	lookup := make(map[uint64]int)
 
 	for i := 0; i < len(cfg.Nodes); i++ {
-		if uint64(i) == id {
+		if uint64(i)+1 == id {
 			continue
 		}
 
