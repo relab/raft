@@ -99,8 +99,11 @@ func (n *Node) Run() error {
 
 		select {
 		case req := <-sreqout:
+			n.Raft.Lock()
+			leader := n.Raft.leader
+			n.Raft.Unlock()
 			ctx, cancel := context.WithTimeout(context.Background(), TCPConnect*time.Millisecond)
-			node, _ := n.mgr.Node(n.getNodeID(req.FollowerID))
+			node, _ := n.mgr.Node(n.getNodeID(leader))
 			snapshot, err := node.RaftClient.GetState(ctx, req)
 			cancel()
 
@@ -316,5 +319,5 @@ func (n *Node) doCatchUp(conf *gorums.Configuration, nextIndex uint64, matchInde
 }
 
 func (n *Node) getNodeID(raftID uint64) uint32 {
-	return n.mgr.NodeIDs()[n.lookup[raftID]]
+	return n.mgr.NodeIDs()[n.lookup[raftID-1]]
 }
