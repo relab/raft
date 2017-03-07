@@ -601,6 +601,10 @@ func (r *Raft) runStateMachine() {
 		case future := <-r.snapCh:
 			future <- r.sm.Snapshot()
 		case snapshot := <-r.restoreCh:
+			// Disable election timeout as we are not handling
+			// append entries while applying the snapshot.
+			r.election.Disable()
+
 			// Snapshot might be nil if the request failed.
 			if snapshot == nil {
 				r.catchingUp = false
