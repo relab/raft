@@ -31,6 +31,11 @@ type Node struct {
 	conf *gorums.Configuration
 }
 
+type catchUpRequest struct {
+	followerID uint32
+	nextIndex  uint64
+}
+
 // NewNode returns a Node with an instance of Raft given the configuration.
 func NewNode(server *grpc.Server, sm raft.StateMachine, cfg *Config) *Node {
 	peers := make([]string, len(cfg.Nodes))
@@ -100,20 +105,58 @@ func (n *Node) Run() error {
 		select {
 		case req := <-sreqout:
 			ctx, cancel := context.WithTimeout(context.Background(), TCPConnect*time.Millisecond)
-			node, _ := n.mgr.Node(n.getNodeID(req.followerID))
-			/*res*/ _, err := node.RaftClient.InstallSnapshot(ctx, req.snapshot)
-			cancel()
+			followerID := n.getNodeID(req.followerID)
 
-			if err != nil {
-				// TODO Better error message.
-				log.Println(fmt.Sprintf("InstallSnapshot failed = %v", err))
-
+			// Continue if we can't remove the node from the
+			// configuration due to the quorum size becoming to
+			// small.
+			if ok := n.removeNode(followerID); !ok {
 				continue
 			}
 
-			// TODO n.Raft.HandleInstallSnapshotResponse(res)
+			// We can ignore the found return value as we are
+			// getting the ID directly from the manager, i.e., it is
+			// never missing.
+			follower, _ := n.mgr.Node(followerID)
 
-			// OLD n.Raft.restoreCh <- snapshot
+			// Transferring the snapshot might take substantial
+			// time, do it asynchronously.
+			go func() {
+				// defer n.addNode(followerID)???
+				res, err := follower.RaftClient.InstallSnapshot(ctx, req.snapshot)
+				cancel()
+
+				// On error make sure to add the follower back
+				// into the main configuration.
+				if err != nil {
+					// TODO Better error message.
+					log.Println(fmt.Sprintf("InstallSnapshot failed = %v", err))
+
+					n.addNode(followerID)
+
+					return
+				}
+
+				// If follower is in a higher term, add the
+				// follower back into the main configuration and
+				// return.
+				if !n.Raft.HandleInstallSnapshotResponse(res) {
+					n.addNode(followerID)
+					return
+				}
+
+				// We use 2 peers as we need to count the leader.
+				single, err := n.mgr.NewConfiguration([]uint32{followerID}, NewQuorumSpec(2))
+
+				if err != nil {
+					panic(fmt.Sprintf("tried to catch up node %d->%d: %v",
+						req.followerID, followerID, err,
+					))
+				}
+
+				matchCh := make(chan uint64)
+				n.Raft.catchUp(single, req.snapshot.LastIncludedIndex+1, matchCh)
+			}()
 
 		case req := <-rvreqout:
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
@@ -156,69 +199,64 @@ func (n *Node) Run() error {
 				select {
 				case index, ok := <-matchIndex:
 					if !ok {
-						n.addBackNode(nodeID)
+						n.addNode(nodeID)
 						continue
 					}
 
 					matchIndex <- res.MatchIndex
 
 					if index == res.MatchIndex {
-						n.addBackNode(nodeID)
+						n.addNode(nodeID)
 					}
 				default:
 				}
 			}
-
-		case creq := <-n.catchUp:
-			oldSet := n.conf.NodeIDs()
-
-			// Don't remove servers when we would've gone below the
-			// quorum size. The quorum function handles recovery
-			// when a majority fails.
-			if len(oldSet)-1 < len(n.peers)/2 {
-				continue
-			}
-
-			nodeID := n.getNodeID(creq.followerID)
-			// We use 2 peers as we need to count the leader.
-			single, err := n.mgr.NewConfiguration([]uint32{nodeID}, NewQuorumSpec(2))
-
-			if err != nil {
-				panic(fmt.Sprintf("tried to catch up node %d->%d: %v", creq.followerID, nodeID, err))
-			}
-
-			tmpSet := make([]uint32, len(oldSet)-1)
-
-			var i int
-			for _, id := range oldSet {
-				if id == nodeID {
-					continue
-				}
-
-				tmpSet[i] = id
-				i++
-			}
-
-			// It's important not to change the quorum size when
-			// removing the server. We reduce N by one so we don't
-			// wait on the recovering server.
-			n.conf, err = mgr.NewConfiguration(tmpSet, &QuorumSpec{
-				N: len(tmpSet),
-				Q: (len(n.peers) + 1) / 2,
-			})
-
-			if err != nil {
-				panic(fmt.Sprintf("tried to create new configuration %v: %v", tmpSet, err))
-			}
-
-			matchIndex := make(chan uint64)
-			n.catchingUp[nodeID] = matchIndex
-			go n.doCatchUp(single, creq.nextIndex, matchIndex)
 		}
 	}
 }
 
-func (n *Node) addBackNode(nodeID uint32) {
+// removeNode must be called from the select in node.Run().
+func (n *Node) removeNode(nodeID uint32) bool {
+	oldSet := n.conf.NodeIDs()
+
+	// Don't remove servers when we would've gone below the
+	// quorum size. The quorum function handles recovery
+	// when a majority fails.
+	if len(oldSet)-1 < len(n.peers)/2 {
+		return false
+	}
+
+	tmpSet := make([]uint32, len(oldSet)-1)
+
+	// Exclude node from main configuration.
+	var i int
+	for _, id := range oldSet {
+		if id == nodeID {
+			continue
+		}
+
+		tmpSet[i] = id
+		i++
+	}
+
+	// It's important not to change the quorum size when
+	// removing the server. We reduce N by one so we don't
+	// wait on the recovering server though.
+	var err error
+	n.conf, err = n.mgr.NewConfiguration(tmpSet, &QuorumSpec{
+		N: len(tmpSet),
+		Q: (len(n.peers) + 1) / 2,
+	})
+
+	if err != nil {
+		panic(fmt.Sprintf("tried to create new configuration %v: %v", tmpSet, err))
+	}
+
+	return true
+}
+
+// addNode must be called from the select in node.Run().
+func (n *Node) addNode(nodeID uint32) {
 	delete(n.catchingUp, nodeID)
 
 	newSet := append(n.conf.NodeIDs(), nodeID)
@@ -243,31 +281,9 @@ func (n *Node) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest) 
 	return n.Raft.HandleAppendEntriesRequest(req), nil
 }
 
-// GetState implements gorums.RaftServer.
-//func (n *Node) GetState(ctx context.Context, req *pb.SnapshotRequest) (*commonpb.Snapshot, error) {
-//	future := make(chan *commonpb.Snapshot)
-//	n.Raft.snapCh <- future
-//
-//	select {
-//	case snapshot := <-future:
-//		n.catchUp <- &catchUpRequest{
-//			nextIndex:  snapshot.LastIncludedIndex + 1,
-//			followerID: req.FollowerID,
-//		}
-//		return snapshot, nil
-//	case <-ctx.Done():
-//		return nil, ctx.Err()
-//	}
-//}
-
 // InstallSnapshot implements gorums.RaftServer.
 func (n *Node) InstallSnapshot(ctx context.Context, snapshot *commonpb.Snapshot) (*pb.InstallSnapshotResponse, error) {
 	return nil, nil
-}
-
-type catchUpRequest struct {
-	nextIndex  uint64
-	followerID uint64
 }
 
 func (n *Node) doCatchUp(conf *gorums.Configuration, nextIndex uint64, matchIndex chan uint64) {
