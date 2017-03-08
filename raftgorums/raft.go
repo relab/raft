@@ -362,7 +362,6 @@ func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestV
 		// AppendEntries RPC from current leader or granting a vote to
 		// candidate: convert to candidate. Here we are granting a vote
 		// to a candidate so we reset the election timeout.
-		r.baseline.Restart()
 		r.election.Restart()
 		r.heartbeat.Disable()
 		r.cycle()
@@ -420,8 +419,9 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 
 	if success {
 		r.leader = req.LeaderID
-		r.heardFromLeader = true
 		r.seenLeader = true
+		r.heardFromLeader = true
+		r.baseline.Restart()
 
 		lcd := req.PrevLogIndex + 1
 
@@ -765,7 +765,8 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		r.state = Leader
 		r.leader = r.id
 		r.seenLeader = true
-		r.heardFromLeader = true
+		r.heardFromLeader = false
+		r.baseline.Disable()
 		r.majorityNextIndex = logLen + 1
 		r.pending = list.New()
 		r.pendingReads = nil
@@ -791,7 +792,6 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 
 		// #L1 Upon election: send initial empty (no-op) AppendEntries
 		// RPCs (heartbeat) to each server.
-		r.baseline.Disable()
 		r.election.Restart()
 		r.heartbeat.Restart()
 		r.cycle()
@@ -956,8 +956,7 @@ func (r *Raft) becomeFollower(term uint64) {
 		}
 	}
 
-	// Reset election and baseline timeouts and disable heartbeat.
-	r.baseline.Restart()
+	// Reset election timeout and disable heartbeat.
 	r.election.Restart()
 	r.heartbeat.Disable()
 	r.cycle()
