@@ -369,7 +369,7 @@ func (n *noopMachine) Apply(*commonpb.Entry) interface{} {
 	return nil
 }
 
-func (n *noopMachine) Snapshot() *commonpb.Snapshot {
+func (n *noopMachine) Snapshot() <-chan *commonpb.Snapshot {
 	return nil
 }
 

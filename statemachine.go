@@ -8,6 +8,6 @@ import "github.com/relab/raft/commonpb"
 type StateMachine interface {
 	Apply(*commonpb.Entry) interface{}
 
-	Snapshot() *commonpb.Snapshot
+	Snapshot() <-chan *commonpb.Snapshot
 	Restore(*commonpb.Snapshot)
 }

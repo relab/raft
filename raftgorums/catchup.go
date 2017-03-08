@@ -2,6 +2,7 @@ package raftgorums
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -18,13 +19,50 @@ func (r *Raft) HandleInstallSnapshotRequest(snapshot *commonpb.Snapshot) (res *p
 		Term: r.currentTerm,
 	}
 
+	// TODO Revise snapshot validation logic.
+
 	// Don't install snapshot from outdated term.
 	if snapshot.Term < r.currentTerm {
 		return
 	}
 
-	// TODO Check index/term of snapshot to determine if we should apply it
-	// or skip it.
+	// Discard old snapshot.
+	if snapshot.LastIncludedTerm < r.currentTerm || snapshot.LastIncludedIndex < r.storage.FirstIndex() {
+		r.logger.log(fmt.Sprintf("received old snapshot index:%d term:%d < %d %d",
+			snapshot.LastIncludedIndex, snapshot.LastIncludedTerm,
+			r.currentTerm, r.storage.NextIndex()-1,
+		))
+		return
+	}
+
+	// If last entry in snapshot exists in our log.
+	switch {
+	case snapshot.LastIncludedIndex == r.snapshotIndex:
+		// Snapshot is already a prefix of our log, so
+		// discard it.
+		if snapshot.LastIncludedTerm == r.snapshotTerm {
+			r.logger.log("received identical snapshot")
+			return
+		}
+
+		r.logger.log(fmt.Sprintf("received snapshot with same index %d but different term %d != %d",
+			snapshot.LastIncludedIndex, snapshot.LastIncludedTerm, r.snapshotTerm,
+		))
+
+	case snapshot.LastIncludedIndex < r.storage.NextIndex():
+		entry, err := r.storage.GetEntry(snapshot.LastIncludedIndex)
+
+		if err != nil {
+			panic(fmt.Errorf("couldn't retrieve entry: %v", err))
+		}
+
+		// Snapshot is already a prefix of our log, so
+		// discard it.
+		if entry.Term == snapshot.LastIncludedTerm {
+			r.logger.log("snapshot is already part of our log")
+			return
+		}
+	}
 
 	r.restoreCh <- snapshot
 	return
@@ -44,12 +82,11 @@ func (r *Raft) HandleInstallSnapshotResponse(res *pb.InstallSnapshotResponse) bo
 }
 
 func (r *Raft) HandleCatchMeUpRequest(req *pb.CatchMeUpRequest) {
-	future := make(chan *commonpb.Snapshot)
-	r.snapCh <- future
-	snapshot := <-future
+	r.Lock()
+	defer r.Unlock()
 	r.sreqout <- &snapshotRequest{
 		followerID: req.FollowerID,
-		snapshot:   snapshot,
+		snapshot:   r.currentSnapshot,
 	}
 }
 

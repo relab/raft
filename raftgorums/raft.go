@@ -118,10 +118,9 @@ type Raft struct {
 	pendingReads []*raft.EntryFuture
 
 	applyCh   chan *entryFuture
-	snapCh    chan chan<- *commonpb.Snapshot
 	restoreCh chan *commonpb.Snapshot
 
-	catchingUp bool
+	currentSnapshot *commonpb.Snapshot
 
 	batch bool
 
@@ -169,25 +168,6 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		panic(fmt.Errorf("couldn't get VotedFor: %v", err))
 	}
 
-	var commitIndex uint64
-	var appliedIndex uint64
-	var snapshotTerm uint64
-	var snapshotIndex uint64
-	snapshot, err := cfg.Storage.GetSnapshot()
-
-	// Restore state machine if snapshot exists.
-	if err == nil {
-		sm.Restore(snapshot)
-		commitIndex = snapshot.LastIncludedIndex
-		appliedIndex = snapshot.LastIncludedIndex
-		snapshotIndex = snapshot.LastIncludedIndex
-		snapshotTerm = snapshot.LastIncludedTerm
-	}
-
-	// TODO Apply tip? TODO Maybe we should just always restore from
-	// network? This might be easier as we would just receive a snapshot,
-	// restore, and then receive and apply entries in order.
-
 	electionTimeout := randomTimeout(cfg.ElectionTimeout)
 	heartbeat := NewTimer(cfg.HeartbeatTimeout)
 	heartbeat.Disable()
@@ -197,10 +177,6 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		id:                cfg.ID,
 		currentTerm:       term,
 		votedFor:          votedFor,
-		commitIndex:       commitIndex,
-		appliedIndex:      appliedIndex,
-		snapshotTerm:      snapshotTerm,
-		snapshotIndex:     snapshotIndex,
 		sm:                sm,
 		storage:           cfg.Storage,
 		batch:             cfg.Batch,
@@ -219,7 +195,6 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		maxAppendEntries:  cfg.MaxAppendEntries,
 		queue:             make(chan *raft.EntryFuture, BufferSize),
 		applyCh:           make(chan *entryFuture, 128),
-		snapCh:            make(chan chan<- *commonpb.Snapshot),
 		restoreCh:         make(chan *commonpb.Snapshot, 1),
 		sreqout:           make(chan *snapshotRequest, 1),
 		cureqout:          make(chan *catchUpRequest, 1),
@@ -229,6 +204,14 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 	}
 
 	r.logger.Printf("ElectionTimeout: %v", r.electionTimeout)
+
+	snapshot, err := cfg.Storage.GetSnapshot()
+
+	// Restore state machine if snapshot exists.
+	if err == nil {
+		r.setSnapshot(snapshot)
+		r.restoreFromSnapshot()
+	}
 
 	return r
 }
@@ -623,102 +606,25 @@ func (r *Raft) runStateMachine() {
 		// Lock to prevent Appendentries before the snapshot has
 		// been applied.
 		r.Lock()
+		defer r.Unlock()
 		r.logger.log(fmt.Sprintf("received snapshot index:%d term:%d", snapshot.LastIncludedIndex, snapshot.LastIncludedTerm))
 
 		// Disable baseline/election timeout as we are not handling
 		// append entries while applying the snapshot.
 		r.baseline.Disable()
+		defer r.baseline.Restart()
 		r.election.Disable()
-
-		defer func() {
-			r.catchingUp = false
-			r.baseline.Restart()
-			r.election.Restart()
-			r.Unlock()
-		}()
-
-		// Snapshot might be nil if the request failed.
-		if snapshot == nil {
-			r.logger.log("received nil snapshot")
-			return
-		}
-
-		// Discard old snapshot.
-		if snapshot.LastIncludedTerm < r.currentTerm || snapshot.LastIncludedIndex < r.storage.FirstIndex() {
-			r.logger.log(fmt.Sprintf("received old snapshot index:%d term:%d < %d %d",
-				snapshot.LastIncludedIndex, snapshot.LastIncludedTerm,
-				r.currentTerm, r.storage.NextIndex()-1,
-			))
-			return
-		}
-
-		// If last entry in snapshot exists in our log.
-		switch {
-		case snapshot.LastIncludedIndex == r.snapshotIndex:
-			// Snapshot is already a prefix of our log, so
-			// discard it.
-			if snapshot.LastIncludedTerm == r.snapshotTerm {
-				r.logger.log("received identical snapshot")
-				return
-			}
-
-			r.logger.log(fmt.Sprintf("received snapshot with same index %d but different term %d != %d",
-				snapshot.LastIncludedIndex, snapshot.LastIncludedTerm, r.snapshotTerm,
-			))
-
-		case snapshot.LastIncludedIndex < r.storage.NextIndex():
-			entry, err := r.storage.GetEntry(snapshot.LastIncludedIndex)
-
-			if err != nil {
-				panic(fmt.Errorf("couldn't retrieve entry: %v", err))
-			}
-
-			// Snapshot is already a prefix of our log, so
-			// discard it.
-			if entry.Term == snapshot.LastIncludedTerm {
-				r.logger.log("snapshot is already part of our log")
-				return
-			}
-		}
+		defer r.election.Restart()
 
 		r.logger.log(fmt.Sprintf("restoring state machine from snapshot index:%d term:%d",
 			snapshot.LastIncludedIndex, snapshot.LastIncludedTerm,
 		))
 
-		// Restore state machine using snapshots contents.
-		r.sm.Restore(snapshot)
-		r.commitIndex = snapshot.LastIncludedIndex
-		r.appliedIndex = snapshot.LastIncludedIndex
-		r.snapshotTerm = snapshot.LastIncludedTerm
-		r.snapshotIndex = snapshot.LastIncludedIndex
-		r.becomeFollower(snapshot.LastIncludedTerm)
-
-		if err := r.storage.SetSnapshot(snapshot); err != nil {
-			panic(fmt.Errorf("couldn't save snapshot: %v", err))
-		}
-
-		// TODO Clean log.
+		r.setSnapshot(snapshot)
+		r.restoreFromSnapshot()
 	}
 
-	getSnapshot := func(future chan<- *commonpb.Snapshot) {
-		// TODO Needs lock on raft state.
-		snapshot := r.sm.Snapshot()
-
-		r.Lock()
-		defer r.Unlock()
-		r.snapshotTerm = snapshot.LastIncludedTerm
-		r.snapshotIndex = snapshot.LastIncludedIndex
-
-		if err := r.storage.SetSnapshot(snapshot); err != nil {
-			panic(fmt.Errorf("couldn't save snapshot: %v", err))
-		}
-
-		// TODO Clean log.
-
-		// TODO We might not need to do it this way any longer, but at
-		// least future must be non-blocking.
-		future <- snapshot
-	}
+	snapCh := r.sm.Snapshot()
 
 	for {
 		select {
@@ -726,10 +632,36 @@ func (r *Raft) runStateMachine() {
 			apply(commit)
 		case snapshot := <-r.restoreCh:
 			restore(snapshot)
-		case future := <-r.snapCh:
-			getSnapshot(future)
+		case snapshot := <-snapCh:
+			r.Lock()
+			r.setSnapshot(snapshot)
+			r.Unlock()
 		}
 	}
+}
+
+// TODO Assumes caller holds lock on Raft.
+func (r *Raft) setSnapshot(snapshot *commonpb.Snapshot) {
+	if err := r.storage.SetSnapshot(snapshot); err != nil {
+		panic(fmt.Errorf("couldn't save snapshot: %v", err))
+	}
+
+	// TODO Clean log.
+
+	r.currentSnapshot = snapshot
+	r.snapshotTerm = snapshot.LastIncludedTerm
+	r.snapshotIndex = snapshot.LastIncludedIndex
+}
+
+// TODO Assumes caller holds lock on Raft.
+// Call after snapshot has been saved to disk.
+func (r *Raft) restoreFromSnapshot() {
+	snapshot := r.currentSnapshot
+
+	r.sm.Restore(snapshot)
+	r.commitIndex = snapshot.LastIncludedIndex
+	r.appliedIndex = snapshot.LastIncludedIndex
+	r.becomeFollower(snapshot.LastIncludedTerm)
 }
 
 func (r *Raft) startElection() {

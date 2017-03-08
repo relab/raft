@@ -1,6 +1,7 @@
 package raftgorums
 
 import (
+	"errors"
 	"math"
 
 	"github.com/relab/raft/commonpb"
@@ -131,10 +132,10 @@ func (m *Memory) NextIndex() uint64 {
 
 // SetSnapshot implements the Storage interface.
 func (m *Memory) SetSnapshot(*commonpb.Snapshot) error {
-	panic("not implemented")
+	return nil
 }
 
 // GetSnapshot implements the Storage interface.
 func (m *Memory) GetSnapshot() (*commonpb.Snapshot, error) {
-	return &commonpb.Snapshot{}, nil
+	return nil, errors.New("not implemented")
 }
