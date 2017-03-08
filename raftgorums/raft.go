@@ -465,23 +465,6 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		}
 	}
 
-	//	if !success && !r.catchingUp {
-	//		r.logger.log("sending catch-up request")
-	//
-	//		// Allow leader to be set on unsuccessful if there is no
-	//		// previous leader.
-	//		if r.leader == None {
-	//			r.leader = req.LeaderID
-	//			r.heardFromLeader = true
-	//			r.seenLeader = true
-	//		}
-	//
-	//		r.catchingUp = true
-	//		go func() {
-	//			r.sreqout <- &pb.SnapshotRequest{FollowerID: r.id}
-	//		}()
-	//	}
-
 	return &pb.AppendEntriesResponse{
 		Term:       req.Term,
 		MatchIndex: logLen,
