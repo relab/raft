@@ -122,25 +122,30 @@ func (n *Node) Run() error {
 			// Transferring the snapshot might take substantial
 			// time, do it asynchronously.
 			go func() {
-				// defer n.addNode(followerID)???
+				// Note: Always add back follower on failure, on
+				// success the follower will be added back after
+				// a AppendEntries on the main configuration.
+				// That is way we can't do defer
+				// addNode(followerID), as we would add it
+				// twice. TODO This is safe in Gorums as it will
+				// just return the same configuration, consider
+				// doing it for simplicity.
+
 				res, err := follower.RaftClient.InstallSnapshot(ctx, req.snapshot)
 				cancel()
 
-				// On error make sure to add the follower back
-				// into the main configuration.
 				if err != nil {
 					// TODO Better error message.
 					log.Println(fmt.Sprintf("InstallSnapshot failed = %v", err))
 
+					// Add back follower on failure.
 					n.addNode(followerID)
-
 					return
 				}
 
-				// If follower is in a higher term, add the
-				// follower back into the main configuration and
-				// return.
+				// If follower is in a higher term, return.
 				if !n.Raft.HandleInstallSnapshotResponse(res) {
+					// Add back follower on failure.
 					n.addNode(followerID)
 					return
 				}
@@ -155,6 +160,7 @@ func (n *Node) Run() error {
 				}
 
 				matchCh := make(chan uint64)
+				n.catchingUp[followerID] = matchCh
 				n.Raft.catchUp(single, req.snapshot.LastIncludedIndex+1, matchCh)
 			}()
 
@@ -203,11 +209,11 @@ func (n *Node) Run() error {
 						continue
 					}
 
-					matchIndex <- res.MatchIndex
-
 					if index == res.MatchIndex {
 						n.addNode(nodeID)
 					}
+
+					matchIndex <- res.MatchIndex
 				default:
 				}
 			}
@@ -284,60 +290,6 @@ func (n *Node) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest) 
 // InstallSnapshot implements gorums.RaftServer.
 func (n *Node) InstallSnapshot(ctx context.Context, snapshot *commonpb.Snapshot) (*pb.InstallSnapshotResponse, error) {
 	return nil, nil
-}
-
-func (n *Node) doCatchUp(conf *gorums.Configuration, nextIndex uint64, matchIndex chan uint64) {
-	for {
-		state := n.Raft.State()
-
-		if state != Leader {
-			close(matchIndex)
-			return
-		}
-
-		n.Raft.Lock()
-		entries := n.Raft.getNextEntries(nextIndex)
-		request := n.Raft.getAppendEntriesRequest(nextIndex, entries)
-		n.Raft.Unlock()
-
-		ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
-		res, err := conf.AppendEntries(ctx, request)
-		cancel()
-
-		log.Printf("Sending catch-up prevIndex:%d prevTerm:%d entries:%d",
-			request.PrevLogIndex, request.PrevLogTerm, len(entries),
-		)
-
-		if err != nil {
-
-			// TODO Better error message.
-			log.Printf("Catch-up AppendEntries failed = %v\n", err)
-
-			close(matchIndex)
-			return
-		}
-
-		response := res.AppendEntriesResponse
-
-		if response.Success {
-			matchIndex <- response.MatchIndex
-			index := <-matchIndex
-
-			if response.MatchIndex == index {
-				close(matchIndex)
-				return
-			}
-
-			nextIndex = response.MatchIndex + 1
-
-			continue
-		}
-
-		// If AppendEntries was unsuccessful a new catch-up process will
-		// start.
-		close(matchIndex)
-		return
-	}
 }
 
 func (n *Node) getNodeID(raftID uint64) uint32 {
