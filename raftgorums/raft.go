@@ -574,6 +574,12 @@ func (r *Raft) advanceCommitIndex() {
 func (r *Raft) newCommit(old uint64) {
 	// TODO Change to GetEntries -> then ring buffer.
 	for i := old; i < r.commitIndex; i++ {
+		if i <= r.appliedIndex {
+			continue
+		}
+
+		r.appliedIndex = max(r.appliedIndex, i)
+
 		switch r.state {
 		case Leader:
 			e := r.pending.Front()
@@ -598,19 +604,9 @@ func (r *Raft) newCommit(old uint64) {
 
 func (r *Raft) runStateMachine() {
 	apply := func(commit *entryFuture) {
-		// TODO Needs lock on raft state.
-		// Reads have Index set to 0, so don't skip those.
-		if commit.entry.Index > 0 && commit.entry.Index <= r.appliedIndex {
-			return
-		}
-
 		var res interface{}
 		if commit.entry.EntryType != commonpb.EntryInternal {
 			res = r.sm.Apply(commit.entry)
-			// TODO Revise appliedIndex and its need.
-			if commit.entry.Index > 0 {
-				r.appliedIndex = commit.entry.Index
-			}
 		}
 
 		if commit.future != nil {
