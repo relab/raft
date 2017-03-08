@@ -5,9 +5,30 @@ import (
 	"log"
 	"time"
 
+	"github.com/relab/raft/commonpb"
 	gorums "github.com/relab/raft/raftgorums/gorumspb"
 	pb "github.com/relab/raft/raftgorums/raftpb"
 )
+
+func (r *Raft) HandleInstallSnapshotRequest(snapshot *commonpb.Snapshot) (res *pb.InstallSnapshotResponse) {
+	r.Lock()
+	defer r.Unlock()
+
+	res = &pb.InstallSnapshotResponse{
+		Term: r.currentTerm,
+	}
+
+	// Don't install snapshot from outdated term.
+	if snapshot.Term < r.currentTerm {
+		return
+	}
+
+	// TODO Check index/term of snapshot to determine if we should apply it
+	// or skip it.
+
+	r.restoreCh <- snapshot
+	return
+}
 
 func (r *Raft) HandleInstallSnapshotResponse(res *pb.InstallSnapshotResponse) bool {
 	r.Lock()
@@ -20,6 +41,16 @@ func (r *Raft) HandleInstallSnapshotResponse(res *pb.InstallSnapshotResponse) bo
 	}
 
 	return true
+}
+
+func (r *Raft) HandleCatchMeUpRequest(req *pb.CatchMeUpRequest) {
+	future := make(chan *commonpb.Snapshot)
+	r.snapCh <- future
+	snapshot := <-future
+	r.sreqout <- &snapshotRequest{
+		followerID: req.FollowerID,
+		snapshot:   snapshot,
+	}
 }
 
 func (r *Raft) catchUp(conf *gorums.Configuration, nextIndex uint64, matchCh chan uint64) {

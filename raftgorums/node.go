@@ -28,15 +28,8 @@ type Node struct {
 	cLock      sync.Mutex
 	catchingUp map[uint32]chan uint64
 
-	catchUp chan *catchUpRequest
-
 	mgr  *gorums.Manager
 	conf *gorums.Configuration
-}
-
-type catchUpRequest struct {
-	followerID uint32
-	nextIndex  uint64
 }
 
 // NewNode returns a Node with an instance of Raft given the configuration.
@@ -68,7 +61,6 @@ func NewNode(server *grpc.Server, sm raft.StateMachine, cfg *Config) *Node {
 		lookup:     lookup,
 		peers:      peers,
 		catchingUp: make(map[uint32]chan uint64),
-		catchUp:    make(chan *catchUpRequest),
 	}
 
 	gorums.RegisterRaftServer(server, n)
@@ -104,16 +96,40 @@ func (n *Node) Run() error {
 		rvreqout := n.Raft.RequestVoteRequestChan()
 		aereqout := n.Raft.AppendEntriesRequestChan()
 		sreqout := n.Raft.SnapshotRequestChan()
+		cureqout := n.Raft.CatchUpRequestChan()
 
 		select {
+		case req := <-cureqout:
+			leaderID := n.getNodeID(req.leaderID)
+			// We can ignore the found return value as we are
+			// getting the ID directly from the manager, i.e., it is
+			// never missing.
+			leader, _ := n.mgr.Node(leaderID)
+
+			// Don't block normal operation.
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
+				// We ignore the error here as a failure to catch-up
+				// will eventually trigger a new catch-up request.
+				leader.RaftClient.CatchMeUp(ctx, &pb.CatchMeUpRequest{
+					FollowerID: n.id,
+				})
+				cancel()
+			}()
+
 		case req := <-sreqout:
-			ctx, cancel := context.WithTimeout(context.Background(), TCPConnect*time.Millisecond)
 			followerID := n.getNodeID(req.followerID)
+			n.cLock.Lock()
+			matchCh := n.catchingUp[followerID]
+			n.cLock.Unlock()
 
 			// Continue if we can't remove the node from the
 			// configuration due to the quorum size becoming to
 			// small.
 			if ok := n.removeNode(followerID); !ok {
+				n.cLock.Lock()
+				delete(n.catchingUp, followerID)
+				n.cLock.Unlock()
 				continue
 			}
 
@@ -136,6 +152,7 @@ func (n *Node) Run() error {
 					}
 				}()
 
+				ctx, cancel := context.WithTimeout(context.Background(), TCPConnect*time.Millisecond)
 				res, err := follower.RaftClient.InstallSnapshot(ctx, req.snapshot)
 				cancel()
 
@@ -150,7 +167,7 @@ func (n *Node) Run() error {
 					return
 				}
 
-				// We use 2 peers as we need to count the leader.
+				// We use 2 peers as we need to count an implicit leader.
 				single, err := n.mgr.NewConfiguration([]uint32{followerID}, NewQuorumSpec(2))
 
 				if err != nil {
@@ -159,10 +176,6 @@ func (n *Node) Run() error {
 					))
 				}
 
-				matchCh := make(chan uint64)
-				n.cLock.Lock()
-				n.catchingUp[followerID] = matchCh
-				n.cLock.Unlock()
 				n.Raft.catchUp(single, req.snapshot.LastIncludedIndex+1, matchCh)
 			}()
 
@@ -293,7 +306,30 @@ func (n *Node) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest) 
 
 // InstallSnapshot implements gorums.RaftServer.
 func (n *Node) InstallSnapshot(ctx context.Context, snapshot *commonpb.Snapshot) (*pb.InstallSnapshotResponse, error) {
-	return nil, nil
+	return n.Raft.HandleInstallSnapshotRequest(snapshot), nil
+}
+
+// CatchMeUp implements gorums.RaftServer.
+func (n *Node) CatchMeUp(ctx context.Context, req *pb.CatchMeUpRequest) (res *pb.Empty, err error) {
+	res = &pb.Empty{}
+
+	followerID := n.getNodeID(req.FollowerID)
+
+	matchCh := make(chan uint64)
+	n.cLock.Lock()
+	_, ok := n.catchingUp[followerID]
+	if !ok {
+		n.catchingUp[followerID] = matchCh
+	}
+	n.cLock.Unlock()
+
+	// Don't start another catch-up routine if we already have one.
+	if ok {
+		return
+	}
+
+	n.Raft.HandleCatchMeUpRequest(req)
+	return
 }
 
 func (n *Node) getNodeID(raftID uint64) uint32 {

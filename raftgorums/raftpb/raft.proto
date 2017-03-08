@@ -45,3 +45,9 @@ message AppendEntriesResponse {
 message InstallSnapshotResponse {
   uint64 term = 1;
 }
+
+message CatchMeUpRequest {
+  uint64 followerID = 1;
+}
+
+message Empty {}

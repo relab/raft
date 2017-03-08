@@ -128,6 +128,8 @@ type Raft struct {
 	rvreqout chan *pb.RequestVoteRequest
 	aereqout chan *pb.AppendEntriesRequest
 	sreqout  chan *snapshotRequest
+	nextcu   time.Time
+	cureqout chan *catchUpRequest
 
 	logger *Logger
 }
@@ -136,6 +138,10 @@ type snapshotRequest struct {
 	followerID uint64
 
 	snapshot *commonpb.Snapshot
+}
+
+type catchUpRequest struct {
+	leaderID uint64
 }
 
 type entryFuture struct {
@@ -214,10 +220,11 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		queue:             make(chan *raft.EntryFuture, BufferSize),
 		applyCh:           make(chan *entryFuture, 128),
 		snapCh:            make(chan chan<- *commonpb.Snapshot),
-		restoreCh:         make(chan *commonpb.Snapshot),
-		sreqout:           make(chan *snapshotRequest),
+		restoreCh:         make(chan *commonpb.Snapshot, 1),
+		sreqout:           make(chan *snapshotRequest, 1),
+		cureqout:          make(chan *catchUpRequest, 1),
 		rvreqout:          make(chan *pb.RequestVoteRequest, 128),
-		aereqout:          make(chan *pb.AppendEntriesRequest, BufferSize),
+		aereqout:          make(chan *pb.AppendEntriesRequest, 128),
 		logger:            &Logger{cfg.ID, cfg.Logger},
 	}
 
@@ -244,6 +251,12 @@ func (r *Raft) AppendEntriesRequestChan() chan *pb.AppendEntriesRequest {
 // implementers responsibility to make sure these requests are delivered.
 func (r *Raft) SnapshotRequestChan() chan *snapshotRequest {
 	return r.sreqout
+}
+
+// CatchUpRequestChan returns a channel for outgoing CatchUpRequests. It's the
+// implementers responsibility to make sure these requests are delivered.
+func (r *Raft) CatchUpRequestChan() chan *catchUpRequest {
+	return r.cureqout
 }
 
 // Run handles timeouts.
@@ -391,7 +404,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	if req.Term < r.currentTerm {
 		return &pb.AppendEntriesResponse{
 			Success: false,
-			Term:    req.Term,
+			Term:    r.currentTerm,
 		}
 	}
 
@@ -462,6 +475,15 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 
 		if r.commitIndex > old {
 			r.newCommit(old)
+		}
+	}
+
+	now := time.Now()
+	if !success && now.After(r.nextcu) {
+		// Prevent repeated catch-up requests.
+		r.nextcu = now.Add(TCPHeartbeat * time.Millisecond)
+		r.cureqout <- &catchUpRequest{
+			req.LeaderID,
 		}
 	}
 

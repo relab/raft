@@ -18,4 +18,5 @@ service Raft {
   }
 
   rpc InstallSnapshot(commonpb.Snapshot) returns (raftpb.InstallSnapshotResponse);
+  rpc CatchMeUp(raftpb.CatchMeUpRequest) returns (raftpb.Empty);
 }
