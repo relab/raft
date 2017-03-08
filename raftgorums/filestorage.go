@@ -306,7 +306,9 @@ func (fs *FileStorage) SetSnapshot(snapshot *commonpb.Snapshot) error {
 	}
 
 	fs.firstIndex = snapshot.LastIncludedIndex
-	fs.nextIndex = snapshot.LastIncludedIndex + 1
+	// Since nextIndex starts at 0 and Raft indexes starts at 1, don't +1
+	// this.
+	fs.nextIndex = snapshot.LastIncludedIndex
 
 	return tx.Commit()
 }
