@@ -305,8 +305,8 @@ func (fs *FileStorage) SetSnapshot(snapshot *commonpb.Snapshot) error {
 		return err
 	}
 
-	fs.firstIndex = snapshot.Index
-	fs.nextIndex = snapshot.Index + 1
+	fs.firstIndex = snapshot.LastIncludedIndex
+	fs.nextIndex = snapshot.LastIncludedIndex + 1
 
 	return tx.Commit()
 }

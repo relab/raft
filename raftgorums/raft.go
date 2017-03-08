@@ -127,9 +127,15 @@ type Raft struct {
 
 	rvreqout chan *pb.RequestVoteRequest
 	aereqout chan *pb.AppendEntriesRequest
-	sreqout  chan *pb.SnapshotRequest
+	sreqout  chan *snapshotRequest
 
 	logger *Logger
+}
+
+type snapshotRequest struct {
+	followerID uint64
+
+	snapshot *commonpb.Snapshot
 }
 
 type entryFuture struct {
@@ -166,11 +172,15 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 	// Restore state machine if snapshot exists.
 	if err == nil {
 		sm.Restore(snapshot)
-		commitIndex = snapshot.Index
-		appliedIndex = snapshot.Index
-		snapshotTerm = snapshot.Term
-		snapshotIndex = snapshot.Index
+		commitIndex = snapshot.LastIncludedIndex
+		appliedIndex = snapshot.LastIncludedIndex
+		snapshotIndex = snapshot.LastIncludedIndex
+		snapshotTerm = snapshot.LastIncludedTerm
 	}
+
+	// TODO Apply tip? TODO Maybe we should just always restore from
+	// network? This might be easier as we would just receive a snapshot,
+	// restore, and then receive and apply entries in order.
 
 	electionTimeout := randomTimeout(cfg.ElectionTimeout)
 	heartbeat := NewTimer(cfg.HeartbeatTimeout)
@@ -205,7 +215,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		applyCh:           make(chan *entryFuture, 128),
 		snapCh:            make(chan chan<- *commonpb.Snapshot),
 		restoreCh:         make(chan *commonpb.Snapshot),
-		sreqout:           make(chan *pb.SnapshotRequest),
+		sreqout:           make(chan *snapshotRequest),
 		rvreqout:          make(chan *pb.RequestVoteRequest, 128),
 		aereqout:          make(chan *pb.AppendEntriesRequest, BufferSize),
 		logger:            &Logger{cfg.ID, cfg.Logger},
@@ -232,7 +242,7 @@ func (r *Raft) AppendEntriesRequestChan() chan *pb.AppendEntriesRequest {
 
 // SnapshotRequestChan returns a channel for outgoing SnapshotRequests. It's the
 // implementers responsibility to make sure these requests are delivered.
-func (r *Raft) SnapshotRequestChan() chan *pb.SnapshotRequest {
+func (r *Raft) SnapshotRequestChan() chan *snapshotRequest {
 	return r.sreqout
 }
 
@@ -455,22 +465,22 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		}
 	}
 
-	if !success && !r.catchingUp {
-		r.logger.log("sending catch-up request")
-
-		// Allow leader to be set on unsuccessful if there is no
-		// previous leader.
-		if r.leader == None {
-			r.leader = req.LeaderID
-			r.heardFromLeader = true
-			r.seenLeader = true
-		}
-
-		r.catchingUp = true
-		go func() {
-			r.sreqout <- &pb.SnapshotRequest{FollowerID: r.id}
-		}()
-	}
+	//	if !success && !r.catchingUp {
+	//		r.logger.log("sending catch-up request")
+	//
+	//		// Allow leader to be set on unsuccessful if there is no
+	//		// previous leader.
+	//		if r.leader == None {
+	//			r.leader = req.LeaderID
+	//			r.heardFromLeader = true
+	//			r.seenLeader = true
+	//		}
+	//
+	//		r.catchingUp = true
+	//		go func() {
+	//			r.sreqout <- &pb.SnapshotRequest{FollowerID: r.id}
+	//		}()
+	//	}
 
 	return &pb.AppendEntriesResponse{
 		Term:       req.Term,
@@ -588,6 +598,7 @@ func (r *Raft) newCommit(old uint64) {
 
 func (r *Raft) runStateMachine() {
 	apply := func(commit *entryFuture) {
+		// TODO Needs lock on raft state.
 		// Reads have Index set to 0, so don't skip those.
 		if commit.entry.Index > 0 && commit.entry.Index <= r.appliedIndex {
 			return
@@ -611,7 +622,7 @@ func (r *Raft) runStateMachine() {
 		// Lock to prevent Appendentries before the snapshot has
 		// been applied.
 		r.Lock()
-		r.logger.log(fmt.Sprintf("received snapshot index:%d term:%d", snapshot.Index, snapshot.Term))
+		r.logger.log(fmt.Sprintf("received snapshot index:%d term:%d", snapshot.LastIncludedIndex, snapshot.LastIncludedTerm))
 
 		// Disable baseline/election timeout as we are not handling
 		// append entries while applying the snapshot.
@@ -632,9 +643,9 @@ func (r *Raft) runStateMachine() {
 		}
 
 		// Discard old snapshot.
-		if snapshot.Term < r.currentTerm || snapshot.Index < r.storage.FirstIndex() {
+		if snapshot.LastIncludedTerm < r.currentTerm || snapshot.LastIncludedIndex < r.storage.FirstIndex() {
 			r.logger.log(fmt.Sprintf("received old snapshot index:%d term:%d < %d %d",
-				snapshot.Index, snapshot.Term,
+				snapshot.LastIncludedIndex, snapshot.LastIncludedTerm,
 				r.currentTerm, r.storage.NextIndex()-1,
 			))
 			return
@@ -642,20 +653,20 @@ func (r *Raft) runStateMachine() {
 
 		// If last entry in snapshot exists in our log.
 		switch {
-		case snapshot.Index == r.snapshotIndex:
+		case snapshot.LastIncludedIndex == r.snapshotIndex:
 			// Snapshot is already a prefix of our log, so
 			// discard it.
-			if snapshot.Term == r.snapshotTerm {
+			if snapshot.LastIncludedTerm == r.snapshotTerm {
 				r.logger.log("received identical snapshot")
 				return
 			}
 
 			r.logger.log(fmt.Sprintf("received snapshot with same index %d but different term %d != %d",
-				snapshot.Index, snapshot.Term, r.snapshotTerm,
+				snapshot.LastIncludedIndex, snapshot.LastIncludedTerm, r.snapshotTerm,
 			))
 
-		case snapshot.Index < r.storage.NextIndex():
-			entry, err := r.storage.GetEntry(snapshot.Index)
+		case snapshot.LastIncludedIndex < r.storage.NextIndex():
+			entry, err := r.storage.GetEntry(snapshot.LastIncludedIndex)
 
 			if err != nil {
 				panic(fmt.Errorf("couldn't retrieve entry: %v", err))
@@ -663,27 +674,29 @@ func (r *Raft) runStateMachine() {
 
 			// Snapshot is already a prefix of our log, so
 			// discard it.
-			if entry.Term == snapshot.Term {
+			if entry.Term == snapshot.LastIncludedTerm {
 				r.logger.log("snapshot is already part of our log")
 				return
 			}
 		}
 
 		r.logger.log(fmt.Sprintf("restoring state machine from snapshot index:%d term:%d",
-			snapshot.Index, snapshot.Term,
+			snapshot.LastIncludedIndex, snapshot.LastIncludedTerm,
 		))
 
 		// Restore state machine using snapshots contents.
 		r.sm.Restore(snapshot)
-		r.commitIndex = snapshot.Index
-		r.appliedIndex = snapshot.Index
-		r.snapshotTerm = snapshot.Term
-		r.snapshotIndex = snapshot.Index
-		r.becomeFollower(snapshot.Term)
+		r.commitIndex = snapshot.LastIncludedIndex
+		r.appliedIndex = snapshot.LastIncludedIndex
+		r.snapshotTerm = snapshot.LastIncludedTerm
+		r.snapshotIndex = snapshot.LastIncludedIndex
+		r.becomeFollower(snapshot.LastIncludedTerm)
 
 		if err := r.storage.SetSnapshot(snapshot); err != nil {
 			panic(fmt.Errorf("couldn't save snapshot: %v", err))
 		}
+
+		// TODO Clean log.
 	}
 
 	for {
@@ -691,7 +704,19 @@ func (r *Raft) runStateMachine() {
 		case commit := <-r.applyCh:
 			apply(commit)
 		case future := <-r.snapCh:
-			future <- r.sm.Snapshot()
+			// TODO Needs lock on raft state.
+			snapshot := r.sm.Snapshot()
+
+			r.snapshotTerm = snapshot.LastIncludedTerm
+			r.snapshotIndex = snapshot.LastIncludedIndex
+
+			if err := r.storage.SetSnapshot(snapshot); err != nil {
+				panic(fmt.Errorf("couldn't save snapshot: %v", err))
+			}
+
+			// TODO Clean log.
+
+			future <- snapshot
 		case snapshot := <-r.restoreCh:
 			restore(snapshot)
 		}

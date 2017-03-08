@@ -21,7 +21,12 @@ message Entry {
 }
 
 message Snapshot {
-  uint64 term  = 1;
-  uint64 index = 2;
-  bytes data   = 3;
+  uint64 leaderID = 1;
+
+  uint64 term = 2;
+
+  uint64 lastIncludedIndex = 3;
+  uint64 lastIncludedTerm  = 4;
+
+  bytes data   = 5;
 }

@@ -99,21 +99,21 @@ func (n *Node) Run() error {
 
 		select {
 		case req := <-sreqout:
-			n.Raft.Lock()
-			leader := n.Raft.leader
-			n.Raft.Unlock()
 			ctx, cancel := context.WithTimeout(context.Background(), TCPConnect*time.Millisecond)
-			node, _ := n.mgr.Node(n.getNodeID(leader))
-			snapshot, err := node.RaftClient.GetState(ctx, req)
+			node, _ := n.mgr.Node(n.getNodeID(req.followerID))
+			/*res*/ _, err := node.RaftClient.InstallSnapshot(ctx, req.snapshot)
 			cancel()
 
 			if err != nil {
 				// TODO Better error message.
-				log.Println(fmt.Sprintf("Snapshot request failed = %v", err))
+				log.Println(fmt.Sprintf("InstallSnapshot failed = %v", err))
 
+				continue
 			}
 
-			n.Raft.restoreCh <- snapshot
+			// TODO n.Raft.HandleInstallSnapshotResponse(res)
+
+			// OLD n.Raft.restoreCh <- snapshot
 
 		case req := <-rvreqout:
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
@@ -244,20 +244,25 @@ func (n *Node) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest) 
 }
 
 // GetState implements gorums.RaftServer.
-func (n *Node) GetState(ctx context.Context, req *pb.SnapshotRequest) (*commonpb.Snapshot, error) {
-	future := make(chan *commonpb.Snapshot)
-	n.Raft.snapCh <- future
+//func (n *Node) GetState(ctx context.Context, req *pb.SnapshotRequest) (*commonpb.Snapshot, error) {
+//	future := make(chan *commonpb.Snapshot)
+//	n.Raft.snapCh <- future
+//
+//	select {
+//	case snapshot := <-future:
+//		n.catchUp <- &catchUpRequest{
+//			nextIndex:  snapshot.LastIncludedIndex + 1,
+//			followerID: req.FollowerID,
+//		}
+//		return snapshot, nil
+//	case <-ctx.Done():
+//		return nil, ctx.Err()
+//	}
+//}
 
-	select {
-	case snapshot := <-future:
-		n.catchUp <- &catchUpRequest{
-			nextIndex:  snapshot.Index + 1,
-			followerID: req.FollowerID,
-		}
-		return snapshot, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+// InstallSnapshot implements gorums.RaftServer.
+func (n *Node) InstallSnapshot(ctx context.Context, snapshot *commonpb.Snapshot) (*pb.InstallSnapshotResponse, error) {
+	return nil, nil
 }
 
 type catchUpRequest struct {

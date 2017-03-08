@@ -42,6 +42,6 @@ message AppendEntriesResponse {
   bool success = 3;
 }
 
-message SnapshotRequest {
-  uint64 followerID = 1;
+message InstallSnapshotResponse {
+  uint64 term = 1;
 }
