@@ -604,8 +604,6 @@ func (r *Raft) runStateMachine() {
 	}
 
 	restore := func(snapshot *commonpb.Snapshot) {
-		// Lock to prevent Appendentries before the snapshot has
-		// been applied.
 		r.Lock()
 		defer r.Unlock()
 		r.logger.log(fmt.Sprintf("received snapshot index:%d term:%d", snapshot.LastIncludedIndex, snapshot.LastIncludedTerm))
