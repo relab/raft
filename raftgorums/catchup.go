@@ -85,14 +85,12 @@ func (r *Raft) HandleCatchMeUpRequest(req *pb.CatchMeUpRequest) {
 	r.Lock()
 	defer r.Unlock()
 
-	// Only send snapshot if there is actually one present.
-	if r.currentSnapshot == nil {
-		return
+	if r.currentSnapshot != nil {
+		// Update snapshot metadata before sending it.
+		r.currentSnapshot.LeaderID = r.id
+		r.currentSnapshot.Term = r.currentTerm
 	}
 
-	// Update snapshot metadata before sending it.
-	r.currentSnapshot.LeaderID = r.id
-	r.currentSnapshot.Term = r.currentTerm
 	r.sreqout <- &snapshotRequest{
 		followerID: req.FollowerID,
 		snapshot:   r.currentSnapshot,
