@@ -659,6 +659,7 @@ func (r *Raft) restoreFromSnapshot() {
 	r.sm.Restore(snapshot)
 	r.commitIndex = snapshot.LastIncludedIndex
 	r.appliedIndex = snapshot.LastIncludedIndex
+	r.majorityNextIndex = r.snapshotIndex + 1
 	r.becomeFollower(snapshot.LastIncludedTerm)
 }
 
@@ -854,6 +855,9 @@ func (r *Raft) getNextEntries(nextIndex uint64) []*commonpb.Entry {
 		maxEntries := min(next+r.maxAppendEntries, logLen)
 
 		if !r.batch {
+			// This is ok since GetEntries is exclusive of the last
+			// index, meaning maxEntries == logLen won't be
+			// out-of-bounds.
 			maxEntries = next + 1
 		}
 
