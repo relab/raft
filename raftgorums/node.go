@@ -95,8 +95,8 @@ func (n *Node) Run() error {
 	for {
 		rvreqout := n.Raft.RequestVoteRequestChan()
 		aereqout := n.Raft.AppendEntriesRequestChan()
-		sreqout := n.Raft.SnapshotRequestChan()
-		cureqout := n.Raft.CatchUpRequestChan()
+		sreqout := n.Raft.snapshotRequestChan()
+		cureqout := n.Raft.catchUpRequestChan()
 
 		select {
 		case req := <-cureqout:

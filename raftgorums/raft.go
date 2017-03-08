@@ -232,13 +232,13 @@ func (r *Raft) AppendEntriesRequestChan() chan *pb.AppendEntriesRequest {
 
 // SnapshotRequestChan returns a channel for outgoing SnapshotRequests. It's the
 // implementers responsibility to make sure these requests are delivered.
-func (r *Raft) SnapshotRequestChan() chan *snapshotRequest {
+func (r *Raft) snapshotRequestChan() chan *snapshotRequest {
 	return r.sreqout
 }
 
 // CatchUpRequestChan returns a channel for outgoing CatchUpRequests. It's the
 // implementers responsibility to make sure these requests are delivered.
-func (r *Raft) CatchUpRequestChan() chan *catchUpRequest {
+func (r *Raft) catchUpRequestChan() chan *catchUpRequest {
 	return r.cureqout
 }
 
