@@ -641,6 +641,11 @@ func (r *Raft) runStateMachine() {
 
 // TODO Assumes caller holds lock on Raft.
 func (r *Raft) setSnapshot(snapshot *commonpb.Snapshot) {
+	start := time.Now()
+	defer func() {
+		fmt.Println("Writing snapshot to disk took:", time.Now().Sub(start))
+	}()
+
 	if err := r.storage.SetSnapshot(snapshot); err != nil {
 		panic(fmt.Errorf("couldn't save snapshot: %v", err))
 	}
