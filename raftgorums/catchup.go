@@ -84,6 +84,10 @@ func (r *Raft) HandleInstallSnapshotResponse(res *pb.InstallSnapshotResponse) bo
 func (r *Raft) HandleCatchMeUpRequest(req *pb.CatchMeUpRequest) {
 	r.Lock()
 	defer r.Unlock()
+
+	// Update snapshot metadata before sending it.
+	r.currentSnapshot.LeaderID = r.id
+	r.currentSnapshot.Term = r.currentTerm
 	r.sreqout <- &snapshotRequest{
 		followerID: req.FollowerID,
 		snapshot:   r.currentSnapshot,
