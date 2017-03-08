@@ -156,6 +156,10 @@ func (n *Node) Run() error {
 
 				// Only send snapshot if there is one present.
 				if req.snapshot != nil {
+					log.Printf("sending snapshot index:%d term:%d\n",
+						req.snapshot.LastIncludedIndex, req.snapshot.LastIncludedTerm,
+					)
+
 					ctx, cancel := context.WithTimeout(context.Background(), TCPConnect*time.Millisecond)
 					res, err := follower.RaftClient.InstallSnapshot(ctx, req.snapshot)
 					cancel()

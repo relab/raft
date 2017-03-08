@@ -463,6 +463,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 
 	now := time.Now()
 	if !success && now.After(r.nextcu) {
+		r.logger.log("initiated catch-up request")
 		// Prevent repeated catch-up requests.
 		r.nextcu = now.Add(20 * time.Second)
 		r.cureqout <- &catchUpRequest{
