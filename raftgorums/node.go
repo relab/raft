@@ -3,6 +3,7 @@ package raftgorums
 import (
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"golang.org/x/net/context"
@@ -24,8 +25,10 @@ type Node struct {
 	lookup map[uint64]int
 	peers  []string
 
+	cLock      sync.Mutex
 	catchingUp map[uint32]chan uint64
-	catchUp    chan *catchUpRequest
+
+	catchUp chan *catchUpRequest
 
 	mgr  *gorums.Manager
 	conf *gorums.Configuration
@@ -122,14 +125,16 @@ func (n *Node) Run() error {
 			// Transferring the snapshot might take substantial
 			// time, do it asynchronously.
 			go func() {
-				// Note: Always add back follower on failure, on
-				// success the follower will be added back after
-				// a AppendEntries on the main configuration.
-				// That is way we can't do defer
-				// addNode(followerID), as we would add it
-				// twice. TODO This is safe in Gorums as it will
-				// just return the same configuration, consider
-				// doing it for simplicity.
+				defer func() {
+					n.cLock.Lock()
+					_, ok := n.catchingUp[followerID]
+					delete(n.catchingUp, followerID)
+					n.cLock.Unlock()
+
+					if ok {
+						n.addNode(followerID)
+					}
+				}()
 
 				res, err := follower.RaftClient.InstallSnapshot(ctx, req.snapshot)
 				cancel()
@@ -137,16 +142,11 @@ func (n *Node) Run() error {
 				if err != nil {
 					// TODO Better error message.
 					log.Println(fmt.Sprintf("InstallSnapshot failed = %v", err))
-
-					// Add back follower on failure.
-					n.addNode(followerID)
 					return
 				}
 
 				// If follower is in a higher term, return.
 				if !n.Raft.HandleInstallSnapshotResponse(res) {
-					// Add back follower on failure.
-					n.addNode(followerID)
 					return
 				}
 
@@ -154,13 +154,15 @@ func (n *Node) Run() error {
 				single, err := n.mgr.NewConfiguration([]uint32{followerID}, NewQuorumSpec(2))
 
 				if err != nil {
-					panic(fmt.Sprintf("tried to catch up node %d->%d: %v",
-						req.followerID, followerID, err,
+					panic(fmt.Sprintf("tried to create new configuration %v: %v",
+						[]uint32{followerID}, err,
 					))
 				}
 
 				matchCh := make(chan uint64)
+				n.cLock.Lock()
 				n.catchingUp[followerID] = matchCh
+				n.cLock.Unlock()
 				n.Raft.catchUp(single, req.snapshot.LastIncludedIndex+1, matchCh)
 			}()
 
@@ -201,15 +203,18 @@ func (n *Node) Run() error {
 
 			n.Raft.HandleAppendEntriesResponse(res.AppendEntriesResponse, len(res.NodeIDs))
 
+			n.cLock.Lock()
 			for nodeID, matchIndex := range n.catchingUp {
 				select {
 				case index, ok := <-matchIndex:
 					if !ok {
+						delete(n.catchingUp, nodeID)
 						n.addNode(nodeID)
 						continue
 					}
 
 					if index == res.MatchIndex {
+						delete(n.catchingUp, nodeID)
 						n.addNode(nodeID)
 					}
 
@@ -217,6 +222,7 @@ func (n *Node) Run() error {
 				default:
 				}
 			}
+			n.cLock.Unlock()
 		}
 	}
 }
@@ -263,8 +269,6 @@ func (n *Node) removeNode(nodeID uint32) bool {
 
 // addNode must be called from the select in node.Run().
 func (n *Node) addNode(nodeID uint32) {
-	delete(n.catchingUp, nodeID)
-
 	newSet := append(n.conf.NodeIDs(), nodeID)
 	var err error
 	n.conf, err = n.mgr.NewConfiguration(newSet, &QuorumSpec{
