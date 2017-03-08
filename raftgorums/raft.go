@@ -473,7 +473,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 
 	return &pb.AppendEntriesResponse{
 		Term:       req.Term,
-		MatchIndex: logLen,
+		MatchIndex: r.storage.NextIndex(),
 		Success:    success,
 	}
 }
