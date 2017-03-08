@@ -562,7 +562,7 @@ func (r *Raft) advanceCommitIndex() {
 func (r *Raft) newCommit(old uint64) {
 	// TODO Change to GetEntries -> then ring buffer.
 	for i := old; i < r.commitIndex; i++ {
-		if i <= r.appliedIndex {
+		if i < r.appliedIndex {
 			continue
 		}
 
