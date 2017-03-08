@@ -695,26 +695,34 @@ func (r *Raft) runStateMachine() {
 		// TODO Clean log.
 	}
 
+	getSnapshot := func(future chan<- *commonpb.Snapshot) {
+		// TODO Needs lock on raft state.
+		snapshot := r.sm.Snapshot()
+
+		r.Lock()
+		defer r.Unlock()
+		r.snapshotTerm = snapshot.LastIncludedTerm
+		r.snapshotIndex = snapshot.LastIncludedIndex
+
+		if err := r.storage.SetSnapshot(snapshot); err != nil {
+			panic(fmt.Errorf("couldn't save snapshot: %v", err))
+		}
+
+		// TODO Clean log.
+
+		// TODO We might not need to do it this way any longer, but at
+		// least future must be non-blocking.
+		future <- snapshot
+	}
+
 	for {
 		select {
 		case commit := <-r.applyCh:
 			apply(commit)
-		case future := <-r.snapCh:
-			// TODO Needs lock on raft state.
-			snapshot := r.sm.Snapshot()
-
-			r.snapshotTerm = snapshot.LastIncludedTerm
-			r.snapshotIndex = snapshot.LastIncludedIndex
-
-			if err := r.storage.SetSnapshot(snapshot); err != nil {
-				panic(fmt.Errorf("couldn't save snapshot: %v", err))
-			}
-
-			// TODO Clean log.
-
-			future <- snapshot
 		case snapshot := <-r.restoreCh:
 			restore(snapshot)
+		case future := <-r.snapCh:
+			getSnapshot(future)
 		}
 	}
 }
