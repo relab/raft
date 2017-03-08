@@ -699,14 +699,22 @@ func (r *Raft) startElection() {
 		r.logger.log(fmt.Sprintf("Starting %s election for term %d", pre, term))
 	}
 
-	logLen := r.storage.NextIndex()
+	lastLogIndex := r.storage.NextIndex()
+	var lastLogTerm uint64
+
+	if lastLogIndex == r.snapshotIndex {
+		lastLogIndex = r.snapshotIndex
+		lastLogTerm = r.snapshotTerm
+	} else {
+		lastLogTerm = r.logTerm(lastLogIndex)
+	}
 
 	// #C4 Send RequestVote RPCs to all other servers.
 	r.rvreqout <- &pb.RequestVoteRequest{
 		CandidateID:  r.id,
 		Term:         term,
-		LastLogTerm:  r.logTerm(logLen),
-		LastLogIndex: logLen,
+		LastLogIndex: lastLogIndex,
+		LastLogTerm:  lastLogTerm,
 		PreVote:      r.preElection,
 	}
 
