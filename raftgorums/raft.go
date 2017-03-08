@@ -311,9 +311,10 @@ func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestV
 		r.becomeFollower(req.Term)
 	}
 
+	// If voted == true, that implies req.Term == r.currentTerm.
 	voted := r.votedFor != None
 
-	if req.PreVote && (r.heardFromLeader || (voted && req.Term == r.currentTerm)) {
+	if req.PreVote && (r.heardFromLeader || voted) {
 		// We don't grant pre-votes if we have recently heard from a
 		// leader or already voted in the pre-term.
 		return &pb.RequestVoteResponse{Term: r.currentTerm}
