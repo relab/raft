@@ -26,15 +26,6 @@ func (r *Raft) HandleInstallSnapshotRequest(snapshot *commonpb.Snapshot) (res *p
 		return
 	}
 
-	// Discard old snapshot.
-	if snapshot.LastIncludedTerm < r.currentTerm || snapshot.LastIncludedIndex < r.storage.FirstIndex() {
-		r.logger.log(fmt.Sprintf("received old snapshot index:%d term:%d < %d %d",
-			snapshot.LastIncludedIndex, snapshot.LastIncludedTerm,
-			r.currentTerm, r.storage.NextIndex()-1,
-		))
-		return
-	}
-
 	// If last entry in snapshot exists in our log.
 	switch {
 	case snapshot.LastIncludedIndex == r.snapshotIndex:
