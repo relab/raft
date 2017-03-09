@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/Sirupsen/logrus"
 	"github.com/relab/raft/commonpb"
 	gorums "github.com/relab/raft/raftgorums/gorumspb"
 	pb "github.com/relab/raft/raftgorums/raftpb"
@@ -19,7 +19,7 @@ func (r *Raft) HandleInstallSnapshotRequest(snapshot *commonpb.Snapshot) (res *p
 		Term: r.currentTerm,
 	}
 
-	snapLogger := r.logger.WithFields(log.Fields{
+	snapLogger := r.logger.WithFields(logrus.Fields{
 		"currentterm":       r.currentTerm,
 		"lastincludedindex": snapshot.LastIncludedIndex,
 		"lastincludedterm":  snapshot.LastIncludedTerm,
@@ -115,13 +115,13 @@ func (r *Raft) catchUp(conf *gorums.Configuration, nextIndex uint64, matchCh cha
 		res, err := conf.AppendEntries(ctx, request)
 		cancel()
 
-		log.Printf("Sending catch-up prevIndex:%d prevTerm:%d entries:%d",
+		logrus.Printf("Sending catch-up prevIndex:%d prevTerm:%d entries:%d",
 			request.PrevLogIndex, request.PrevLogTerm, len(entries),
 		)
 
 		if err != nil {
 			// TODO Better error message.
-			log.Printf("Catch-up AppendEntries failed = %v\n", err)
+			logrus.Printf("Catch-up AppendEntries failed = %v\n", err)
 			return
 		}
 

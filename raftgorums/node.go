@@ -2,13 +2,14 @@ package raftgorums
 
 import (
 	"fmt"
-	"log"
+	"io/ioutil"
 	"sync"
 	"time"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/relab/raft"
 	"github.com/relab/raft/commonpb"
 	gorums "github.com/relab/raft/raftgorums/gorumspb"
@@ -30,6 +31,8 @@ type Node struct {
 
 	mgr  *gorums.Manager
 	conf *gorums.Configuration
+
+	logger logrus.FieldLogger
 }
 
 // NewNode returns a Node with an instance of Raft given the configuration.
@@ -54,6 +57,14 @@ func NewNode(server *grpc.Server, sm raft.StateMachine, cfg *Config) *Node {
 		pos++
 	}
 
+	if cfg.Logger == nil {
+		l := logrus.New()
+		l.Out = ioutil.Discard
+		cfg.Logger = l
+	}
+
+	cfg.Logger = cfg.Logger.WithField("nodeid", cfg.ID)
+
 	n := &Node{
 		id:         id,
 		Raft:       NewRaft(sm, cfg),
@@ -61,6 +72,7 @@ func NewNode(server *grpc.Server, sm raft.StateMachine, cfg *Config) *Node {
 		lookup:     lookup,
 		peers:      peers,
 		catchingUp: make(map[uint32]chan uint64),
+		logger:     cfg.Logger,
 	}
 
 	gorums.RegisterRaftServer(server, n)
@@ -156,17 +168,18 @@ func (n *Node) Run() error {
 
 				// Only send snapshot if there is one present.
 				if req.snapshot != nil {
-					log.Printf("sending snapshot index:%d term:%d\n",
-						req.snapshot.LastIncludedIndex, req.snapshot.LastIncludedTerm,
-					)
+					n.logger.WithFields(logrus.Fields{
+						"requestterm":       req.snapshot.Term,
+						"lastincludedindex": req.snapshot.LastIncludedIndex,
+						"lastincludedterm":  req.snapshot.LastIncludedTerm,
+					}).Infoln("Sending snapshot")
 
 					ctx, cancel := context.WithTimeout(context.Background(), TCPConnect*time.Millisecond)
 					res, err := follower.RaftClient.InstallSnapshot(ctx, req.snapshot)
 					cancel()
 
 					if err != nil {
-						// TODO Better error message.
-						log.Println(fmt.Sprintf("InstallSnapshot failed = %v", err))
+						n.logger.WithError(err).Warnln("InstallSnapshot failed")
 						return
 					}
 
@@ -196,9 +209,7 @@ func (n *Node) Run() error {
 			cancel()
 
 			if err != nil {
-				// TODO Better error message.
-				log.Println(fmt.Sprintf("RequestVote failed = %v", err))
-
+				n.logger.WithError(err).Warnln("RequestVote failed")
 			}
 
 			if res.RequestVoteResponse == nil {
@@ -212,12 +223,11 @@ func (n *Node) Run() error {
 			res, err := n.conf.AppendEntries(ctx, req)
 
 			if err != nil {
-				// TODO Better error message.
-				log.Println(fmt.Sprintf("AppendEntries failed = %v", err))
+				n.logger.WithError(err).Warnln("AppendEntries failed")
+			}
 
-				if res.AppendEntriesResponse == nil {
-					continue
-				}
+			if res.AppendEntriesResponse == nil {
+				continue
 			}
 
 			// Cancel on abort.

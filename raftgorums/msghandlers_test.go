@@ -1,10 +1,12 @@
 package raftgorums_test
 
 import (
+	"io/ioutil"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/relab/raft/commonpb"
 	"github.com/relab/raft/raftgorums"
 	pb "github.com/relab/raft/raftgorums/raftpb"
@@ -376,11 +378,15 @@ func (n *noopMachine) Snapshot() <-chan *commonpb.Snapshot {
 func (n *noopMachine) Restore(*commonpb.Snapshot) {}
 
 func TestHandleRequestVoteRequest(t *testing.T) {
+	l := logrus.New()
+	l.Out = ioutil.Discard
+
 	for _, test := range handleRequestVoteRequestTests {
 		t.Run(test.name, func(t *testing.T) {
 			r := raftgorums.NewRaft(&noopMachine{}, &raftgorums.Config{
 				ElectionTimeout: time.Second,
 				Storage:         test.s,
+				Logger:          l,
 			})
 
 			for i := 0; i < len(test.req); i++ {

@@ -3,19 +3,19 @@ package raftgorums
 import (
 	"container/list"
 	"fmt"
-	"io/ioutil"
 	"sync"
 	"time"
 
 	"golang.org/x/net/context"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/Sirupsen/logrus"
 	"github.com/relab/raft"
 	"github.com/relab/raft/commonpb"
 	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
-const LogLevel = log.InfoLevel
+// LogLevel sets the level of logging.
+const LogLevel = logrus.InfoLevel
 
 // State represents one of the Raft server states.
 type State int
@@ -58,7 +58,7 @@ type Config struct {
 	HeartbeatTimeout time.Duration
 	MaxAppendEntries uint64
 
-	Logger log.FieldLogger
+	Logger logrus.FieldLogger
 }
 
 // UniqueCommand identifies a client command.
@@ -132,7 +132,7 @@ type Raft struct {
 	nextcu   time.Time
 	cureqout chan *catchUpRequest
 
-	logger log.FieldLogger
+	logger logrus.FieldLogger
 }
 
 type snapshotRequest struct {
@@ -154,14 +154,6 @@ type entryFuture struct {
 func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 	// TODO Validate config, i.e., make sure to sensible defaults if an
 	// option is not configured.
-	if cfg.Logger == nil {
-		l := log.New()
-		l.Out = ioutil.Discard
-		cfg.Logger = l
-	}
-
-	cfg.Logger = cfg.Logger.WithField("nodeid", cfg.ID)
-
 	term, err := cfg.Storage.Get(KeyTerm)
 
 	if err != nil {
@@ -297,7 +289,7 @@ func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestV
 	r.Lock()
 	defer r.Unlock()
 
-	reqLogger := r.logger.WithFields(log.Fields{
+	reqLogger := r.logger.WithFields(logrus.Fields{
 		"currentterm": r.currentTerm,
 		"requestterm": req.Term,
 		"prevote":     req.PreVote,
@@ -382,7 +374,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	r.Lock()
 	defer r.Unlock()
 
-	reqLogger := r.logger.WithFields(log.Fields{
+	reqLogger := r.logger.WithFields(logrus.Fields{
 		"currentterm":  r.currentTerm,
 		"requestterm":  req.Term,
 		"leaderid":     req.LeaderID,
@@ -452,7 +444,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 			panic(fmt.Errorf("couldn't save entries: %v", err))
 		}
 
-		reqLogger.WithFields(log.Fields{
+		reqLogger.WithFields(logrus.Fields{
 			"lensaved": len(toSave),
 			"lenlog":   r.storage.NextIndex(),
 		}).Infoln("Saved entries to stable storage")
@@ -467,7 +459,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 
 	now := time.Now()
 	if !success && now.After(r.nextcu) {
-		r.logger.WithFields(log.Fields{
+		r.logger.WithFields(logrus.Fields{
 			"currentterm": r.currentTerm,
 			"requestterm": req.Term,
 			"leaderid":    req.LeaderID,
@@ -615,7 +607,7 @@ func (r *Raft) runStateMachine() {
 	restore := func(snapshot *commonpb.Snapshot) {
 		r.Lock()
 		defer r.Unlock()
-		snapLogger := r.logger.WithFields(log.Fields{
+		snapLogger := r.logger.WithFields(logrus.Fields{
 			"currentterm":       r.currentTerm,
 			"lastincludedindex": snapshot.LastIncludedIndex,
 			"lastincludedterm":  snapshot.LastIncludedTerm,
@@ -711,7 +703,7 @@ func (r *Raft) startElection() {
 		}
 	}
 
-	r.logger.WithFields(log.Fields{
+	r.logger.WithFields(logrus.Fields{
 		"currentterm": r.currentTerm,
 	}).Infoln("Started election")
 
@@ -778,7 +770,7 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 
 		// We have received at least a quorum of votes.
 		// We are the leader for this term. See Raft Paper Figure 2 -> Rules for Servers -> Leaders.
-		r.logger.WithFields(log.Fields{
+		r.logger.WithFields(logrus.Fields{
 			"currentterm": r.currentTerm,
 		}).Infoln("Elected leader")
 
@@ -857,7 +849,7 @@ LOOP:
 	// #L1
 	entries := r.getNextEntries(r.majorityNextIndex)
 
-	r.logger.WithFields(log.Fields{
+	r.logger.WithFields(logrus.Fields{
 		"currentterm": r.currentTerm,
 		"lenentries":  len(entries),
 	}).Infoln("Sending AppendEntries")
@@ -959,7 +951,7 @@ func (r *Raft) becomeFollower(term uint64) {
 	r.preElection = true
 
 	if r.currentTerm != term {
-		r.logger.WithFields(log.Fields{
+		r.logger.WithFields(logrus.Fields{
 			"currentterm": term,
 			"oldterm":     r.currentTerm,
 		}).Infoln("Transition to follower")
