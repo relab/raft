@@ -310,6 +310,14 @@ func (fs *FileStorage) SetSnapshot(snapshot *commonpb.Snapshot) error {
 	// this.
 	fs.nextIndex = snapshot.LastIncludedIndex
 
+	if err := set(tx.Bucket(stateBucket), KeyNextIndex, fs.nextIndex); err != nil {
+		return err
+	}
+
+	if err := set(tx.Bucket(stateBucket), KeyFirstIndex, fs.firstIndex); err != nil {
+		return err
+	}
+
 	return tx.Commit()
 }
 
