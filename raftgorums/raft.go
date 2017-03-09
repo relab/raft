@@ -4,16 +4,18 @@ import (
 	"container/list"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"sync"
 	"time"
 
 	"golang.org/x/net/context"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/relab/raft"
 	"github.com/relab/raft/commonpb"
 	pb "github.com/relab/raft/raftgorums/raftpb"
 )
+
+const LogLevel = log.InfoLevel
 
 // State represents one of the Raft server states.
 type State int
@@ -56,7 +58,7 @@ type Config struct {
 	HeartbeatTimeout time.Duration
 	MaxAppendEntries uint64
 
-	Logger *log.Logger
+	Logger log.FieldLogger
 }
 
 // UniqueCommand identifies a client command.
@@ -130,7 +132,7 @@ type Raft struct {
 	nextcu   time.Time
 	cureqout chan *catchUpRequest
 
-	logger *Logger
+	logger log.FieldLogger
 }
 
 type snapshotRequest struct {
@@ -153,8 +155,12 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 	// TODO Validate config, i.e., make sure to sensible defaults if an
 	// option is not configured.
 	if cfg.Logger == nil {
-		cfg.Logger = log.New(ioutil.Discard, "", 0)
+		l := log.New()
+		l.Out = ioutil.Discard
+		cfg.Logger = l
 	}
+
+	cfg.Logger = cfg.Logger.WithField("nodeid", cfg.ID)
 
 	term, err := cfg.Storage.Get(KeyTerm)
 
@@ -200,10 +206,10 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		cureqout:          make(chan *catchUpRequest, 1),
 		rvreqout:          make(chan *pb.RequestVoteRequest, 128),
 		aereqout:          make(chan *pb.AppendEntriesRequest, 128),
-		logger:            &Logger{cfg.ID, cfg.Logger},
+		logger:            cfg.Logger,
 	}
 
-	r.logger.Printf("ElectionTimeout: %v", r.electionTimeout)
+	r.logger.WithField("electiontimeout", r.electionTimeout).Infoln("Election timeout set")
 
 	snapshot, err := cfg.Storage.GetSnapshot()
 
@@ -291,15 +297,12 @@ func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestV
 	r.Lock()
 	defer r.Unlock()
 
-	pre := ""
-
-	if req.PreVote {
-		pre = "Pre"
-	}
-
-	if logLevel >= INFO {
-		r.logger.from(req.CandidateID, fmt.Sprintf("%sVote requested in term %d for term %d", pre, r.currentTerm, req.Term))
-	}
+	reqLogger := r.logger.WithFields(log.Fields{
+		"currentterm": r.currentTerm,
+		"requestterm": req.Term,
+		"prevote":     req.PreVote,
+	})
+	reqLogger.Infoln("Got vote request")
 
 	// #RV1 Reply false if term < currentTerm.
 	if req.Term < r.currentTerm {
@@ -342,9 +345,7 @@ func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestV
 	// #RV2 If votedFor is null or candidateId, and candidate's log is at
 	// least as up-to-date as receiver's log, grant vote.
 	if canGrantVote && (laterTerm || longEnough) {
-		if logLevel >= INFO {
-			r.logger.to(req.CandidateID, fmt.Sprintf("%sVote granted for term %d", pre, req.Term))
-		}
+		reqLogger.WithField("votegranted", true).Infoln("Vote granted")
 
 		if req.PreVote {
 			return &pb.RequestVoteResponse{VoteGranted: true, Term: req.Term}
@@ -369,6 +370,8 @@ func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestV
 		return &pb.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm}
 	}
 
+	reqLogger.WithField("votegranted", false).Infoln("Vote NOT granted")
+
 	// #RV2 The candidate's log was not up-to-date
 	return &pb.RequestVoteResponse{Term: r.currentTerm}
 }
@@ -379,9 +382,15 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	r.Lock()
 	defer r.Unlock()
 
-	if logLevel >= TRACE {
-		r.logger.from(req.LeaderID, fmt.Sprintf("AppendEntries = %+v", req))
-	}
+	reqLogger := r.logger.WithFields(log.Fields{
+		"currentterm":  r.currentTerm,
+		"requestterm":  req.Term,
+		"leaderid":     req.LeaderID,
+		"prevlogindex": req.PrevLogIndex,
+		"commitindex":  req.CommitIndex,
+		"lenentries":   len(req.Entries),
+	})
+	reqLogger.Infoln("Got AppendEntries")
 
 	// #AE1 Reply false if term < currentTerm.
 	if req.Term < r.currentTerm {
@@ -443,9 +452,10 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 			panic(fmt.Errorf("couldn't save entries: %v", err))
 		}
 
-		if logLevel >= DEBUG {
-			r.logger.to(req.LeaderID, fmt.Sprintf("AppendEntries persisted %d entries to stable storage", len(toSave)))
-		}
+		reqLogger.WithFields(log.Fields{
+			"lensaved": len(toSave),
+			"lenlog":   r.storage.NextIndex(),
+		}).Infoln("Saved entries to stable storage")
 
 		old := r.commitIndex
 		r.commitIndex = max(req.CommitIndex, r.commitIndex)
@@ -457,7 +467,12 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 
 	now := time.Now()
 	if !success && now.After(r.nextcu) {
-		r.logger.log("initiated catch-up request")
+		r.logger.WithFields(log.Fields{
+			"currentterm": r.currentTerm,
+			"requestterm": req.Term,
+			"leaderid":    req.LeaderID,
+		}).Infoln("Initiated catch-up request")
+
 		// Prevent repeated catch-up requests.
 		r.nextcu = now.Add(20 * time.Second)
 		r.cureqout <- &catchUpRequest{
@@ -600,7 +615,12 @@ func (r *Raft) runStateMachine() {
 	restore := func(snapshot *commonpb.Snapshot) {
 		r.Lock()
 		defer r.Unlock()
-		r.logger.log(fmt.Sprintf("received snapshot index:%d term:%d", snapshot.LastIncludedIndex, snapshot.LastIncludedTerm))
+		snapLogger := r.logger.WithFields(log.Fields{
+			"currentterm":       r.currentTerm,
+			"lastincludedindex": snapshot.LastIncludedIndex,
+			"lastincludedterm":  snapshot.LastIncludedTerm,
+		})
+		snapLogger.Infoln("Received snapshot")
 
 		// Disable baseline/election timeout as we are not handling
 		// append entries while applying the snapshot.
@@ -609,9 +629,7 @@ func (r *Raft) runStateMachine() {
 		r.election.Disable()
 		defer r.election.Restart()
 
-		r.logger.log(fmt.Sprintf("restoring state machine from snapshot index:%d term:%d",
-			snapshot.LastIncludedIndex, snapshot.LastIncludedTerm,
-		))
+		snapLogger.Infoln("Restored statemachine")
 
 		r.setSnapshot(snapshot)
 		r.restoreFromSnapshot()
@@ -671,10 +689,8 @@ func (r *Raft) startElection() {
 	r.electionTimeout = randomTimeout(r.baselineTimeout)
 
 	term := r.currentTerm + 1
-	pre := "pre"
 
 	if !r.preElection {
-		pre = ""
 		// We are now a candidate. See Raft Paper Figure 2 -> Rules for Servers -> Candidates.
 		// #C1 Increment currentTerm.
 		r.currentTerm++
@@ -695,9 +711,9 @@ func (r *Raft) startElection() {
 		}
 	}
 
-	if logLevel >= INFO {
-		r.logger.log(fmt.Sprintf("Starting %s election for term %d", pre, term))
-	}
+	r.logger.WithFields(log.Fields{
+		"currentterm": r.currentTerm,
+	}).Infoln("Started election")
 
 	lastLogIndex := r.storage.NextIndex()
 	var lastLogTerm uint64
@@ -762,9 +778,9 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 
 		// We have received at least a quorum of votes.
 		// We are the leader for this term. See Raft Paper Figure 2 -> Rules for Servers -> Leaders.
-		if logLevel >= INFO {
-			r.logger.log(fmt.Sprintf("Elected leader for term %d", r.currentTerm))
-		}
+		r.logger.WithFields(log.Fields{
+			"currentterm": r.currentTerm,
+		}).Infoln("Elected leader")
 
 		logLen := r.storage.NextIndex()
 
@@ -815,10 +831,6 @@ func (r *Raft) sendAppendEntries() {
 	r.Lock()
 	defer r.Unlock()
 
-	if logLevel >= DEBUG {
-		r.logger.log(fmt.Sprintf("Sending AppendEntries for term %d", r.currentTerm))
-	}
-
 	var toSave []*commonpb.Entry
 	logLen := r.storage.NextIndex()
 	assignIndex := logLen + 1
@@ -845,9 +857,10 @@ LOOP:
 	// #L1
 	entries := r.getNextEntries(r.majorityNextIndex)
 
-	if logLevel >= DEBUG {
-		r.logger.log(fmt.Sprintf("Sending %d entries", len(entries)))
-	}
+	r.logger.WithFields(log.Fields{
+		"currentterm": r.currentTerm,
+		"lenentries":  len(entries),
+	}).Infoln("Sending AppendEntries")
 
 	r.aereqout <- r.getAppendEntriesRequest(r.majorityNextIndex, entries)
 }
@@ -946,9 +959,10 @@ func (r *Raft) becomeFollower(term uint64) {
 	r.preElection = true
 
 	if r.currentTerm != term {
-		if logLevel >= INFO {
-			r.logger.log(fmt.Sprintf("Become follower as we transition from term %d to %d", r.currentTerm, term))
-		}
+		r.logger.WithFields(log.Fields{
+			"currentterm": term,
+			"oldterm":     r.currentTerm,
+		}).Infoln("Transition to follower")
 
 		r.currentTerm = term
 		r.votedFor = None

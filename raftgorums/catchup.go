@@ -3,9 +3,9 @@ package raftgorums
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/relab/raft/commonpb"
 	gorums "github.com/relab/raft/raftgorums/gorumspb"
 	pb "github.com/relab/raft/raftgorums/raftpb"
@@ -18,6 +18,15 @@ func (r *Raft) HandleInstallSnapshotRequest(snapshot *commonpb.Snapshot) (res *p
 	res = &pb.InstallSnapshotResponse{
 		Term: r.currentTerm,
 	}
+
+	snapLogger := r.logger.WithFields(log.Fields{
+		"currentterm":       r.currentTerm,
+		"lastincludedindex": snapshot.LastIncludedIndex,
+		"lastincludedterm":  snapshot.LastIncludedTerm,
+		"snapshotIndex":     r.snapshotIndex,
+		"snapshotTerm":      r.snapshotTerm,
+	})
+	snapLogger.Infoln("Received snapshot")
 
 	// TODO Revise snapshot validation logic.
 
@@ -32,13 +41,11 @@ func (r *Raft) HandleInstallSnapshotRequest(snapshot *commonpb.Snapshot) (res *p
 		// Snapshot is already a prefix of our log, so
 		// discard it.
 		if snapshot.LastIncludedTerm == r.snapshotTerm {
-			r.logger.log("received identical snapshot")
+			snapLogger.Infoln("Received identical snapshot")
 			return
 		}
 
-		r.logger.log(fmt.Sprintf("received snapshot with same index %d but different term %d != %d",
-			snapshot.LastIncludedIndex, snapshot.LastIncludedTerm, r.snapshotTerm,
-		))
+		snapLogger.Warnln("Snapshot has same index but different term compared to ours")
 
 	case snapshot.LastIncludedIndex < r.storage.NextIndex():
 		entry, err := r.storage.GetEntry(snapshot.LastIncludedIndex)
@@ -50,7 +57,7 @@ func (r *Raft) HandleInstallSnapshotRequest(snapshot *commonpb.Snapshot) (res *p
 		// Snapshot is already a prefix of our log, so
 		// discard it.
 		if entry.Term == snapshot.LastIncludedTerm {
-			r.logger.log("snapshot is already part of our log")
+			snapLogger.Warnln("Snapshot already part of our log")
 			return
 		}
 	}
