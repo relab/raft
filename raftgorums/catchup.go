@@ -22,8 +22,8 @@ func (r *Raft) HandleInstallSnapshotRequest(snapshot *commonpb.Snapshot) (res *p
 		"currentterm":       r.currentTerm,
 		"lastincludedindex": snapshot.LastIncludedIndex,
 		"lastincludedterm":  snapshot.LastIncludedTerm,
-		"snapshotIndex":     r.snapshotIndex,
-		"snapshotTerm":      r.snapshotTerm,
+		"snapshotIndex":     r.currentSnapshot.LastIncludedIndex,
+		"snapshotTerm":      r.currentSnapshot.LastIncludedTerm,
 	})
 	snapLogger.Infoln("Received snapshot")
 
@@ -36,10 +36,10 @@ func (r *Raft) HandleInstallSnapshotRequest(snapshot *commonpb.Snapshot) (res *p
 
 	// If last entry in snapshot exists in our log.
 	switch {
-	case snapshot.LastIncludedIndex == r.snapshotIndex:
+	case snapshot.LastIncludedIndex == r.currentSnapshot.LastIncludedIndex:
 		// Snapshot is already a prefix of our log, so
 		// discard it.
-		if snapshot.LastIncludedTerm == r.snapshotTerm {
+		if snapshot.LastIncludedTerm == r.currentSnapshot.LastIncludedTerm {
 			snapLogger.Infoln("Received identical snapshot")
 			return
 		}

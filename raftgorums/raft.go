@@ -78,9 +78,6 @@ type Raft struct {
 	currentTerm uint64
 	votedFor    uint64
 
-	snapshotTerm  uint64
-	snapshotIndex uint64
-
 	sm raft.StateMachine
 
 	storage *panicStorage
@@ -382,8 +379,8 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	logLen := r.storage.NextIndex()
 
 	switch {
-	case req.PrevLogIndex <= r.snapshotIndex:
-		prevTerm = r.snapshotTerm
+	case req.PrevLogIndex <= r.currentSnapshot.LastIncludedIndex:
+		prevTerm = r.currentSnapshot.LastIncludedTerm
 	case req.PrevLogIndex > 0 && req.PrevLogIndex-1 < logLen:
 		prevEntry := r.storage.GetEntry(req.PrevLogIndex - 1)
 		prevTerm = prevEntry.Term
@@ -638,8 +635,6 @@ func (r *Raft) setSnapshot(snapshot *commonpb.Snapshot) {
 	// TODO Clean log.
 
 	r.currentSnapshot = snapshot
-	r.snapshotTerm = snapshot.LastIncludedTerm
-	r.snapshotIndex = snapshot.LastIncludedIndex
 }
 
 // TODO Assumes caller holds lock on Raft.
@@ -652,7 +647,7 @@ func (r *Raft) restoreFromSnapshot() {
 	r.sm.Restore(snapshot)
 	r.commitIndex = snapshot.LastIncludedIndex
 	r.appliedIndex = snapshot.LastIncludedIndex
-	r.nextIndex = r.snapshotIndex + 1
+	r.nextIndex = r.currentSnapshot.LastIncludedIndex + 1
 	r.becomeFollower(snapshot.LastIncludedTerm)
 
 	r.logger.WithFields(logrus.Fields{
@@ -688,9 +683,9 @@ func (r *Raft) startElection() {
 	lastLogIndex := r.storage.NextIndex()
 	var lastLogTerm uint64
 
-	if lastLogIndex == r.snapshotIndex {
-		lastLogIndex = r.snapshotIndex
-		lastLogTerm = r.snapshotTerm
+	if lastLogIndex == r.currentSnapshot.LastIncludedIndex {
+		lastLogIndex = r.currentSnapshot.LastIncludedIndex
+		lastLogTerm = r.currentSnapshot.LastIncludedTerm
 	} else {
 		lastLogTerm = r.logTerm(lastLogIndex)
 	}
@@ -858,9 +853,9 @@ func (r *Raft) getNextEntries(nextIndex uint64) []*commonpb.Entry {
 func (r *Raft) getAppendEntriesRequest(nextIndex uint64, entries []*commonpb.Entry) *pb.AppendEntriesRequest {
 	var prevTerm, prevIndex uint64 = 0, nextIndex - 1
 
-	if prevIndex == r.snapshotIndex {
-		prevIndex = r.snapshotIndex
-		prevTerm = r.snapshotTerm
+	if prevIndex == r.currentSnapshot.LastIncludedIndex {
+		prevIndex = r.currentSnapshot.LastIncludedIndex
+		prevTerm = r.currentSnapshot.LastIncludedTerm
 	} else {
 		prevTerm = r.logTerm(prevIndex)
 	}
