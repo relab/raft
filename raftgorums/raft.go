@@ -561,11 +561,6 @@ func (r *Raft) newCommit(old uint64) {
 			continue
 		}
 
-		r.logger.WithFields(logrus.Fields{
-			"oldappliedindex": r.appliedIndex,
-			"appliedindex":    i,
-		}).Infoln("Set applied index")
-
 		r.appliedIndex = i
 
 		switch r.state {
