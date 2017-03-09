@@ -434,6 +434,11 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		old := r.commitIndex
 		r.commitIndex = max(req.CommitIndex, r.commitIndex)
 
+		r.logger.WithFields(logrus.Fields{
+			"oldcommitindex": old,
+			"commitindex":    r.commitIndex,
+		}).Infoln("Set commit index")
+
 		if r.commitIndex > old {
 			r.newCommit(old)
 		}
@@ -532,6 +537,11 @@ func (r *Raft) advanceCommitIndex() {
 	}
 
 	if r.commitIndex > old {
+		r.logger.WithFields(logrus.Fields{
+			"oldcommitindex": old,
+			"commitindex":    r.commitIndex,
+		}).Infoln("Set commit index")
+
 		r.newCommit(old)
 	}
 
@@ -547,8 +557,14 @@ func (r *Raft) newCommit(old uint64) {
 	// TODO Change to GetEntries -> then ring buffer.
 	for i := old; i < r.commitIndex; i++ {
 		if i < r.appliedIndex {
+			r.logger.WithField("index", i).Warningln("Already applied")
 			continue
 		}
+
+		r.logger.WithFields(logrus.Fields{
+			"oldappliedindex": r.appliedIndex,
+			"appliedindex":    i,
+		}).Infoln("Set applied index")
 
 		r.appliedIndex = i
 
@@ -641,11 +657,18 @@ func (r *Raft) setSnapshot(snapshot *commonpb.Snapshot) {
 func (r *Raft) restoreFromSnapshot() {
 	snapshot := r.currentSnapshot
 
+	old := r.commitIndex
+
 	r.sm.Restore(snapshot)
 	r.commitIndex = snapshot.LastIncludedIndex
 	r.appliedIndex = snapshot.LastIncludedIndex
 	r.majorityNextIndex = r.snapshotIndex + 1
 	r.becomeFollower(snapshot.LastIncludedTerm)
+
+	r.logger.WithFields(logrus.Fields{
+		"oldcommitindex": old,
+		"commitindex":    r.commitIndex,
+	}).Infoln("Set commit index")
 }
 
 func (r *Raft) startElection() {
