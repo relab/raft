@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/relab/raft/commonpb"
 )
 
@@ -138,4 +139,108 @@ func (m *Memory) SetSnapshot(*commonpb.Snapshot) error {
 // GetSnapshot implements the Storage interface.
 func (m *Memory) GetSnapshot() (*commonpb.Snapshot, error) {
 	return nil, errors.New("not implemented")
+}
+
+type panicStorage struct {
+	s      Storage
+	logger logrus.FieldLogger
+}
+
+func (ps *panicStorage) Set(key uint64, value uint64) {
+	err := ps.s.Set(key, value)
+
+	if err != nil {
+		ps.logger.WithError(err).WithFields(logrus.Fields{
+			"key":   key,
+			"value": value,
+		}).Panicln("Could not set key-value")
+	}
+}
+
+func (ps *panicStorage) Get(key uint64) uint64 {
+	value, err := ps.s.Get(key)
+
+	if err != nil {
+		ps.logger.WithError(err).WithFields(logrus.Fields{
+			"key": key,
+		}).Panicln("Could not get value")
+	}
+
+	return value
+}
+
+func (ps *panicStorage) StoreEntries(entries []*commonpb.Entry) {
+	err := ps.s.StoreEntries(entries)
+
+	if err != nil {
+		ps.logger.WithError(err).WithFields(logrus.Fields{
+			"lenentries": len(entries),
+		}).Panicln("Could not store entries")
+	}
+}
+
+func (ps *panicStorage) GetEntry(index uint64) *commonpb.Entry {
+	entry, err := ps.s.GetEntry(index)
+
+	if err != nil {
+		ps.logger.WithError(err).WithFields(logrus.Fields{
+			"index": index,
+		}).Panicln("Could not get entry")
+	}
+
+	return entry
+}
+
+func (ps *panicStorage) GetEntries(first, last uint64) []*commonpb.Entry {
+	entries, err := ps.s.GetEntries(first, last)
+
+	if err != nil {
+		ps.logger.WithError(err).WithFields(logrus.Fields{
+			"first": first,
+			"last":  last,
+		}).Panicln("Could not get entries")
+	}
+
+	return entries
+}
+
+func (ps *panicStorage) RemoveEntries(first, last uint64) {
+	err := ps.s.RemoveEntries(first, last)
+
+	if err != nil {
+		ps.logger.WithError(err).WithFields(logrus.Fields{
+			"first": first,
+			"last":  last,
+		}).Panicln("Could not remove entries")
+	}
+}
+
+func (ps *panicStorage) FirstIndex() uint64 {
+	return ps.s.FirstIndex()
+}
+
+func (ps *panicStorage) NextIndex() uint64 {
+	return ps.s.NextIndex()
+}
+
+func (ps *panicStorage) SetSnapshot(snapshot *commonpb.Snapshot) {
+	err := ps.s.SetSnapshot(snapshot)
+
+	if err != nil {
+		ps.logger.WithError(err).WithFields(logrus.Fields{
+			"snapshotterm":      snapshot.Term,
+			"lastincludedindex": snapshot.LastIncludedIndex,
+			"lastincludedterm":  snapshot.LastIncludedTerm,
+		}).Panicln("Could not set snapshot")
+	}
+}
+
+func (ps *panicStorage) GetSnapshot() *commonpb.Snapshot {
+	snapshot, err := ps.s.GetSnapshot()
+
+	if err != nil {
+		ps.logger.WithError(err).Panicln("Could not get snapshot")
+	}
+
+	return snapshot
 }

@@ -2,7 +2,6 @@ package raftgorums
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -48,11 +47,7 @@ func (r *Raft) HandleInstallSnapshotRequest(snapshot *commonpb.Snapshot) (res *p
 		snapLogger.Warnln("Snapshot has same index but different term compared to ours")
 
 	case snapshot.LastIncludedIndex < r.storage.NextIndex():
-		entry, err := r.storage.GetEntry(snapshot.LastIncludedIndex)
-
-		if err != nil {
-			panic(fmt.Errorf("couldn't retrieve entry: %v", err))
-		}
+		entry := r.storage.GetEntry(snapshot.LastIncludedIndex)
 
 		// Snapshot is already a prefix of our log, so
 		// discard it.
