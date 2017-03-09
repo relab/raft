@@ -422,24 +422,22 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		r.heardFromLeader = true
 		r.seenLeader = true
 
-		lcd := req.PrevLogIndex + 1
+		var toSave []*commonpb.Entry
+		index := req.PrevLogIndex
 
 		for _, entry := range req.Entries {
-			if lcd == logLen || r.logTerm(lcd) != entry.Term {
-				break
+			index++
+
+			if entry.Term != r.logTerm(index) {
+				for r.storage.NextIndex() > index-1 {
+					logLen = r.storage.NextIndex()
+					r.storage.RemoveEntries(logLen-1, logLen-1)
+				}
+				toSave = append(toSave, entry)
 			}
-
 		}
 
-		err := r.storage.RemoveEntries(lcd-1, logLen)
-
-		if err != nil {
-			panic(fmt.Errorf("couldn't remove excessive entries: %v", err))
-		}
-
-		toSave := req.Entries[req.PrevLogIndex-lcd+1:]
-
-		err = r.storage.StoreEntries(toSave)
+		err := r.storage.StoreEntries(toSave)
 
 		if err != nil {
 			panic(fmt.Errorf("couldn't save entries: %v", err))
@@ -449,12 +447,8 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 			r.logger.to(req.LeaderID, fmt.Sprintf("AppendEntries persisted %d entries to stable storage", len(toSave)))
 		}
 
-		if len(toSave) > 0 {
-			lcd = toSave[len(toSave)-1].Index
-		}
-
 		old := r.commitIndex
-		r.commitIndex = min(req.CommitIndex, lcd)
+		r.commitIndex = max(req.CommitIndex, r.commitIndex)
 
 		if r.commitIndex > old {
 			r.newCommit(old)
