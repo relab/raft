@@ -1,7 +1,6 @@
 package raftgorums
 
 import (
-	"fmt"
 	"io/ioutil"
 	"sync"
 	"time"
@@ -195,9 +194,10 @@ func (n *Node) Run() error {
 				single, err := n.mgr.NewConfiguration([]uint32{followerID}, NewQuorumSpec(2))
 
 				if err != nil {
-					panic(fmt.Sprintf("tried to create new configuration %v: %v",
-						[]uint32{followerID}, err,
-					))
+					n.logger.
+						WithError(err).
+						WithField("followerid", followerID).
+						Panicln("Could not create configuration")
 				}
 
 				n.Raft.catchUp(single, nextIndex, matchCh)
@@ -295,7 +295,10 @@ func (n *Node) removeNode(nodeID uint32) bool {
 	})
 
 	if err != nil {
-		panic(fmt.Sprintf("tried to create new configuration %v: %v", tmpSet, err))
+		n.logger.
+			WithError(err).
+			WithField("nodeids", tmpSet).
+			Panicln("Could not create configuration")
 	}
 
 	return true
@@ -311,7 +314,10 @@ func (n *Node) addNode(nodeID uint32) {
 	})
 
 	if err != nil {
-		panic(fmt.Sprintf("tried to create new configuration %v: %v", newSet, err))
+		n.logger.
+			WithError(err).
+			WithField("nodeids", newSet).
+			Panicln("Could not create configuration")
 	}
 }
 
