@@ -576,7 +576,7 @@ func (r *Raft) newCommit(old uint64) {
 			continue
 		}
 
-		r.appliedIndex = max(r.appliedIndex, i)
+		r.appliedIndex = i
 
 		switch r.state {
 		case Leader:
