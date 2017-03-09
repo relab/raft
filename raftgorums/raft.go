@@ -289,12 +289,16 @@ func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestV
 	r.Lock()
 	defer r.Unlock()
 
-	reqLogger := r.logger.WithFields(logrus.Fields{
-		"currentterm": r.currentTerm,
-		"requestterm": req.Term,
-		"prevote":     req.PreVote,
-	})
-	reqLogger.Infoln("Got vote request")
+	var voteGranted bool
+	defer func() {
+		r.logger.WithFields(logrus.Fields{
+			"currentterm": r.currentTerm,
+			"requestterm": req.Term,
+			"prevote":     req.PreVote,
+			"candidateid": req.CandidateID,
+			"votegranted": voteGranted,
+		}).Infoln("Got vote request")
+	}()
 
 	// #RV1 Reply false if term < currentTerm.
 	if req.Term < r.currentTerm {
@@ -336,9 +340,9 @@ func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestV
 
 	// #RV2 If votedFor is null or candidateId, and candidate's log is at
 	// least as up-to-date as receiver's log, grant vote.
-	if canGrantVote && (laterTerm || longEnough) {
-		reqLogger.WithField("votegranted", true).Infoln("Vote granted")
+	voteGranted = canGrantVote && (laterTerm || longEnough)
 
+	if voteGranted {
 		if req.PreVote {
 			return &pb.RequestVoteResponse{VoteGranted: true, Term: req.Term}
 		}
@@ -361,8 +365,6 @@ func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestV
 
 		return &pb.RequestVoteResponse{VoteGranted: true, Term: r.currentTerm}
 	}
-
-	reqLogger.WithField("votegranted", false).Infoln("Vote NOT granted")
 
 	// #RV2 The candidate's log was not up-to-date
 	return &pb.RequestVoteResponse{Term: r.currentTerm}
