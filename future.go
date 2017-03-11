@@ -1,6 +1,10 @@
 package raft
 
-import "github.com/relab/raft/commonpb"
+import (
+	"time"
+
+	"github.com/relab/raft/commonpb"
+)
 
 // Future allows a result to be read after the operation who created it has
 // completed.
@@ -14,14 +18,16 @@ type Future interface {
 type EntryFuture struct {
 	Entry *commonpb.Entry
 
-	res chan interface{}
+	Created time.Time
+	res     chan interface{}
 }
 
 // NewFuture initializes and returns a new *EntryFuture.
 func NewFuture(entry *commonpb.Entry) *EntryFuture {
 	return &EntryFuture{
-		Entry: entry,
-		res:   make(chan interface{}, 1),
+		Entry:   entry,
+		Created: time.Now(),
+		res:     make(chan interface{}, 1),
 	}
 }
 

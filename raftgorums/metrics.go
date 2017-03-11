@@ -7,10 +7,12 @@ import (
 )
 
 type raftMetrics struct {
-	aereq metrics.Histogram
-	aeres metrics.Histogram
-	rvreq metrics.Histogram
-	rvres metrics.Histogram
+	aereq     metrics.Histogram
+	aeres     metrics.Histogram
+	rvreq     metrics.Histogram
+	rvres     metrics.Histogram
+	cmdCommit metrics.Histogram
+	cmds      metrics.Gauge
 }
 
 var rmetrics = &raftMetrics{
@@ -37,5 +39,17 @@ var rmetrics = &raftMetrics{
 		Subsystem: "rpc",
 		Name:      "handle_request_vote_response",
 		Help:      "Total time spent handling response.",
+	}, []string{}),
+	cmdCommit: prometheus.NewSummaryFrom(promc.SummaryOpts{
+		Namespace: "raft",
+		Subsystem: "internal",
+		Name:      "commit_client_command",
+		Help:      "Total time spent committing client command.",
+	}, []string{}),
+	cmds: prometheus.NewGaugeFrom(promc.GaugeOpts{
+		Namespace: "raft",
+		Subsystem: "internal",
+		Name:      "num_cmds",
+		Help:      "Number of commands being processed.",
 	}, []string{}),
 }
