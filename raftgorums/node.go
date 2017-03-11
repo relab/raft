@@ -239,21 +239,25 @@ func (n *Node) Run() error {
 
 			n.cLock.Lock()
 			for nodeID, matchIndex := range n.catchingUp {
-				select {
-				case index, ok := <-matchIndex:
-					if !ok {
-						delete(n.catchingUp, nodeID)
-						n.addNode(nodeID)
-						continue
-					}
+			OUT:
+				for {
+					select {
+					case index, ok := <-matchIndex:
+						if !ok {
+							delete(n.catchingUp, nodeID)
+							n.addNode(nodeID)
+							break OUT
+						}
 
-					if index == res.MatchIndex {
-						delete(n.catchingUp, nodeID)
-						n.addNode(nodeID)
-					}
+						if index == res.MatchIndex {
+							delete(n.catchingUp, nodeID)
+							n.addNode(nodeID)
+						}
 
-					matchIndex <- res.MatchIndex
-				default:
+						matchIndex <- res.MatchIndex
+					default:
+						break OUT
+					}
 				}
 			}
 			n.cLock.Unlock()
@@ -342,7 +346,7 @@ func (n *Node) CatchMeUp(ctx context.Context, req *pb.CatchMeUpRequest) (res *pb
 
 	followerID := n.getNodeID(req.FollowerID)
 
-	matchCh := make(chan uint64)
+	matchCh := make(chan uint64, 128)
 	n.cLock.Lock()
 	_, ok := n.catchingUp[followerID]
 	if !ok {

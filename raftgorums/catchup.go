@@ -124,13 +124,19 @@ func (r *Raft) catchUp(conf *gorums.Configuration, nextIndex uint64, matchCh cha
 
 		if response.Success {
 			matchCh <- response.MatchIndex
-			index := <-matchCh
-
-			// If the indexes match, the follower has been added
-			// back to the main configuration in time for the next
-			// Appendentries.
-			if response.MatchIndex == index {
-				return
+		OUT:
+			for {
+				select {
+				case index := <-matchCh:
+					// If the indexes match, the follower has been added
+					// back to the main configuration in time for the next
+					// Appendentries.
+					if response.MatchIndex == index {
+						return
+					}
+				default:
+					break OUT
+				}
 			}
 
 			nextIndex = response.MatchIndex + 1
