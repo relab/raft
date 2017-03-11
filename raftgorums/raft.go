@@ -386,7 +386,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		}).Infoln("Saved entries to stable storage")
 
 		old := r.commitIndex
-		r.commitIndex = max(req.CommitIndex, r.commitIndex)
+		r.commitIndex = min(req.CommitIndex, r.storage.NextIndex())
 
 		r.logger.WithFields(logrus.Fields{
 			"oldcommitindex": old,
