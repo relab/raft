@@ -23,8 +23,9 @@ func max(a, b uint64) uint64 {
 	return b
 }
 
-func randomTimeout(base time.Duration) time.Duration {
-	return time.Duration(rand.Int63n(base.Nanoseconds()) + base.Nanoseconds())
+func randomTimeout(base time.Duration) <-chan time.Time {
+	rnd := time.Duration(rand.Int63()) % base
+	return time.After(base + rnd)
 }
 
 // NewQuorumSpec returns a QuorumSpec for len(peers).
