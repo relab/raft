@@ -166,9 +166,19 @@ func BenchmarkThroughput(b *testing.B) {
 			entries[i] = &commonpb.Entry{Data: b}
 		}
 
-		b.Run(bm.name, func(b *testing.B) {
+		b.Run("store "+bm.name, func(b *testing.B) {
+			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				if err := storage.StoreEntries(entries); err != nil {
+					b.Error(err)
+				}
+			}
+		})
+
+		b.Run("delete "+bm.name, func(b *testing.B) {
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := storage.RemoveEntries(0, uint64(len(entries))-1); err != nil {
 					b.Error(err)
 				}
 			}
