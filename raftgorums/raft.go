@@ -435,9 +435,6 @@ func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) (raft.Future, error) 
 
 	select {
 	case r.queue <- future:
-		if r.metricsEnabled {
-			rmetrics.cmds.Add(1)
-		}
 		return future, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -450,10 +447,6 @@ func (r *Raft) ReadCmd(ctx context.Context, cmd []byte) (raft.Future, error) {
 
 	if err != nil {
 		return nil, err
-	}
-
-	if r.metricsEnabled {
-		rmetrics.cmds.Add(1)
 	}
 
 	r.Lock()
@@ -551,7 +544,6 @@ func (r *Raft) runStateMachine() {
 		if commit.future != nil {
 			commit.future.Respond(res)
 			if r.metricsEnabled {
-				rmetrics.cmds.Add(-1)
 				rmetrics.cmdCommit.Observe(time.Since(commit.future.Created).Seconds())
 			}
 		}

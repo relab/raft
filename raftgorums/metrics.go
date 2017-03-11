@@ -12,7 +12,6 @@ type raftMetrics struct {
 	rvreq     metrics.Histogram
 	rvres     metrics.Histogram
 	cmdCommit metrics.Histogram
-	cmds      metrics.Gauge
 }
 
 var rmetrics = &raftMetrics{
@@ -45,11 +44,5 @@ var rmetrics = &raftMetrics{
 		Subsystem: "internal",
 		Name:      "commit_client_command",
 		Help:      "Total time spent committing client command.",
-	}, []string{}),
-	cmds: prometheus.NewGaugeFrom(promc.GaugeOpts{
-		Namespace: "raft",
-		Subsystem: "internal",
-		Name:      "num_cmds",
-		Help:      "Number of commands being processed.",
 	}, []string{}),
 }
