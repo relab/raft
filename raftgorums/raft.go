@@ -187,20 +187,6 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 	return r
 }
 
-// RequestVoteRequestChan returns a channel for outgoing RequestVoteRequests.
-// It's the implementers responsibility to make sure these requests are
-// delivered.
-func (r *Raft) RequestVoteRequestChan() chan *pb.RequestVoteRequest {
-	return r.rvreqout
-}
-
-// AppendEntriesRequestChan returns a channel for outgoing
-// AppendEntriesRequests. It's the implementers responsibility to make sure
-// these requests are delivered.
-func (r *Raft) AppendEntriesRequestChan() chan *pb.AppendEntriesRequest {
-	return r.aereqout
-}
-
 // Run handles timeouts.
 // All RPCs are handled by Gorums.
 func (r *Raft) Run() {

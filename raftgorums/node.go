@@ -99,11 +99,8 @@ func (n *Node) Run() error {
 	go n.Raft.Run()
 
 	for {
-		rvreqout := n.Raft.RequestVoteRequestChan()
-		aereqout := n.Raft.AppendEntriesRequestChan()
-
 		select {
-		case req := <-rvreqout:
+		case req := <-n.Raft.rvreqout:
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
 			res, err := n.conf.RequestVote(ctx, req)
 			cancel()
@@ -118,7 +115,7 @@ func (n *Node) Run() error {
 
 			n.Raft.HandleRequestVoteResponse(res.RequestVoteResponse)
 
-		case req := <-aereqout:
+		case req := <-n.Raft.aereqout:
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
 			res, err := n.conf.AppendEntries(ctx, req)
 
