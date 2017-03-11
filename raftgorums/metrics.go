@@ -12,6 +12,10 @@ type raftMetrics struct {
 	rvreq     metrics.Histogram
 	rvres     metrics.Histogram
 	cmdCommit metrics.Histogram
+	readReqs  metrics.Counter
+	writeReqs metrics.Counter
+	reads     metrics.Counter
+	writes    metrics.Counter
 }
 
 var rmetrics = &raftMetrics{
@@ -44,5 +48,29 @@ var rmetrics = &raftMetrics{
 		Subsystem: "internal",
 		Name:      "commit_client_command",
 		Help:      "Total time spent committing client command.",
+	}, []string{}),
+	readReqs: prometheus.NewCounterFrom(promc.CounterOpts{
+		Namespace: "raft",
+		Subsystem: "internal",
+		Name:      "read_requests",
+		Help:      "Read requests from clients.",
+	}, []string{}),
+	writeReqs: prometheus.NewCounterFrom(promc.CounterOpts{
+		Namespace: "raft",
+		Subsystem: "internal",
+		Name:      "write_requests",
+		Help:      "Write requests from clients.",
+	}, []string{}),
+	reads: prometheus.NewCounterFrom(promc.CounterOpts{
+		Namespace: "raft",
+		Subsystem: "internal",
+		Name:      "reads",
+		Help:      "Reads processed.",
+	}, []string{}),
+	writes: prometheus.NewCounterFrom(promc.CounterOpts{
+		Namespace: "raft",
+		Subsystem: "internal",
+		Name:      "writes",
+		Help:      "Writes processed.",
 	}, []string{}),
 }

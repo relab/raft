@@ -435,6 +435,9 @@ func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) (raft.Future, error) 
 
 	select {
 	case r.queue <- future:
+		if r.metricsEnabled {
+			rmetrics.writeReqs.Add(1)
+		}
 		return future, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -447,6 +450,10 @@ func (r *Raft) ReadCmd(ctx context.Context, cmd []byte) (raft.Future, error) {
 
 	if err != nil {
 		return nil, err
+	}
+
+	if r.metricsEnabled {
+		rmetrics.readReqs.Add(1)
 	}
 
 	r.Lock()
@@ -501,6 +508,7 @@ func (r *Raft) advanceCommitIndex() {
 
 	for _, future := range r.pendingReads {
 		r.applyCh <- &entryFuture{future.Entry, future}
+		rmetrics.reads.Add(1)
 	}
 
 	r.pendingReads = nil
@@ -519,6 +527,10 @@ func (r *Raft) newCommit(old uint64) {
 
 		switch r.state {
 		case Leader:
+			if r.metricsEnabled {
+				rmetrics.writes.Add(1)
+			}
+
 			e := r.pending.Front()
 			if e != nil {
 				future := e.Value.(*raft.EntryFuture)
