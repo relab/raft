@@ -190,11 +190,14 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 
 	snapshot, err := cfg.Storage.GetSnapshot()
 
-	// Restore state machine if snapshot exists.
-	if err == nil {
-		r.setSnapshot(snapshot)
-		r.restoreFromSnapshot()
+	if err != nil {
+		r.setSnapshot(&commonpb.Snapshot{})
+		return r
 	}
+
+	// Restore state machine if snapshot exists.
+	r.setSnapshot(snapshot)
+	r.restoreFromSnapshot()
 
 	return r
 }
