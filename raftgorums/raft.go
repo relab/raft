@@ -243,6 +243,12 @@ func (r *Raft) Run() {
 func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestVoteResponse {
 	r.Lock()
 	defer r.Unlock()
+	if r.metricsEnabled {
+		start := time.Now()
+		defer func() {
+			rmetrics.rvreq.Observe(time.Since(start).Seconds())
+		}()
+	}
 
 	var voteGranted bool
 	defer func() {
@@ -663,6 +669,12 @@ func (r *Raft) startElection() {
 func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 	r.Lock()
 	defer r.Unlock()
+	if r.metricsEnabled {
+		start := time.Now()
+		defer func() {
+			rmetrics.rvres.Observe(time.Since(start).Seconds())
+		}()
+	}
 
 	term := r.currentTerm
 
@@ -825,6 +837,12 @@ func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse, r
 		r.Unlock()
 		r.advanceCommitIndex()
 	}()
+	if r.metricsEnabled {
+		start := time.Now()
+		defer func() {
+			rmetrics.aeres.Observe(time.Since(start).Seconds())
+		}()
+	}
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	// If we didn't get a response from a majority (excluding self) step down.
