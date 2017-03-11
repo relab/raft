@@ -122,21 +122,8 @@ type Raft struct {
 
 	rvreqout chan *pb.RequestVoteRequest
 	aereqout chan *pb.AppendEntriesRequest
-	sreqout  chan *snapshotRequest
-	nextcu   time.Time
-	cureqout chan *catchUpRequest
 
 	logger logrus.FieldLogger
-}
-
-type snapshotRequest struct {
-	followerID uint64
-
-	snapshot *commonpb.Snapshot
-}
-
-type catchUpRequest struct {
-	leaderID uint64
 }
 
 type entryFuture struct {
@@ -179,8 +166,6 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		queue:            make(chan *raft.EntryFuture, BufferSize),
 		applyCh:          make(chan *entryFuture, 128),
 		restoreCh:        make(chan *commonpb.Snapshot, 1),
-		sreqout:          make(chan *snapshotRequest, 1),
-		cureqout:         make(chan *catchUpRequest, 1),
 		rvreqout:         make(chan *pb.RequestVoteRequest, 128),
 		aereqout:         make(chan *pb.AppendEntriesRequest, 128),
 		logger:           cfg.Logger,
@@ -214,18 +199,6 @@ func (r *Raft) RequestVoteRequestChan() chan *pb.RequestVoteRequest {
 // these requests are delivered.
 func (r *Raft) AppendEntriesRequestChan() chan *pb.AppendEntriesRequest {
 	return r.aereqout
-}
-
-// SnapshotRequestChan returns a channel for outgoing SnapshotRequests. It's the
-// implementers responsibility to make sure these requests are delivered.
-func (r *Raft) snapshotRequestChan() chan *snapshotRequest {
-	return r.sreqout
-}
-
-// CatchUpRequestChan returns a channel for outgoing CatchUpRequests. It's the
-// implementers responsibility to make sure these requests are delivered.
-func (r *Raft) catchUpRequestChan() chan *catchUpRequest {
-	return r.cureqout
 }
 
 // Run handles timeouts.
@@ -436,21 +409,6 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 
 		if r.commitIndex > old {
 			r.newCommit(old)
-		}
-	}
-
-	now := time.Now()
-	if !success && now.After(r.nextcu) {
-		r.logger.WithFields(logrus.Fields{
-			"currentterm": r.currentTerm,
-			"requestterm": req.Term,
-			"leaderid":    req.LeaderID,
-		}).Infoln("Initiated catch-up request")
-
-		// Prevent repeated catch-up requests.
-		r.nextcu = now.Add(20 * time.Second)
-		r.cureqout <- &catchUpRequest{
-			req.LeaderID,
 		}
 	}
 
