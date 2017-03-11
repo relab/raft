@@ -220,10 +220,14 @@ func (r *Raft) Run() {
 			}
 
 			// #C3 Reset election timer.
+			r.Lock()
 			r.election.Restart()
+			r.Unlock()
 		case <-r.heartbeat.C:
 			r.sendAppendEntries()
+			r.Lock()
 			r.heartbeat.Restart()
+			r.Unlock()
 		case <-r.cyclech:
 			// Refresh channel pointers.
 		}
