@@ -374,6 +374,10 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	}
 
 	if success {
+		if r.metricsEnabled {
+			rmetrics.leader.Set(float64(req.LeaderID))
+		}
+
 		r.leader = req.LeaderID
 		r.heardFromLeader = true
 		r.seenLeader = true
@@ -717,6 +721,11 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 
 		// We have received at least a quorum of votes.
 		// We are the leader for this term. See Raft Paper Figure 2 -> Rules for Servers -> Leaders.
+
+		if r.metricsEnabled {
+			rmetrics.leader.Set(float64(r.id))
+		}
+
 		r.logger.WithFields(logrus.Fields{
 			"currentterm": r.currentTerm,
 		}).Infoln("Elected leader")

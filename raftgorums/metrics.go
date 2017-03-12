@@ -16,6 +16,7 @@ type raftMetrics struct {
 	writeReqs metrics.Counter
 	reads     metrics.Counter
 	writes    metrics.Counter
+	leader    metrics.Gauge
 }
 
 var rmetrics = &raftMetrics{
@@ -72,5 +73,11 @@ var rmetrics = &raftMetrics{
 		Subsystem: "internal",
 		Name:      "writes",
 		Help:      "Writes processed.",
+	}, []string{}),
+	leader: prometheus.NewGaugeFrom(promc.GaugeOpts{
+		Namespace: "raft",
+		Subsystem: "internal",
+		Name:      "leader",
+		Help:      "Current Raft leader.",
 	}, []string{}),
 }
