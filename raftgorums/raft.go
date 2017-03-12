@@ -929,20 +929,6 @@ func (r *Raft) becomeFollower(term uint64) {
 	r.resetElection = true
 }
 
-func (r *Raft) getHint() uint32 {
-	r.Lock()
-	defer r.Unlock()
-
-	var hint uint32
-
-	if r.seenLeader {
-		hint = uint32(r.leader)
-	}
-
-	// If client receives hint = 0, it should try another random server.
-	return hint
-}
-
 func (r *Raft) logTerm(index uint64) uint64 {
 	if index < 1 || index > r.storage.NextIndex() {
 		return 0
