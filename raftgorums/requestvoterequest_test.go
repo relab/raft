@@ -365,18 +365,6 @@ var handleRequestVoteRequestTests = []struct {
 	},
 }
 
-type noopMachine struct{}
-
-func (n *noopMachine) Apply(*commonpb.Entry) interface{} {
-	return nil
-}
-
-func (n *noopMachine) Snapshot() <-chan *commonpb.Snapshot {
-	return nil
-}
-
-func (n *noopMachine) Restore(*commonpb.Snapshot) {}
-
 func TestHandleRequestVoteRequest(t *testing.T) {
 	l := logrus.New()
 	l.Out = ioutil.Discard
