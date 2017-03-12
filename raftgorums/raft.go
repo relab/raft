@@ -373,15 +373,17 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		r.becomeFollower(r.currentTerm)
 	}
 
+	if r.metricsEnabled {
+		rmetrics.leader.Set(float64(req.LeaderID))
+	}
+
+	// We acknowledge this server as the leader even if the append entries
+	// request might be unsuccessful.
+	r.leader = req.LeaderID
+	r.heardFromLeader = true
+	r.seenLeader = true
+
 	if success {
-		if r.metricsEnabled {
-			rmetrics.leader.Set(float64(req.LeaderID))
-		}
-
-		r.leader = req.LeaderID
-		r.heardFromLeader = true
-		r.seenLeader = true
-
 		var toSave []*commonpb.Entry
 		index := req.PrevLogIndex
 
