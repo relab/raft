@@ -7,16 +7,17 @@ import (
 )
 
 type raftMetrics struct {
-	aereq     metrics.Histogram
-	aeres     metrics.Histogram
-	rvreq     metrics.Histogram
-	rvres     metrics.Histogram
-	cmdCommit metrics.Histogram
-	readReqs  metrics.Counter
-	writeReqs metrics.Counter
-	reads     metrics.Counter
-	writes    metrics.Counter
-	leader    metrics.Gauge
+	aereq       metrics.Histogram
+	aeres       metrics.Histogram
+	rvreq       metrics.Histogram
+	rvres       metrics.Histogram
+	cmdCommit   metrics.Histogram
+	readReqs    metrics.Counter
+	writeReqs   metrics.Counter
+	reads       metrics.Counter
+	writes      metrics.Counter
+	leader      metrics.Gauge
+	commitIndex metrics.Gauge
 }
 
 var rmetrics = &raftMetrics{
@@ -79,5 +80,11 @@ var rmetrics = &raftMetrics{
 		Subsystem: "internal",
 		Name:      "leader",
 		Help:      "Current Raft leader.",
+	}, []string{}),
+	commitIndex: prometheus.NewGaugeFrom(promc.GaugeOpts{
+		Namespace: "raft",
+		Subsystem: "internal",
+		Name:      "commit_index",
+		Help:      "Current commit index.",
 	}, []string{}),
 }

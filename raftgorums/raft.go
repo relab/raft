@@ -407,6 +407,10 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		old := r.commitIndex
 		r.commitIndex = min(req.CommitIndex, r.storage.NextIndex())
 
+		if r.metricsEnabled {
+			rmetrics.commitIndex.Set(float64(r.commitIndex))
+		}
+
 		r.logger.WithFields(logrus.Fields{
 			"oldcommitindex": old,
 			"commitindex":    r.commitIndex,
@@ -502,6 +506,10 @@ func (r *Raft) advanceCommitIndex() {
 	}
 
 	if r.commitIndex > old {
+		if r.metricsEnabled {
+			rmetrics.commitIndex.Set(float64(r.commitIndex))
+		}
+
 		r.logger.WithFields(logrus.Fields{
 			"oldcommitindex": old,
 			"commitindex":    r.commitIndex,
@@ -626,10 +634,15 @@ func (r *Raft) restoreFromSnapshot() {
 	old := r.commitIndex
 
 	r.sm.Restore(snapshot)
+	// TODO Make sure to not go back on commit index, use max().
 	r.commitIndex = snapshot.LastIncludedIndex
 	r.appliedIndex = snapshot.LastIncludedIndex
 	r.nextIndex = r.currentSnapshot.LastIncludedIndex + 1
 	r.becomeFollower(snapshot.LastIncludedTerm)
+
+	if r.metricsEnabled {
+		rmetrics.commitIndex.Set(float64(r.commitIndex))
+	}
 
 	r.logger.WithFields(logrus.Fields{
 		"oldcommitindex": old,
