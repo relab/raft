@@ -21,6 +21,8 @@ type Node struct {
 	Raft    *Raft
 	storage Storage
 
+	grpcServer *grpc.Server
+
 	lookup map[uint64]int
 	peers  []string
 
@@ -61,15 +63,14 @@ func NewNode(server *grpc.Server, sm raft.StateMachine, cfg *Config) *Node {
 	cfg.Logger = cfg.Logger.WithField("nodeid", cfg.ID)
 
 	n := &Node{
-		id:      id,
-		Raft:    NewRaft(sm, cfg),
-		storage: cfg.Storage,
-		lookup:  lookup,
-		peers:   peers,
-		logger:  cfg.Logger,
+		id:         id,
+		Raft:       NewRaft(sm, cfg),
+		storage:    cfg.Storage,
+		grpcServer: server,
+		lookup:     lookup,
+		peers:      peers,
+		logger:     cfg.Logger,
 	}
-
-	gorums.RegisterRaftServer(server, n)
 
 	return n
 }
@@ -88,6 +89,8 @@ func (n *Node) Run() error {
 	if err != nil {
 		return err
 	}
+
+	gorums.RegisterRaftServer(n.grpcServer, n)
 
 	n.mgr = mgr
 	n.conf, err = mgr.NewConfiguration(mgr.NodeIDs(), NewQuorumSpec(len(n.peers)+1))
