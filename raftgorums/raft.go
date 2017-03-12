@@ -209,8 +209,12 @@ func (r *Raft) Run() {
 	}
 
 	baselineTimeout := time.After(r.electionTimeout)
-	electionTimeout := randomTimeout(r.electionTimeout)
+	rndTimeout := randomTimeout(r.electionTimeout)
+	electionTimeout := time.After(rndTimeout)
 	heartbeatTimeout := time.After(r.heartbeatTimeout)
+
+	r.logger.WithField("electiontimeout", rndTimeout).
+		Infoln("Set election timeout")
 
 	for {
 		select {
@@ -218,14 +222,18 @@ func (r *Raft) Run() {
 			baselineTimeout = time.After(r.electionTimeout)
 			baseline()
 		case <-electionTimeout:
-			electionTimeout = randomTimeout(r.electionTimeout)
-			r.logger.WithField("electiontimeout", electionTimeout).
+			rndTimeout := randomTimeout(r.electionTimeout)
+			electionTimeout = time.After(rndTimeout)
+
+			r.logger.WithField("electiontimeout", rndTimeout).
 				Infoln("Set election timeout")
 
 			startElection()
 		case <-r.startElectionNow:
-			electionTimeout = randomTimeout(r.electionTimeout)
-			r.logger.WithField("electiontimeout", electionTimeout).
+			rndTimeout := randomTimeout(r.electionTimeout)
+			electionTimeout = time.After(rndTimeout)
+
+			r.logger.WithField("electiontimeout", rndTimeout).
 				Infoln("Set election timeout")
 
 			startElection()
