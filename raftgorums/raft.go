@@ -605,7 +605,7 @@ func (r *Raft) startElection() {
 		// We are now a candidate. See Raft Paper Figure 2 -> Rules for Servers -> Candidates.
 		// #C1 Increment currentTerm.
 		r.currentTerm++
-		r.storage.Set(KeyTerm, r.id)
+		r.storage.Set(KeyTerm, r.currentTerm)
 
 		// #C2 Vote for self.
 		r.votedFor = r.id
