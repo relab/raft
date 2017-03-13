@@ -171,7 +171,6 @@ func (r *Raft) Run() {
 			return
 		}
 
-		r.logger.Warnln("Starting election")
 		// #F2 If election timeout elapses without
 		// receiving AppendEntries RPC from current
 		// leader or granting vote to candidate: convert
