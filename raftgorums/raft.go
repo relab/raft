@@ -727,7 +727,7 @@ func (r *Raft) sendAppendEntries() {
 	defer r.Unlock()
 
 	var toSave []*commonpb.Entry
-	logLen := r.storage.NextIndex()
+	logLen := r.storage.NextIndex() - 1
 	assignIndex := logLen
 
 LOOP:
@@ -763,7 +763,7 @@ func (r *Raft) getNextEntries(nextIndex uint64) []*commonpb.Entry {
 	next := nextIndex
 	logLen := r.storage.NextIndex() - 1
 
-	if logLen > next {
+	if next <= logLen {
 		maxEntries := min(next+r.maxAppendEntries, logLen)
 
 		if !r.batch {
