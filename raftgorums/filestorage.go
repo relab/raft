@@ -77,6 +77,22 @@ func NewFileStorage(path string, overwrite bool) (*FileStorage, error) {
 	firstIndex := get(tx.Bucket(stateBucket), KeyFirstIndex)
 	nextIndex := get(tx.Bucket(stateBucket), KeyNextIndex)
 
+	if firstIndex == 0 {
+		firstIndex = 1
+		err := set(tx.Bucket(stateBucket), KeyFirstIndex, firstIndex)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if nextIndex == 0 {
+		nextIndex = 1
+		err := set(tx.Bucket(stateBucket), KeyNextIndex, nextIndex)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -216,25 +232,29 @@ func (fs *FileStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error)
 
 	bucket := tx.Bucket(logBucket)
 
-	entries := make([]*commonpb.Entry, last-first)
+	entries := make([]*commonpb.Entry, last-first+1)
 	k := make([]byte, 8)
 
-	for i := first; i < last; i++ {
-		binary.BigEndian.PutUint64(k, i)
+	i := first
+	for j := range entries {
+		binary.BigEndian.PutUint64(k, uint64(j))
 
-		if val := bucket.Get(k); val != nil {
-			var entry commonpb.Entry
-			err := entry.Unmarshal(val)
+		val := bucket.Get(k)
 
-			if err != nil {
-				return nil, err
-			}
-
-			entries[i-first] = &entry
-			continue
+		if val == nil {
+			panic(fmt.Sprintf("filestorage: gap in range [%d, %d)", first, last))
 		}
 
-		panic(fmt.Sprintf("filestorage: gap in range [%d, %d)", first, last))
+		var entry commonpb.Entry
+		err := entry.Unmarshal(val)
+
+		if err != nil {
+			return nil, err
+		}
+
+		entries[i] = &entry
+		i++
+
 	}
 
 	return entries, nil
@@ -264,7 +284,6 @@ func (fs *FileStorage) RemoveEntries(first, last uint64) error {
 	}
 
 	fs.nextIndex = first
-
 	if err := set(tx.Bucket(stateBucket), KeyNextIndex, fs.nextIndex); err != nil {
 		return err
 	}

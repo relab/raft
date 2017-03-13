@@ -104,7 +104,7 @@ func TestFileStorageStoreEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := storage.GetEntry(0)
+	got, err := storage.GetEntry(1)
 
 	if err != nil {
 		t.Fatal(err)
