@@ -729,8 +729,7 @@ func (r *Raft) sendAppendEntries() {
 	defer r.Unlock()
 
 	var toSave []*commonpb.Entry
-	logLen := r.storage.NextIndex() - 1
-	assignIndex := logLen
+	assignIndex := r.storage.NextIndex()
 
 LOOP:
 	for i := r.maxAppendEntries; i > 0; i-- {
