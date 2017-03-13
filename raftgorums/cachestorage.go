@@ -74,9 +74,8 @@ func (cs *CacheStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error
 	entries := make([]*commonpb.Entry, last-first+1)
 
 	cs.l.RLock()
-	index := last + 1
+	index := last
 	for {
-		index--
 		entry := cs.logCache[index%uint64(len(cs.logCache))]
 
 		if entry == nil || entry.Index != index {
@@ -88,6 +87,8 @@ func (cs *CacheStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error
 		if index == first {
 			break
 		}
+
+		index--
 	}
 	cs.l.RUnlock()
 
@@ -101,9 +102,10 @@ func (cs *CacheStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error
 		return nil, err
 	}
 
-	for i := uint64(0); i < uint64(len(prefix)); i++ {
-		entries[first+i] = prefix[i]
+	for i := 0; i < len(prefix); i++ {
+		entries[i] = prefix[i]
 	}
+
 	return entries, nil
 }
 
