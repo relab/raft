@@ -387,6 +387,16 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		}
 	}
 
+	// If we already know that the entries we are receiving are committed in
+	// our log, we can return early.
+	if req.CommitIndex < r.commitIndex {
+		return &pb.AppendEntriesResponse{
+			Term:       req.Term,
+			MatchIndex: r.commitIndex,
+			Success:    success,
+		}
+	}
+
 	var toSave []*commonpb.Entry
 	index := req.PrevLogIndex
 
