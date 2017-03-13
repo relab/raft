@@ -62,7 +62,7 @@ type Raft struct {
 
 	sm raft.StateMachine
 
-	storage *panicStorage
+	storage *PanicStorage
 
 	seenLeader      bool
 	heardFromLeader bool
@@ -114,7 +114,7 @@ type entryFuture struct {
 func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 	// TODO Validate config, i.e., make sure to sensible defaults if an
 	// option is not configured.
-	storage := &panicStorage{cfg.Storage, cfg.Logger}
+	storage := &PanicStorage{cfg.Storage, cfg.Logger}
 
 	term := storage.Get(KeyTerm)
 	votedFor := storage.Get(KeyVotedFor)
