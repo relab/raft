@@ -51,6 +51,7 @@ func (cs *CacheStorage) StoreEntries(entries []*commonpb.Entry) error {
 	for _, entry := range entries {
 		cs.logCache[entry.Index%uint64(len(cs.logCache))] = entry
 	}
+	cs.stateCache[KeyNextIndex] = entries[len(entries)-1].Index + 1
 	cs.l.Unlock()
 	return cs.s.StoreEntries(entries)
 }
@@ -103,6 +104,7 @@ func (cs *CacheStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error
 // RemoveEntries implements the Storage interface.
 func (cs *CacheStorage) RemoveEntries(first, last uint64) error {
 	cs.l.Lock()
+	cs.stateCache = make(map[uint64]uint64)
 	cs.logCache = make([]*commonpb.Entry, len(cs.logCache))
 	cs.l.Unlock()
 
