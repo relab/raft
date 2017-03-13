@@ -410,7 +410,9 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		}
 	}
 
-	r.storage.StoreEntries(toSave)
+	if len(toSave) > 0 {
+		r.storage.StoreEntries(toSave)
+	}
 	logLen = r.storage.NextIndex() - 1
 
 	reqLogger.WithFields(logrus.Fields{
@@ -743,7 +745,9 @@ LOOP:
 		}
 	}
 
-	r.storage.StoreEntries(toSave)
+	if len(toSave) > 0 {
+		r.storage.StoreEntries(toSave)
+	}
 
 	// #L1
 	entries := r.getNextEntries(r.nextIndex)
