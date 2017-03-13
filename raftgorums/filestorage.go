@@ -214,6 +214,7 @@ func (fs *FileStorage) GetEntry(index uint64) (*commonpb.Entry, error) {
 }
 
 // GetEntries implements the Storage interface.
+// TODO We can reduce allocation by passing the slice to fill.
 func (fs *FileStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error) {
 	tx, err := fs.Begin(false)
 
