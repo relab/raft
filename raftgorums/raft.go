@@ -544,7 +544,7 @@ func (r *Raft) advanceCommitIndex() {
 // TODO Assumes caller already holds lock on Raft.
 func (r *Raft) newCommit(old uint64) {
 	// TODO Change to GetEntries -> then ring buffer.
-	for i := old; i < r.commitIndex; i++ {
+	for i := old + 1; i <= r.commitIndex; i++ {
 		if i < r.appliedIndex {
 			r.logger.WithField("index", i).Warningln("Already applied")
 			continue
