@@ -75,7 +75,7 @@ func (cs *CacheStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error
 
 	cs.l.RLock()
 	var i uint64
-	for index := last; index >= first; last-- {
+	for index := last; index >= first; index-- {
 		entry := cs.logCache[index%uint64(len(cs.logCache))]
 
 		if entry != nil && entry.Index == index {
