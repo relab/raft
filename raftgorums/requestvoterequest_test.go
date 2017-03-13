@@ -12,17 +12,19 @@ import (
 	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
-var log2 = map[uint64]*commonpb.Entry{
-	1: &commonpb.Entry{
-		Index: 1,
-		Term:  4,
-		Data:  []byte("first"),
-	},
-	2: &commonpb.Entry{
-		Index: 2,
-		Term:  5,
-		Data:  []byte("second"),
-	},
+func log2() map[uint64]*commonpb.Entry {
+	return map[uint64]*commonpb.Entry{
+		1: &commonpb.Entry{
+			Index: 1,
+			Term:  4,
+			Data:  []byte("first"),
+		},
+		2: &commonpb.Entry{
+			Index: 2,
+			Term:  5,
+			Data:  []byte("second"),
+		},
+	}
 }
 
 // TODO Change to: currentTerm uint64, votedFor uint64, l map[uint64]*commonpb.Entry
@@ -236,7 +238,7 @@ var handleRequestVoteRequestTests = []struct {
 	},
 	{
 		"reject log not up-to-date",
-		newMemory(5, log2),
+		newMemory(5, log2()),
 		[]*pb.RequestVoteRequest{
 			&pb.RequestVoteRequest{
 				CandidateID:  1,
@@ -252,13 +254,13 @@ var handleRequestVoteRequestTests = []struct {
 			raftgorums.NewMemory(map[uint64]uint64{
 				raftgorums.KeyTerm:      5,
 				raftgorums.KeyVotedFor:  raftgorums.None,
-				raftgorums.KeyNextIndex: uint64(len(log2) + 1),
-			}, log2),
+				raftgorums.KeyNextIndex: uint64(len(log2()) + 1),
+			}, log2()),
 		},
 	},
 	{
 		"reject log not up-to-date shorter log",
-		newMemory(5, log2),
+		newMemory(5, log2()),
 		[]*pb.RequestVoteRequest{
 			&pb.RequestVoteRequest{
 				CandidateID:  1,
@@ -274,13 +276,13 @@ var handleRequestVoteRequestTests = []struct {
 			raftgorums.NewMemory(map[uint64]uint64{
 				raftgorums.KeyTerm:      5,
 				raftgorums.KeyVotedFor:  raftgorums.None,
-				raftgorums.KeyNextIndex: uint64(len(log2) + 1),
-			}, log2),
+				raftgorums.KeyNextIndex: uint64(len(log2()) + 1),
+			}, log2()),
 		},
 	},
 	{
 		"reject log not up-to-date lower term",
-		newMemory(5, log2),
+		newMemory(5, log2()),
 		[]*pb.RequestVoteRequest{
 			&pb.RequestVoteRequest{
 				CandidateID:  1,
@@ -296,13 +298,13 @@ var handleRequestVoteRequestTests = []struct {
 			raftgorums.NewMemory(map[uint64]uint64{
 				raftgorums.KeyTerm:      5,
 				raftgorums.KeyVotedFor:  raftgorums.None,
-				raftgorums.KeyNextIndex: uint64(len(log2) + 1),
-			}, log2),
+				raftgorums.KeyNextIndex: uint64(len(log2()) + 1),
+			}, log2()),
 		},
 	},
 	{
 		"accpet log up-to-date",
-		newMemory(5, log2),
+		newMemory(5, log2()),
 		[]*pb.RequestVoteRequest{
 			&pb.RequestVoteRequest{
 				CandidateID:  1,
@@ -318,13 +320,13 @@ var handleRequestVoteRequestTests = []struct {
 			raftgorums.NewMemory(map[uint64]uint64{
 				raftgorums.KeyTerm:      5,
 				raftgorums.KeyVotedFor:  1,
-				raftgorums.KeyNextIndex: uint64(len(log2) + 1),
-			}, log2),
+				raftgorums.KeyNextIndex: uint64(len(log2()) + 1),
+			}, log2()),
 		},
 	},
 	{
 		"reject log up-to-date already voted",
-		newMemory(5, log2),
+		newMemory(5, log2()),
 		[]*pb.RequestVoteRequest{
 			&pb.RequestVoteRequest{
 				CandidateID:  1,
@@ -347,18 +349,18 @@ var handleRequestVoteRequestTests = []struct {
 			raftgorums.NewMemory(map[uint64]uint64{
 				raftgorums.KeyTerm:      5,
 				raftgorums.KeyVotedFor:  1,
-				raftgorums.KeyNextIndex: uint64(len(log2) + 1),
-			}, log2),
+				raftgorums.KeyNextIndex: uint64(len(log2()) + 1),
+			}, log2()),
 			raftgorums.NewMemory(map[uint64]uint64{
 				raftgorums.KeyTerm:      5,
 				raftgorums.KeyVotedFor:  1,
-				raftgorums.KeyNextIndex: uint64(len(log2) + 1),
-			}, log2),
+				raftgorums.KeyNextIndex: uint64(len(log2()) + 1),
+			}, log2()),
 		},
 	},
 	{
 		"accept log up-to-date already voted if higher term",
-		newMemory(5, log2),
+		newMemory(5, log2()),
 		[]*pb.RequestVoteRequest{
 			&pb.RequestVoteRequest{
 				CandidateID:  1,
@@ -381,13 +383,13 @@ var handleRequestVoteRequestTests = []struct {
 			raftgorums.NewMemory(map[uint64]uint64{
 				raftgorums.KeyTerm:      5,
 				raftgorums.KeyVotedFor:  1,
-				raftgorums.KeyNextIndex: uint64(len(log2) + 1),
-			}, log2),
+				raftgorums.KeyNextIndex: uint64(len(log2()) + 1),
+			}, log2()),
 			raftgorums.NewMemory(map[uint64]uint64{
 				raftgorums.KeyTerm:      6,
 				raftgorums.KeyVotedFor:  2,
-				raftgorums.KeyNextIndex: uint64(len(log2) + 1),
-			}, log2),
+				raftgorums.KeyNextIndex: uint64(len(log2()) + 1),
+			}, log2()),
 		},
 	},
 }

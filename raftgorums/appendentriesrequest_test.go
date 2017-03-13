@@ -55,7 +55,7 @@ var handleAppendEntriesRequestTests = []struct {
 	},
 	{
 		"successfully append entry",
-		newMemory(5, log2),
+		newMemory(5, log2()),
 		[]*pb.AppendEntriesRequest{&pb.AppendEntriesRequest{
 			LeaderID:     1,
 			Term:         5,
@@ -71,12 +71,12 @@ var handleAppendEntriesRequestTests = []struct {
 				raftgorums.KeyTerm:      5,
 				raftgorums.KeyVotedFor:  raftgorums.None,
 				raftgorums.KeyNextIndex: 4,
-			}, logPlusEntry(log2, noop(3, 5))),
+			}, logPlusEntry(log2(), noop(3, 5))),
 		},
 	},
 	{
 		"successfully overwrite entry",
-		newMemory(5, logPlusEntry(log2, noop(3, 5))),
+		newMemory(5, logPlusEntry(log2(), noop(3, 5))),
 		[]*pb.AppendEntriesRequest{&pb.AppendEntriesRequest{
 			LeaderID:     1,
 			Term:         6,
@@ -92,12 +92,12 @@ var handleAppendEntriesRequestTests = []struct {
 				raftgorums.KeyTerm:      6,
 				raftgorums.KeyVotedFor:  raftgorums.None,
 				raftgorums.KeyNextIndex: 4,
-			}, logPlusEntry(log2, noop(3, 6))),
+			}, logPlusEntry(log2(), noop(3, 6))),
 		},
 	},
 	{
 		"successfully overwrite entries",
-		newMemory(5, logPlusEntry(logPlusEntry(log2, noop(3, 5)), noop(4, 5))),
+		newMemory(5, logPlusEntry(logPlusEntry(log2(), noop(3, 5)), noop(4, 5))),
 		[]*pb.AppendEntriesRequest{&pb.AppendEntriesRequest{
 			LeaderID:     1,
 			Term:         6,
@@ -113,7 +113,7 @@ var handleAppendEntriesRequestTests = []struct {
 				raftgorums.KeyTerm:      6,
 				raftgorums.KeyVotedFor:  raftgorums.None,
 				raftgorums.KeyNextIndex: 5,
-			}, logPlusEntry(logPlusEntry(log2, noop(3, 6)), noop(4, 6))),
+			}, logPlusEntry(logPlusEntry(log2(), noop(3, 6)), noop(4, 6))),
 		},
 	},
 }
