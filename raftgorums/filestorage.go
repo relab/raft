@@ -147,12 +147,14 @@ func get(bucket *bolt.Bucket, key uint64) uint64 {
 	k := make([]byte, 8)
 	binary.BigEndian.PutUint64(k, key)
 
-	if val := bucket.Get(k); val != nil {
-		return binary.BigEndian.Uint64(val)
+	val := bucket.Get(k)
+
+	if val == nil {
+		// Default to 0. This lets us get values not yet set.
+		return 0
 	}
 
-	// Default to 0. This lets us get values not yet set.
-	return 0
+	return binary.BigEndian.Uint64(val)
 }
 
 // StoreEntries implements the Storage interface.
