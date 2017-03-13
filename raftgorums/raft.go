@@ -286,8 +286,8 @@ func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestV
 		return &pb.RequestVoteResponse{Term: r.currentTerm}
 	}
 
-	logLen := r.storage.NextIndex()
-	lastLogTerm := r.logTerm(logLen)
+	lastIndex := r.storage.NextIndex() - 1
+	lastLogTerm := r.logTerm(lastIndex)
 
 	// We can grant a vote in the same term, as long as it's to the same
 	// candidate. This is useful if the response was lost, and the candidate
@@ -300,7 +300,7 @@ func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestV
 
 	// If the logs end with the same term, whichever log is longer is more
 	// up-to-date.
-	longEnough := req.LastLogTerm == lastLogTerm && req.LastLogIndex >= logLen
+	longEnough := req.LastLogTerm == lastLogTerm && req.LastLogIndex >= lastIndex
 
 	// We can only grant a vote if: we have not voted yet, we vote for the
 	// same candidate again, or this is a pre-vote.
