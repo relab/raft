@@ -616,7 +616,7 @@ func (r *Raft) startElection() {
 		"currentterm": r.currentTerm,
 	}).Infoln("Started election")
 
-	lastLogIndex := r.storage.NextIndex()
+	lastLogIndex := r.storage.NextIndex() - 1
 	lastLogTerm := r.logTerm(lastLogIndex)
 
 	// #C4 Send RequestVote RPCs to all other servers.
