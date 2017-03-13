@@ -98,7 +98,7 @@ func (cs *CacheStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error
 		return nil, err
 	}
 
-	return append(prefix, entries...), nil
+	return append(prefix, entries[:i]...), nil
 }
 
 // RemoveEntries implements the Storage interface.
