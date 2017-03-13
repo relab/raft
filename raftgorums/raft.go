@@ -425,11 +425,6 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	}
 	logLen = r.storage.NextIndex() - 1
 
-	reqLogger.WithFields(logrus.Fields{
-		"lensaved": len(toSave),
-		"lenlog":   r.storage.NextIndex(),
-	}).Infoln("Saved entries to stable storage")
-
 	old := r.commitIndex
 	// Commit index can not exceed the length of our log.
 	r.commitIndex = min(req.CommitIndex, logLen)
@@ -438,14 +433,21 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		rmetrics.commitIndex.Set(float64(r.commitIndex))
 	}
 
-	r.logger.WithFields(logrus.Fields{
-		"oldcommitindex": old,
-		"commitindex":    r.commitIndex,
-	}).Infoln("Set commit index")
-
 	if r.commitIndex > old {
+		r.logger.WithFields(logrus.Fields{
+			"oldcommitindex": old,
+			"commitindex":    r.commitIndex,
+		}).Infoln("Set commit index")
+
 		r.newCommit(old)
 	}
+
+	reqLogger.WithFields(logrus.Fields{
+		"lensaved":   len(toSave),
+		"lenlog":     r.storage.NextIndex(),
+		"matchindex": index,
+		"success":    success,
+	}).Infoln("Saved entries to stable storage")
 
 	return &pb.AppendEntriesResponse{
 		Term:       req.Term,
