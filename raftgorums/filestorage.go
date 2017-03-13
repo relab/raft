@@ -3,7 +3,6 @@ package raftgorums
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"os"
 
 	"github.com/boltdb/bolt"
@@ -244,7 +243,7 @@ func (fs *FileStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error)
 		val := bucket.Get(k)
 
 		if val == nil {
-			panic(fmt.Sprintf("filestorage: gap in range [%d, %d)", first, last))
+			return nil, ErrKeyNotFound
 		}
 
 		var entry commonpb.Entry
