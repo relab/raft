@@ -787,7 +787,7 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		r.leader = r.id
 		r.seenLeader = true
 		r.heardFromLeader = true
-		r.nextIndex = logLen + 1
+		r.nextIndex = logLen
 		r.pending = list.New()
 		r.pendingReads = nil
 
@@ -827,7 +827,7 @@ func (r *Raft) sendAppendEntries() {
 
 	var toSave []*commonpb.Entry
 	logLen := r.storage.NextIndex()
-	assignIndex := logLen + 1
+	assignIndex := logLen
 
 LOOP:
 	for i := r.maxAppendEntries; i > 0; i-- {
@@ -859,17 +859,15 @@ LOOP:
 func (r *Raft) getNextEntries(nextIndex uint64) []*commonpb.Entry {
 	var entries []*commonpb.Entry
 
-	next := nextIndex - 1
-	logLen := r.storage.NextIndex()
+	next := nextIndex
+	logLen := r.storage.NextIndex() - 1
 
 	if logLen > next {
 		maxEntries := min(next+r.maxAppendEntries, logLen)
 
 		if !r.batch {
-			// This is ok since GetEntries is exclusive of the last
-			// index, meaning maxEntries == logLen won't be
-			// out-of-bounds.
-			maxEntries = next + 1
+			// One entry at the time.
+			maxEntries = next
 		}
 
 		entries = r.storage.GetEntries(next, maxEntries)
