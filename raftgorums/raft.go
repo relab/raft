@@ -682,13 +682,13 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 			"currentterm": r.currentTerm,
 		}).Infoln("Elected leader")
 
-		logLen := r.storage.NextIndex()
+		logLen := r.storage.NextIndex() - 1
 
 		r.state = Leader
 		r.leader = r.id
 		r.seenLeader = true
 		r.heardFromLeader = true
-		r.nextIndex = logLen
+		r.nextIndex = logLen + 1
 		r.pending = list.New()
 		r.pendingReads = nil
 
