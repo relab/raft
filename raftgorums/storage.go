@@ -31,15 +31,10 @@ type Storage interface {
 	// Remove the inclusive range of entries from first to last.
 	RemoveEntries(first, last uint64) error
 
-	// FirstIndex and NextIndex should be saved to memory when creating a
-	// new storage. When they are modified on disk, the should be updated in
-	// memory. TODO We should create a StorageCache wrapper eventually that
-	// gives this behavior.
-
 	// Should return 1 if not set.
-	FirstIndex() uint64
+	FirstIndex() (uint64, error)
 	// Should return 1 if not set.
-	NextIndex() uint64
+	NextIndex() (uint64, error)
 
 	SetSnapshot(*commonpb.Snapshot) error
 	GetSnapshot() (*commonpb.Snapshot, error)
@@ -74,7 +69,7 @@ func (m *Memory) Get(key uint64) (uint64, error) {
 
 // StoreEntries implements the Storage interface.
 func (m *Memory) StoreEntries(entries []*commonpb.Entry) error {
-	i := m.NextIndex()
+	i, _ := m.NextIndex()
 	for _, entry := range entries {
 		m.log[i] = entry
 		i++
@@ -116,15 +111,15 @@ func (m *Memory) RemoveEntries(first, last uint64) error {
 }
 
 // FirstIndex implements the Storage interface.
-func (m *Memory) FirstIndex() uint64 {
+func (m *Memory) FirstIndex() (uint64, error) {
 	first, _ := m.Get(KeyFirstIndex)
-	return first
+	return first, nil
 }
 
 // NextIndex implements the Storage interface.
-func (m *Memory) NextIndex() uint64 {
+func (m *Memory) NextIndex() (uint64, error) {
 	next, _ := m.Get(KeyNextIndex)
-	return next
+	return next, nil
 }
 
 // SetSnapshot implements the Storage interface.
@@ -212,11 +207,23 @@ func (ps *panicStorage) RemoveEntries(first, last uint64) {
 }
 
 func (ps *panicStorage) FirstIndex() uint64 {
-	return ps.s.FirstIndex()
+	idx, err := ps.s.FirstIndex()
+
+	if err != nil {
+		ps.logger.WithError(err).Panicln("Could not get first index")
+	}
+
+	return idx
 }
 
 func (ps *panicStorage) NextIndex() uint64 {
-	return ps.s.NextIndex()
+	idx, err := ps.s.NextIndex()
+
+	if err != nil {
+		ps.logger.WithError(err).Panicln("Could not get next index")
+	}
+
+	return idx
 }
 
 func (ps *panicStorage) SetSnapshot(snapshot *commonpb.Snapshot) {
