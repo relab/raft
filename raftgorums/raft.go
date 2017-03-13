@@ -614,6 +614,7 @@ func (r *Raft) startElection() {
 
 	r.logger.WithFields(logrus.Fields{
 		"currentterm": r.currentTerm,
+		"preelection": r.preElection,
 	}).Infoln("Started election")
 
 	lastLogIndex := r.storage.NextIndex() - 1
