@@ -7,6 +7,7 @@ import (
 
 // PanicStorage wraps a Storage with methods that panic instead of returning a
 // error.
+// TODO Expose or make function.
 type PanicStorage struct {
 	s      Storage
 	logger logrus.FieldLogger
