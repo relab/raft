@@ -238,7 +238,7 @@ func (fs *FileStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error)
 
 	i := first
 	for j := range entries {
-		binary.BigEndian.PutUint64(k, uint64(j))
+		binary.BigEndian.PutUint64(k, i)
 
 		val := bucket.Get(k)
 
@@ -253,7 +253,7 @@ func (fs *FileStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error)
 			return nil, err
 		}
 
-		entries[i] = &entry
+		entries[j] = &entry
 		i++
 
 	}
