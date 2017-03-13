@@ -2,7 +2,6 @@ package raftgorums
 
 import (
 	"container/list"
-	"fmt"
 	"sync"
 	"time"
 
@@ -94,10 +93,7 @@ type Raft struct {
 
 	pendingReads []*raft.EntryFuture
 
-	applyCh   chan *entryFuture
-	restoreCh chan *commonpb.Snapshot
-
-	currentSnapshot *commonpb.Snapshot
+	applyCh chan *entryFuture
 
 	batch bool
 
@@ -140,23 +136,11 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		maxAppendEntries: cfg.MaxAppendEntries,
 		queue:            make(chan *raft.EntryFuture, BufferSize),
 		applyCh:          make(chan *entryFuture, 128),
-		restoreCh:        make(chan *commonpb.Snapshot, 1),
 		rvreqout:         make(chan *pb.RequestVoteRequest, 128),
 		aereqout:         make(chan *pb.AppendEntriesRequest, 128),
 		logger:           cfg.Logger,
 		metricsEnabled:   cfg.MetricsEnabled,
 	}
-
-	snapshot, err := cfg.Storage.GetSnapshot()
-
-	if err != nil {
-		r.setSnapshot(&commonpb.Snapshot{})
-		return r
-	}
-
-	// Restore state machine if snapshot exists.
-	r.setSnapshot(snapshot)
-	r.restoreFromSnapshot()
 
 	return r
 }
@@ -360,15 +344,8 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		}
 	}
 
-	var prevTerm uint64
 	logLen := r.storage.NextIndex() - 1
-
-	switch {
-	case req.PrevLogIndex <= r.currentSnapshot.LastIncludedIndex:
-		prevTerm = r.currentSnapshot.LastIncludedTerm
-	case req.PrevLogIndex > 0 && req.PrevLogIndex-1 < logLen:
-		prevTerm = r.logTerm(req.PrevLogIndex)
-	}
+	prevTerm := r.logTerm(req.PrevLogIndex)
 
 	// An AppendEntries request is always successful for the first index. A
 	// leader can only be elected leader if its log matches that of a
@@ -611,81 +588,12 @@ func (r *Raft) runStateMachine() {
 		}
 	}
 
-	restore := func(snapshot *commonpb.Snapshot) {
-		r.Lock()
-		defer r.Unlock()
-		snapLogger := r.logger.WithFields(logrus.Fields{
-			"currentterm":       r.currentTerm,
-			"lastincludedindex": snapshot.LastIncludedIndex,
-			"lastincludedterm":  snapshot.LastIncludedTerm,
-		})
-		snapLogger.Infoln("Received snapshot")
-
-		// Disable baseline/election timeout as we are not handling
-		// append entries while applying the snapshot.
-		r.skipElection = true
-		defer func() {
-			r.skipElection = false
-		}()
-
-		snapLogger.Infoln("Restored statemachine")
-
-		r.setSnapshot(snapshot)
-		r.restoreFromSnapshot()
-	}
-
-	snapCh := r.sm.Snapshot()
-
 	for {
 		select {
 		case commit := <-r.applyCh:
 			apply(commit)
-		case snapshot := <-r.restoreCh:
-			restore(snapshot)
-		case snapshot := <-snapCh:
-			r.Lock()
-			r.setSnapshot(snapshot)
-			r.Unlock()
 		}
 	}
-}
-
-// TODO Assumes caller holds lock on Raft.
-func (r *Raft) setSnapshot(snapshot *commonpb.Snapshot) {
-	start := time.Now()
-	defer func() {
-		fmt.Println("Writing snapshot to disk took:", time.Now().Sub(start))
-	}()
-
-	r.storage.SetSnapshot(snapshot)
-
-	// TODO Clean log.
-
-	r.currentSnapshot = snapshot
-}
-
-// TODO Assumes caller holds lock on Raft.
-// Call after snapshot has been saved to disk.
-func (r *Raft) restoreFromSnapshot() {
-	snapshot := r.currentSnapshot
-
-	old := r.commitIndex
-
-	r.sm.Restore(snapshot)
-	// TODO Make sure to not go back on commit index, use max().
-	r.commitIndex = snapshot.LastIncludedIndex
-	r.appliedIndex = snapshot.LastIncludedIndex
-	r.nextIndex = r.currentSnapshot.LastIncludedIndex + 1
-	r.becomeFollower(snapshot.LastIncludedTerm)
-
-	if r.metricsEnabled {
-		rmetrics.commitIndex.Set(float64(r.commitIndex))
-	}
-
-	r.logger.WithFields(logrus.Fields{
-		"oldcommitindex": old,
-		"commitindex":    r.commitIndex,
-	}).Infoln("Set commit index")
 }
 
 // TODO Assumes caller holds lock on Raft.
@@ -709,14 +617,7 @@ func (r *Raft) startElection() {
 	}).Infoln("Started election")
 
 	lastLogIndex := r.storage.NextIndex()
-	var lastLogTerm uint64
-
-	if lastLogIndex == r.currentSnapshot.LastIncludedIndex {
-		lastLogIndex = r.currentSnapshot.LastIncludedIndex
-		lastLogTerm = r.currentSnapshot.LastIncludedTerm
-	} else {
-		lastLogTerm = r.logTerm(lastLogIndex)
-	}
+	lastLogTerm := r.logTerm(lastLogIndex)
 
 	// #C4 Send RequestVote RPCs to all other servers.
 	r.rvreqout <- &pb.RequestVoteRequest{
@@ -878,14 +779,8 @@ func (r *Raft) getNextEntries(nextIndex uint64) []*commonpb.Entry {
 
 // TODO Assumes caller holds lock on Raft.
 func (r *Raft) getAppendEntriesRequest(nextIndex uint64, entries []*commonpb.Entry) *pb.AppendEntriesRequest {
-	var prevTerm, prevIndex uint64 = 0, nextIndex - 1
-
-	if prevIndex == r.currentSnapshot.LastIncludedIndex {
-		prevIndex = r.currentSnapshot.LastIncludedIndex
-		prevTerm = r.currentSnapshot.LastIncludedTerm
-	} else {
-		prevTerm = r.logTerm(prevIndex)
-	}
+	prevIndex := nextIndex - 1
+	prevTerm := r.logTerm(prevIndex)
 
 	return &pb.AppendEntriesRequest{
 		LeaderID:     r.id,
