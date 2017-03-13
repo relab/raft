@@ -760,12 +760,6 @@ LOOP:
 
 	// #L1
 	entries := r.getNextEntries(r.nextIndex)
-
-	r.logger.WithFields(logrus.Fields{
-		"currentterm": r.currentTerm,
-		"lenentries":  len(entries),
-	}).Infoln("Sending AppendEntries")
-
 	r.aereqout <- r.getAppendEntriesRequest(r.nextIndex, entries)
 }
 
@@ -794,6 +788,14 @@ func (r *Raft) getNextEntries(nextIndex uint64) []*commonpb.Entry {
 func (r *Raft) getAppendEntriesRequest(nextIndex uint64, entries []*commonpb.Entry) *pb.AppendEntriesRequest {
 	prevIndex := nextIndex - 1
 	prevTerm := r.logTerm(prevIndex)
+
+	r.logger.WithFields(logrus.Fields{
+		"prevlogindex": prevIndex,
+		"prevlogterm":  prevTerm,
+		"commitindex":  r.commitIndex,
+		"currentterm":  r.currentTerm,
+		"lenentries":   len(entries),
+	}).Infoln("Sending AppendEntries")
 
 	return &pb.AppendEntriesRequest{
 		LeaderID:     r.id,
