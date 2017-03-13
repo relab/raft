@@ -74,31 +74,37 @@ func (cs *CacheStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error
 	entries := make([]*commonpb.Entry, last-first+1)
 
 	cs.l.RLock()
-	var i uint64
-	for index := last; index >= first; index-- {
+	index := last + 1
+	for {
+		index--
 		entry := cs.logCache[index%uint64(len(cs.logCache))]
 
-		if entry != nil && entry.Index == index {
-			entries[i] = entry
-			i++
-			continue
+		if entry == nil || entry.Index != index {
+			break
 		}
 
-		break
+		entries[entry.Index-first] = entry
+
+		if index == first {
+			break
+		}
 	}
 	cs.l.RUnlock()
 
-	if i == first {
+	if index == first {
 		return entries, nil
 	}
 
-	prefix, err := cs.s.GetEntries(first, i)
+	prefix, err := cs.s.GetEntries(first, index)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return append(prefix, entries[:i]...), nil
+	for i := uint64(0); i < uint64(len(prefix)); i++ {
+		entries[first+i] = prefix[i]
+	}
+	return entries, nil
 }
 
 // RemoveEntries implements the Storage interface.
