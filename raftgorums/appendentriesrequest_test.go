@@ -116,6 +116,64 @@ var handleAppendEntriesRequestTests = []struct {
 			}, logPlusEntry(logPlusEntry(log2(), noop(3, 6)), noop(4, 6))),
 		},
 	},
+	{
+		"successful on already committed but ignore entries",
+		newMemory(5, log2()),
+		[]*pb.AppendEntriesRequest{
+			&pb.AppendEntriesRequest{
+				LeaderID:     1,
+				Term:         5,
+				PrevLogIndex: 2,
+				PrevLogTerm:  5,
+				CommitIndex:  3,
+				Entries: []*commonpb.Entry{
+					noop(3, 5),
+				},
+			},
+			&pb.AppendEntriesRequest{
+				LeaderID:     1,
+				Term:         5,
+				PrevLogIndex: 3,
+				PrevLogTerm:  5,
+				CommitIndex:  4,
+				Entries: []*commonpb.Entry{
+					noop(4, 5),
+				},
+			},
+			&pb.AppendEntriesRequest{
+				LeaderID:     1,
+				Term:         5,
+				PrevLogIndex: 2,
+				PrevLogTerm:  5,
+				CommitIndex:  3,
+				Entries: []*commonpb.Entry{
+					noop(3, 5),
+				},
+			},
+		},
+		[]*pb.AppendEntriesResponse{
+			&pb.AppendEntriesResponse{Term: 5, MatchIndex: 3, Success: true},
+			&pb.AppendEntriesResponse{Term: 5, MatchIndex: 4, Success: true},
+			&pb.AppendEntriesResponse{Term: 5, MatchIndex: 4, Success: true},
+		},
+		[]*raftgorums.Memory{
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:      5,
+				raftgorums.KeyVotedFor:  raftgorums.None,
+				raftgorums.KeyNextIndex: 4,
+			}, logPlusEntry(log2(), noop(3, 5))),
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:      5,
+				raftgorums.KeyVotedFor:  raftgorums.None,
+				raftgorums.KeyNextIndex: 5,
+			}, logPlusEntry(logPlusEntry(log2(), noop(3, 5)), noop(4, 5))),
+			raftgorums.NewMemory(map[uint64]uint64{
+				raftgorums.KeyTerm:      5,
+				raftgorums.KeyVotedFor:  raftgorums.None,
+				raftgorums.KeyNextIndex: 5,
+			}, logPlusEntry(logPlusEntry(log2(), noop(3, 5)), noop(4, 5))),
+		},
+	},
 }
 
 func TestHandleAppendEntriesRequest(t *testing.T) {
