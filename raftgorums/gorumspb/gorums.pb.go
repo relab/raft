@@ -55,43 +55,43 @@ const _ = proto.GoGoProtoPackageIsVersion2 // please upgrade the proto package
 //  Reference Gorums specific imports to suppress errors if they are not otherwise used.
 var _ = codes.OK
 
-/* 'gorums' plugin for protoc-gen-go - generated from: config_qc_tmpl */
+/* 'gorums' plugin for protoc-gen-go - generated from: calltype_correctable_prelim_tmpl */
+
+/* 'gorums' plugin for protoc-gen-go - generated from: calltype_correctable_tmpl */
+
+/* 'gorums' plugin for protoc-gen-go - generated from: calltype_future_tmpl */
+
+/* 'gorums' plugin for protoc-gen-go - generated from: calltype_multicast_tmpl */
+
+/* 'gorums' plugin for protoc-gen-go - generated from: calltype_quorumcall_tmpl */
+
+/* Methods on Configuration and the quorum call struct AppendEntries */
+
+//TODO Make this a customizable struct that replaces FQRespName together with typedecl option in gogoprotobuf.
+//(This file could maybe hold all types of structs for the different call semantics)
 
 // AppendEntriesReply encapsulates the reply from a AppendEntries quorum call.
 // It contains the id of each node of the quorum that replied and a single reply.
 type AppendEntriesReply struct {
-	NodeIDs []uint32
+	// the actual reply
 	*raftpb.AppendEntriesResponse
+	NodeIDs []uint32
+	err     error
 }
 
 func (r AppendEntriesReply) String() string {
 	return fmt.Sprintf("node ids: %v | answer: %v", r.NodeIDs, r.AppendEntriesResponse)
 }
 
-// AppendEntries invokes a AppendEntries quorum call on configuration c
-// and returns the result as a AppendEntriesReply.
-func (c *Configuration) AppendEntries(ctx context.Context, args *raftpb.AppendEntriesRequest) (*AppendEntriesReply, error) {
-	return c.mgr.appendEntries(ctx, c, args)
+type appendEntriesArg *raftpb.AppendEntriesRequest
+
+// AppendEntries is invoked as a quorum call on all nodes in configuration c,
+// using the same argument arg, and returns the result as a AppendEntriesReply.
+func (c *Configuration) AppendEntries(ctx context.Context, arg *raftpb.AppendEntriesRequest) (*AppendEntriesReply, error) {
+	return c.appendEntries(ctx, arg)
 }
 
-// RequestVoteReply encapsulates the reply from a RequestVote quorum call.
-// It contains the id of each node of the quorum that replied and a single reply.
-type RequestVoteReply struct {
-	NodeIDs []uint32
-	*raftpb.RequestVoteResponse
-}
-
-func (r RequestVoteReply) String() string {
-	return fmt.Sprintf("node ids: %v | answer: %v", r.NodeIDs, r.RequestVoteResponse)
-}
-
-// RequestVote invokes a RequestVote quorum call on configuration c
-// and returns the result as a RequestVoteReply.
-func (c *Configuration) RequestVote(ctx context.Context, args *raftpb.RequestVoteRequest) (*RequestVoteReply, error) {
-	return c.mgr.requestVote(ctx, c, args)
-}
-
-/* 'gorums' plugin for protoc-gen-go - generated from: mgr_qc_tmpl */
+/* Methods on Manager for quorum call method AppendEntries */
 
 type appendEntriesReply struct {
 	nid   uint32
@@ -99,9 +99,10 @@ type appendEntriesReply struct {
 	err   error
 }
 
-func (m *Manager) appendEntries(ctx context.Context, c *Configuration, args *raftpb.AppendEntriesRequest) (r *AppendEntriesReply, err error) {
+func (c *Configuration) appendEntries(ctx context.Context, a appendEntriesArg) (resp *AppendEntriesReply, err error) {
+
 	var ti traceInfo
-	if m.opts.trace {
+	if c.mgr.opts.trace {
 		ti.tr = trace.New("gorums."+c.tstring()+".Sent", "AppendEntries")
 		defer ti.tr.Finish()
 
@@ -113,11 +114,11 @@ func (m *Manager) appendEntries(ctx context.Context, c *Configuration, args *raf
 
 		defer func() {
 			ti.tr.LazyLog(&qcresult{
-				ids:   r.NodeIDs,
-				reply: r.AppendEntriesResponse,
-				err:   err,
+				ids:   resp.NodeIDs,
+				reply: resp.AppendEntriesResponse,
+				err:   resp.err,
 			}, false)
-			if err != nil {
+			if resp.err != nil {
 				ti.tr.SetError()
 			}
 		}()
@@ -125,17 +126,17 @@ func (m *Manager) appendEntries(ctx context.Context, c *Configuration, args *raf
 
 	replyChan := make(chan appendEntriesReply, c.n)
 
-	if m.opts.trace {
-		ti.tr.LazyLog(&payload{sent: true, msg: args}, false)
+	if c.mgr.opts.trace {
+		ti.tr.LazyLog(&payload{sent: true, msg: a}, false)
 	}
 
 	for _, n := range c.nodes {
-		go callGRPCAppendEntries(ctx, n, args, replyChan)
+		go callGRPCAppendEntries(ctx, n, a, replyChan)
 	}
 
+	resp = &AppendEntriesReply{NodeIDs: make([]uint32, 0, c.n)}
 	var (
 		replyValues = make([]*raftpb.AppendEntriesResponse, 0, c.n)
-		reply       = &AppendEntriesReply{NodeIDs: make([]uint32, 0, c.n)}
 		errCount    int
 		quorum      bool
 	)
@@ -143,24 +144,24 @@ func (m *Manager) appendEntries(ctx context.Context, c *Configuration, args *raf
 	for {
 		select {
 		case r := <-replyChan:
-			reply.NodeIDs = append(reply.NodeIDs, r.nid)
+			resp.NodeIDs = append(resp.NodeIDs, r.nid)
 			if r.err != nil {
 				errCount++
 				break
 			}
-			if m.opts.trace {
+			if c.mgr.opts.trace {
 				ti.tr.LazyLog(&payload{sent: false, id: r.nid, msg: r.reply}, false)
 			}
 			replyValues = append(replyValues, r.reply)
-			if reply.AppendEntriesResponse, quorum = c.qspec.AppendEntriesQF(args, replyValues); quorum {
-				return reply, nil
+			if resp.AppendEntriesResponse, quorum = c.qspec.AppendEntriesQF(a, replyValues); quorum {
+				return resp, nil
 			}
 		case <-ctx.Done():
-			return reply, QuorumCallError{ctx.Err().Error(), errCount, len(replyValues)}
+			return resp, QuorumCallError{ctx.Err().Error(), errCount, len(replyValues)}
 		}
 
 		if errCount+len(replyValues) == c.n {
-			return reply, QuorumCallError{"incomplete call", errCount, len(replyValues)}
+			return resp, QuorumCallError{"incomplete call", errCount, len(replyValues)}
 		}
 	}
 }
@@ -184,15 +185,44 @@ func callGRPCAppendEntries(ctx context.Context, node *Node, args *raftpb.AppendE
 	replyChan <- appendEntriesReply{node.id, reply, err}
 }
 
+/* Methods on Configuration and the quorum call struct RequestVote */
+
+//TODO Make this a customizable struct that replaces FQRespName together with typedecl option in gogoprotobuf.
+//(This file could maybe hold all types of structs for the different call semantics)
+
+// RequestVoteReply encapsulates the reply from a RequestVote quorum call.
+// It contains the id of each node of the quorum that replied and a single reply.
+type RequestVoteReply struct {
+	// the actual reply
+	*raftpb.RequestVoteResponse
+	NodeIDs []uint32
+	err     error
+}
+
+func (r RequestVoteReply) String() string {
+	return fmt.Sprintf("node ids: %v | answer: %v", r.NodeIDs, r.RequestVoteResponse)
+}
+
+type requestVoteArg *raftpb.RequestVoteRequest
+
+// RequestVote is invoked as a quorum call on all nodes in configuration c,
+// using the same argument arg, and returns the result as a RequestVoteReply.
+func (c *Configuration) RequestVote(ctx context.Context, arg *raftpb.RequestVoteRequest) (*RequestVoteReply, error) {
+	return c.requestVote(ctx, arg)
+}
+
+/* Methods on Manager for quorum call method RequestVote */
+
 type requestVoteReply struct {
 	nid   uint32
 	reply *raftpb.RequestVoteResponse
 	err   error
 }
 
-func (m *Manager) requestVote(ctx context.Context, c *Configuration, args *raftpb.RequestVoteRequest) (r *RequestVoteReply, err error) {
+func (c *Configuration) requestVote(ctx context.Context, a requestVoteArg) (resp *RequestVoteReply, err error) {
+
 	var ti traceInfo
-	if m.opts.trace {
+	if c.mgr.opts.trace {
 		ti.tr = trace.New("gorums."+c.tstring()+".Sent", "RequestVote")
 		defer ti.tr.Finish()
 
@@ -204,11 +234,11 @@ func (m *Manager) requestVote(ctx context.Context, c *Configuration, args *raftp
 
 		defer func() {
 			ti.tr.LazyLog(&qcresult{
-				ids:   r.NodeIDs,
-				reply: r.RequestVoteResponse,
-				err:   err,
+				ids:   resp.NodeIDs,
+				reply: resp.RequestVoteResponse,
+				err:   resp.err,
 			}, false)
-			if err != nil {
+			if resp.err != nil {
 				ti.tr.SetError()
 			}
 		}()
@@ -216,17 +246,17 @@ func (m *Manager) requestVote(ctx context.Context, c *Configuration, args *raftp
 
 	replyChan := make(chan requestVoteReply, c.n)
 
-	if m.opts.trace {
-		ti.tr.LazyLog(&payload{sent: true, msg: args}, false)
+	if c.mgr.opts.trace {
+		ti.tr.LazyLog(&payload{sent: true, msg: a}, false)
 	}
 
 	for _, n := range c.nodes {
-		go callGRPCRequestVote(ctx, n, args, replyChan)
+		go callGRPCRequestVote(ctx, n, a, replyChan)
 	}
 
+	resp = &RequestVoteReply{NodeIDs: make([]uint32, 0, c.n)}
 	var (
 		replyValues = make([]*raftpb.RequestVoteResponse, 0, c.n)
-		reply       = &RequestVoteReply{NodeIDs: make([]uint32, 0, c.n)}
 		errCount    int
 		quorum      bool
 	)
@@ -234,24 +264,24 @@ func (m *Manager) requestVote(ctx context.Context, c *Configuration, args *raftp
 	for {
 		select {
 		case r := <-replyChan:
-			reply.NodeIDs = append(reply.NodeIDs, r.nid)
+			resp.NodeIDs = append(resp.NodeIDs, r.nid)
 			if r.err != nil {
 				errCount++
 				break
 			}
-			if m.opts.trace {
+			if c.mgr.opts.trace {
 				ti.tr.LazyLog(&payload{sent: false, id: r.nid, msg: r.reply}, false)
 			}
 			replyValues = append(replyValues, r.reply)
-			if reply.RequestVoteResponse, quorum = c.qspec.RequestVoteQF(args, replyValues); quorum {
-				return reply, nil
+			if resp.RequestVoteResponse, quorum = c.qspec.RequestVoteQF(a, replyValues); quorum {
+				return resp, nil
 			}
 		case <-ctx.Done():
-			return reply, QuorumCallError{ctx.Err().Error(), errCount, len(replyValues)}
+			return resp, QuorumCallError{ctx.Err().Error(), errCount, len(replyValues)}
 		}
 
 		if errCount+len(replyValues) == c.n {
-			return reply, QuorumCallError{"incomplete call", errCount, len(replyValues)}
+			return resp, QuorumCallError{"incomplete call", errCount, len(replyValues)}
 		}
 	}
 }
