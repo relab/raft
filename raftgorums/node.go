@@ -120,7 +120,11 @@ func (n *Node) Run() error {
 
 		case req := <-n.Raft.aereqout:
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
-			res, err := n.conf.AppendEntries(ctx, req)
+			res, err := n.conf.AppendEntries(ctx, req,
+				func(req pb.AppendEntriesRequest, nodeID uint32) *pb.AppendEntriesRequest {
+					return &req
+				},
+			)
 
 			if err != nil {
 				n.logger.WithError(err).Warnln("AppendEntries failed")
