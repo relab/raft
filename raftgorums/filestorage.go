@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/boltdb/bolt"
+	"github.com/go-kit/kit/metrics"
 	"github.com/relab/raft/commonpb"
 )
 
@@ -98,6 +99,9 @@ func NewFileStorage(path string, overwrite bool) (*FileStorage, error) {
 
 // Set implements the Storage interface.
 func (fs *FileStorage) Set(key uint64, value uint64) error {
+	timer := metrics.NewTimer(rmetrics.iowrite)
+	defer timer.ObserveDuration()
+
 	tx, err := fs.Begin(true)
 
 	if err != nil {
@@ -124,6 +128,9 @@ func set(bucket *bolt.Bucket, key uint64, value uint64) error {
 
 // Get implements the Storage interface.
 func (fs *FileStorage) Get(key uint64) (uint64, error) {
+	timer := metrics.NewTimer(rmetrics.ioread)
+	defer timer.ObserveDuration()
+
 	tx, err := fs.Begin(false)
 
 	if err != nil {
@@ -151,6 +158,9 @@ func get(bucket *bolt.Bucket, key uint64) uint64 {
 
 // StoreEntries implements the Storage interface.
 func (fs *FileStorage) StoreEntries(entries []*commonpb.Entry) error {
+	timer := metrics.NewTimer(rmetrics.iowrite)
+	defer timer.ObserveDuration()
+
 	tx, err := fs.Begin(true)
 
 	if err != nil {
@@ -186,6 +196,9 @@ func (fs *FileStorage) StoreEntries(entries []*commonpb.Entry) error {
 
 // GetEntry implements the Storage interface.
 func (fs *FileStorage) GetEntry(index uint64) (*commonpb.Entry, error) {
+	timer := metrics.NewTimer(rmetrics.ioread)
+	defer timer.ObserveDuration()
+
 	tx, err := fs.Begin(false)
 
 	if err != nil {
@@ -216,6 +229,9 @@ func (fs *FileStorage) GetEntry(index uint64) (*commonpb.Entry, error) {
 // GetEntries implements the Storage interface.
 // TODO We can reduce allocation by passing the slice to fill.
 func (fs *FileStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error) {
+	timer := metrics.NewTimer(rmetrics.ioread)
+	defer timer.ObserveDuration()
+
 	tx, err := fs.Begin(false)
 
 	if err != nil {
@@ -256,6 +272,9 @@ func (fs *FileStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error)
 
 // RemoveEntries implements the Storage interface.
 func (fs *FileStorage) RemoveEntries(first, last uint64) error {
+	timer := metrics.NewTimer(rmetrics.iowrite)
+	defer timer.ObserveDuration()
+
 	tx, err := fs.Begin(true)
 
 	if err != nil {
@@ -296,6 +315,9 @@ func (fs *FileStorage) NextIndex() (uint64, error) {
 
 // SetSnapshot implements the Storage interface.
 func (fs *FileStorage) SetSnapshot(snapshot *commonpb.Snapshot) error {
+	timer := metrics.NewTimer(rmetrics.iowrite)
+	defer timer.ObserveDuration()
+
 	tx, err := fs.Begin(true)
 
 	if err != nil {
@@ -331,6 +353,9 @@ func (fs *FileStorage) SetSnapshot(snapshot *commonpb.Snapshot) error {
 
 // GetSnapshot implements the Storage interface.
 func (fs *FileStorage) GetSnapshot() (*commonpb.Snapshot, error) {
+	timer := metrics.NewTimer(rmetrics.ioread)
+	defer timer.ObserveDuration()
+
 	tx, err := fs.Begin(false)
 
 	if err != nil {
