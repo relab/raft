@@ -55,13 +55,17 @@ func (qs *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.Re
 // AppendEntriesQF gathers AppendEntriesResponses and calculates the log entries
 // replicated, depending on the quorum configuration.
 // TODO Implements gorums.QuorumSpec interface.
-func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*pb.AppendEntriesResponse) (*pb.AppendEntriesResponse, bool) {
-	// Make copy of last reply.
-	response := *replies[len(replies)-1]
+func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*pb.AppendEntriesResponse) (*pb.AppendEntriesCombined, bool) {
+	latest := replies[len(replies)-1]
+
+	response := &pb.AppendEntriesCombined{
+		Term:       latest.Term,
+		MatchIndex: make([]uint64, 1),
+	}
 
 	if response.Term > req.Term {
 		// Abort.
-		return &response, true
+		return response, true
 	}
 
 	// Being past this point means last.Term == req.Term.
@@ -78,7 +82,7 @@ func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*p
 
 		// Count successful.
 		if r.Success {
-			response.MatchIndex = r.MatchIndex
+			response.MatchIndex[0] = r.MatchIndex
 			successful++
 		}
 	}
@@ -86,17 +90,17 @@ func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*p
 	if successful >= qs.Q {
 		// Quorum.
 		response.Success = true
-		return &response, true
+		return response, true
 	}
 
-	response.MatchIndex = minMatch
+	response.MatchIndex[0] = minMatch
 
 	// Wait for more replies. Return response, even on failure. This allows
 	// raft to back off and try a lower match index.
 
 	if len(replies) < qs.N {
-		return &response, false
+		return response, false
 	}
 
-	return &response, true
+	return response, true
 }

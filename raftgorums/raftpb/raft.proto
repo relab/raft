@@ -42,6 +42,13 @@ message AppendEntriesResponse {
   bool success = 3;
 }
 
+message AppendEntriesCombined {
+  uint64 term = 1;
+  repeated uint64 matchIndex = 2;
+
+  bool success = 3;
+}
+
 message InstallSnapshotResponse {
   uint64 term = 1;
 }

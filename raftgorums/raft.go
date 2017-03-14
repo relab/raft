@@ -811,7 +811,7 @@ func (r *Raft) getAppendEntriesRequest(nextIndex uint64, entries []*commonpb.Ent
 
 // HandleAppendEntriesResponse must be invoked when receiving an
 // AppendEntriesResponse.
-func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse, responders int) {
+func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesCombined, responders int) {
 	r.Lock()
 	defer func() {
 		r.Unlock()
@@ -840,14 +840,14 @@ func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse, r
 			// Successful heartbeat to a majority.
 			r.resetElection = true
 
-			r.matchIndex = response.MatchIndex
+			r.matchIndex = response.MatchIndex[0]
 			r.nextIndex = r.matchIndex + 1
 
 			return
 		}
 
 		// If AppendEntries was not successful lower match index.
-		r.nextIndex = max(1, response.MatchIndex)
+		r.nextIndex = max(1, response.MatchIndex[0])
 	}
 }
 
