@@ -55,7 +55,7 @@ var appendEntriesQFTests = []struct {
 	request *pb.AppendEntriesRequest
 	replies []*pb.AppendEntriesResponse
 	quorum  bool
-	reply   *pb.AppendEntriesCombined
+	reply   *pb.AppendEntriesResponse
 }{
 	{
 		"reply with higher Term",
@@ -67,9 +67,8 @@ var appendEntriesQFTests = []struct {
 			},
 		},
 		true,
-		&pb.AppendEntriesCombined{
-			Term:       6,
-			MatchIndex: []uint64{0},
+		&pb.AppendEntriesResponse{
+			Term: 6,
 		},
 	},
 	{
@@ -84,9 +83,9 @@ var appendEntriesQFTests = []struct {
 			},
 		},
 		false,
-		&pb.AppendEntriesCombined{
+		&pb.AppendEntriesResponse{
 			Term:       5,
-			MatchIndex: []uint64{50},
+			MatchIndex: 50,
 			Success:    false,
 		},
 	},
@@ -107,9 +106,9 @@ var appendEntriesQFTests = []struct {
 			},
 		},
 		true,
-		&pb.AppendEntriesCombined{
+		&pb.AppendEntriesResponse{
 			Term:       5,
-			MatchIndex: []uint64{100},
+			MatchIndex: 100,
 			Success:    false,
 		},
 	},
@@ -130,9 +129,9 @@ var appendEntriesQFTests = []struct {
 			},
 		},
 		true,
-		&pb.AppendEntriesCombined{
+		&pb.AppendEntriesResponse{
 			Term:       5,
-			MatchIndex: []uint64{50},
+			MatchIndex: 50,
 			Success:    false,
 		},
 	},
@@ -148,9 +147,9 @@ var appendEntriesQFTests = []struct {
 			},
 		},
 		true,
-		&pb.AppendEntriesCombined{
+		&pb.AppendEntriesResponse{
 			Term:       5,
-			MatchIndex: []uint64{100},
+			MatchIndex: 100,
 			Success:    true,
 		},
 	},

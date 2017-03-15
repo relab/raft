@@ -130,16 +130,16 @@ func (n *Node) Run() error {
 				n.logger.WithError(err).Warnln("AppendEntries failed")
 			}
 
-			if res.AppendEntriesCombined == nil {
+			if res.AppendEntriesResponse == nil {
 				continue
 			}
 
 			// Cancel on abort.
-			if !res.AppendEntriesCombined.Success {
+			if !res.AppendEntriesResponse.Success {
 				cancel()
 			}
 
-			n.Raft.HandleAppendEntriesResponse(res.AppendEntriesCombined, len(res.NodeIDs))
+			n.Raft.HandleAppendEntriesResponse(res.AppendEntriesResponse, len(res.NodeIDs))
 		}
 	}
 }

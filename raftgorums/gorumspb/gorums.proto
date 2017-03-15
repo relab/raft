@@ -13,10 +13,9 @@ service Raft {
   }
 
   rpc AppendEntries(raftpb.AppendEntriesRequest) returns (raftpb.AppendEntriesResponse) {
-    option (gorums.qc)                 = true;
-    option (gorums.qf_with_req)        = true;
-    option (gorums.per_node_arg)       = true;
-    option (gorums.custom_return_type) = "raftpb.AppendEntriesCombined";
+    option (gorums.qc)           = true;
+    option (gorums.qf_with_req)  = true;
+    option (gorums.per_node_arg) = true;
   }
 
   rpc InstallSnapshot(commonpb.Snapshot) returns (raftpb.InstallSnapshotResponse);
