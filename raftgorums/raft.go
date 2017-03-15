@@ -458,7 +458,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 
 	reqLogger.WithFields(logrus.Fields{
 		"lensaved":   len(toSave),
-		"lenlog":     r.storage.NextIndex(),
+		"lenlog":     logLen,
 		"matchindex": index,
 		"success":    success,
 	}).Infoln("Saved entries to stable storage")
