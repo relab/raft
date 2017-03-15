@@ -26,6 +26,8 @@ type Node struct {
 	lookup map[uint64]int
 	peers  []string
 
+	match map[uint32]chan uint64
+
 	mgr  *gorums.Manager
 	conf *gorums.Configuration
 
@@ -69,6 +71,7 @@ func NewNode(server *grpc.Server, sm raft.StateMachine, cfg *Config) *Node {
 		grpcServer: server,
 		lookup:     lookup,
 		peers:      peers,
+		match:      make(map[uint32]chan uint64),
 		logger:     cfg.Logger,
 	}
 
@@ -99,10 +102,36 @@ func (n *Node) Run() error {
 		return err
 	}
 
+	for _, nodeID := range n.mgr.NodeIDs() {
+		n.match[nodeID] = make(chan uint64, 1)
+	}
+
 	go n.Raft.Run()
+
+	// January 1, 1970 UTC.
+	var lastCuReq time.Time
 
 	for {
 		select {
+		case req := <-n.Raft.cureqout:
+			// TODO Use config.
+			if time.Since(lastCuReq) < 100*time.Millisecond {
+				continue
+			}
+			lastCuReq = time.Now()
+
+			n.logger.WithField("matchindex", req.matchIndex).Warnln("Sending catch-up")
+			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
+			leader, _ := n.mgr.Node(n.getNodeID(req.leaderID))
+			_, err := leader.RaftClient.CatchMeUp(ctx, &pb.CatchMeUpRequest{
+				FollowerID: n.id,
+				NextIndex:  req.matchIndex + 1,
+			})
+			cancel()
+
+			if err != nil {
+				n.logger.WithError(err).Warnln("CatchMeUp failed")
+			}
 		case req := <-n.Raft.rvreqout:
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
 			res, err := n.conf.RequestVote(ctx, req)
@@ -119,9 +148,60 @@ func (n *Node) Run() error {
 			n.Raft.HandleRequestVoteResponse(res.RequestVoteResponse)
 
 		case req := <-n.Raft.aereqout:
+			next := make(map[uint32]uint64)
+			nextIndex := req.PrevLogIndex + 1
+
+			for nodeID, ch := range n.match {
+				select {
+				case index := <-ch:
+					// TODO Acessing maxAppendEntries, safe but needs fix.
+					atLeastMaxEntries := req.PrevLogIndex+1 > n.Raft.maxAppendEntries
+					lessThenMaxEntriesBehind := index < req.PrevLogIndex+1-n.Raft.maxAppendEntries
+
+					if atLeastMaxEntries && lessThenMaxEntriesBehind {
+						n.logger.WithField("gorumsid", nodeID).Warnln("Server too far behind")
+						index = req.PrevLogIndex + 1
+					}
+					next[nodeID] = index
+					if index < nextIndex {
+						nextIndex = index
+					}
+				default:
+				}
+			}
+
+			// TODO This should be safe as it only accesses storage
+			// which uses transactions. TODO It accesses
+			// maxAppendEntries but this on does not change after
+			// startup.
+			entries := n.Raft.getNextEntries(nextIndex)
+			e := uint64(len(entries))
+			maxIndex := nextIndex + e - 1
+
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
 			res, err := n.conf.AppendEntries(ctx, req,
+				// These functions will be executed concurrently.
 				func(req pb.AppendEntriesRequest, nodeID uint32) *pb.AppendEntriesRequest {
+					if index, ok := next[nodeID]; ok {
+						req.PrevLogIndex = index - 1
+						// TODO This should be safe as
+						// it only accesses storage
+						// which uses transactions.
+						req.PrevLogTerm = n.Raft.logTerm(index - 1)
+					}
+
+					need := maxIndex - req.PrevLogIndex
+					req.Entries = entries[e-need:]
+
+					n.logger.WithFields(logrus.Fields{
+						"prevlogindex": req.PrevLogIndex,
+						"prevlogterm":  req.PrevLogTerm,
+						"commitindex":  req.CommitIndex,
+						"currentterm":  req.Term,
+						"lenentries":   len(req.Entries),
+						"gorumsid":     nodeID,
+					}).Infoln("Sending AppendEntries")
+
 					return &req
 				},
 			)
@@ -162,6 +242,7 @@ func (n *Node) InstallSnapshot(ctx context.Context, snapshot *commonpb.Snapshot)
 // CatchMeUp implements gorums.RaftServer.
 func (n *Node) CatchMeUp(ctx context.Context, req *pb.CatchMeUpRequest) (res *pb.Empty, err error) {
 	res = &pb.Empty{}
+	n.match[n.getNodeID(req.FollowerID)] <- req.NextIndex
 	return
 }
 

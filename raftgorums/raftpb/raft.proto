@@ -49,7 +49,7 @@ message InstallSnapshotResponse {
 message CatchMeUpRequest {
   uint64 followerID = 1;
 
-  uint64 matchIndex = 2;
+  uint64 nextIndex = 2;
 }
 
 message Empty {}
