@@ -55,20 +55,23 @@ func (qs *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.Re
 // AppendEntriesQF gathers AppendEntriesResponses and calculates the log entries
 // replicated, depending on the quorum configuration.
 // TODO Implements gorums.QuorumSpec interface.
-func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*pb.AppendEntriesResponse) (*pb.AppendEntriesResponse, bool) {
-	// Make copy of last reply.
-	response := *replies[len(replies)-1]
+func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*pb.AppendEntriesResponse) (*pb.AppendEntriesQFResponse, bool) {
+	latest := replies[len(replies)-1]
+
+	response := &pb.AppendEntriesQFResponse{
+		Term:    latest.Term,
+		Replies: uint64(len(replies)),
+	}
 
 	if response.Term > req.Term {
 		// Abort.
-		return &response, true
+		return response, true
 	}
 
 	// Being past this point means last.Term == req.Term.
 
 	var successful int
 	var minMatch uint64 = math.MaxUint64
-	response.Success = false // Default to unsuccessful.
 
 	for _, r := range replies {
 		// Track lowest match index.
@@ -86,7 +89,7 @@ func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*p
 	if successful >= qs.Q {
 		// Quorum.
 		response.Success = true
-		return &response, true
+		return response, true
 	}
 
 	response.MatchIndex = minMatch
@@ -95,8 +98,8 @@ func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*p
 	// raft to back off and try a lower match index.
 
 	if len(replies) < qs.N {
-		return &response, false
+		return response, false
 	}
 
-	return &response, true
+	return response, true
 }

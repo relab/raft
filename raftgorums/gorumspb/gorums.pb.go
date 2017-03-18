@@ -65,35 +65,17 @@ var _ = codes.OK
 
 /* 'gorums' plugin for protoc-gen-go - generated from: calltype_quorumcall_tmpl */
 
-/* Methods on Configuration and the quorum call struct AppendEntries */
-
-//TODO Make this a customizable struct that replaces FQRespName together with typedecl option in gogoprotobuf.
-//(This file could maybe hold all types of structs for the different call semantics)
-
-// AppendEntriesReply encapsulates the reply from a AppendEntries quorum call.
-// It contains the id of each node of the quorum that replied and a single reply.
-type AppendEntriesReply struct {
-	// the actual reply
-	*raftpb.AppendEntriesResponse
-	NodeIDs []uint32
-	err     error
-}
-
-func (r AppendEntriesReply) String() string {
-	return fmt.Sprintf("node ids: %v | answer: %v", r.NodeIDs, r.AppendEntriesResponse)
-}
-
-type appendEntriesArg func(req raftpb.AppendEntriesRequest, nodeID uint32) *raftpb.AppendEntriesRequest
+/* Exported types and methods for quorum call method AppendEntries */
 
 // AppendEntries is invoked as a quorum call on each node in configuration c,
 // with the argument returned by the provided perNode function and returns the
-// result as a AppendEntriesReply. The perNode function returns a *raftpb.AppendEntriesRequest
-// object to be passed to the given nodeID.
-func (c *Configuration) AppendEntries(ctx context.Context, arg *raftpb.AppendEntriesRequest, perNode func(req raftpb.AppendEntriesRequest, nodeID uint32) *raftpb.AppendEntriesRequest) (*AppendEntriesReply, error) {
+// result. The perNode function takes a request arg and
+// returns a raftpb.AppendEntriesRequest object to be passed to the given nodeID.
+func (c *Configuration) AppendEntries(ctx context.Context, arg *raftpb.AppendEntriesRequest, perNode func(arg raftpb.AppendEntriesRequest, nodeID uint32) *raftpb.AppendEntriesRequest) (*raftpb.AppendEntriesQFResponse, error) {
 	return c.appendEntries(ctx, arg, perNode)
 }
 
-/* Methods on Manager for quorum call method AppendEntries */
+/* Unexported types and methods for quorum call method AppendEntries */
 
 type appendEntriesReply struct {
 	nid   uint32
@@ -101,8 +83,7 @@ type appendEntriesReply struct {
 	err   error
 }
 
-func (c *Configuration) appendEntries(ctx context.Context, a *raftpb.AppendEntriesRequest, f appendEntriesArg) (resp *AppendEntriesReply, err error) {
-
+func (c *Configuration) appendEntries(ctx context.Context, a *raftpb.AppendEntriesRequest, f func(arg raftpb.AppendEntriesRequest, nodeID uint32) *raftpb.AppendEntriesRequest) (resp *raftpb.AppendEntriesQFResponse, err error) {
 	var ti traceInfo
 	if c.mgr.opts.trace {
 		ti.tr = trace.New("gorums."+c.tstring()+".Sent", "AppendEntries")
@@ -113,30 +94,24 @@ func (c *Configuration) appendEntries(ctx context.Context, a *raftpb.AppendEntri
 			ti.firstLine.deadline = deadline.Sub(time.Now())
 		}
 		ti.tr.LazyLog(&ti.firstLine, false)
+		ti.tr.LazyLog(&payload{sent: true, msg: a}, false)
 
 		defer func() {
 			ti.tr.LazyLog(&qcresult{
-				ids:   resp.NodeIDs,
-				reply: resp.AppendEntriesResponse,
-				err:   resp.err,
+				reply: resp,
+				err:   err,
 			}, false)
-			if resp.err != nil {
+			if err != nil {
 				ti.tr.SetError()
 			}
 		}()
 	}
 
 	replyChan := make(chan appendEntriesReply, c.n)
-
-	if c.mgr.opts.trace {
-		ti.tr.LazyLog(&payload{sent: true, msg: a}, false)
-	}
-
 	for _, n := range c.nodes {
 		go callGRPCAppendEntries(ctx, n, f(*a, n.id), replyChan)
 	}
 
-	resp = &AppendEntriesReply{NodeIDs: make([]uint32, 0, c.n)}
 	var (
 		replyValues = make([]*raftpb.AppendEntriesResponse, 0, c.n)
 		errCount    int
@@ -146,7 +121,6 @@ func (c *Configuration) appendEntries(ctx context.Context, a *raftpb.AppendEntri
 	for {
 		select {
 		case r := <-replyChan:
-			resp.NodeIDs = append(resp.NodeIDs, r.nid)
 			if r.err != nil {
 				errCount++
 				break
@@ -155,7 +129,7 @@ func (c *Configuration) appendEntries(ctx context.Context, a *raftpb.AppendEntri
 				ti.tr.LazyLog(&payload{sent: false, id: r.nid, msg: r.reply}, false)
 			}
 			replyValues = append(replyValues, r.reply)
-			if resp.AppendEntriesResponse, quorum = c.qspec.AppendEntriesQF(a, replyValues); quorum {
+			if resp, quorum = c.qspec.AppendEntriesQF(a, replyValues); quorum {
 				return resp, nil
 			}
 		case <-ctx.Done():
@@ -168,13 +142,13 @@ func (c *Configuration) appendEntries(ctx context.Context, a *raftpb.AppendEntri
 	}
 }
 
-func callGRPCAppendEntries(ctx context.Context, node *Node, args *raftpb.AppendEntriesRequest, replyChan chan<- appendEntriesReply) {
+func callGRPCAppendEntries(ctx context.Context, node *Node, arg *raftpb.AppendEntriesRequest, replyChan chan<- appendEntriesReply) {
 	reply := new(raftpb.AppendEntriesResponse)
 	start := time.Now()
 	err := grpc.Invoke(
 		ctx,
 		"/gorums.Raft/AppendEntries",
-		args,
+		arg,
 		reply,
 		node.conn,
 	)
@@ -187,33 +161,15 @@ func callGRPCAppendEntries(ctx context.Context, node *Node, args *raftpb.AppendE
 	replyChan <- appendEntriesReply{node.id, reply, err}
 }
 
-/* Methods on Configuration and the quorum call struct RequestVote */
-
-//TODO Make this a customizable struct that replaces FQRespName together with typedecl option in gogoprotobuf.
-//(This file could maybe hold all types of structs for the different call semantics)
-
-// RequestVoteReply encapsulates the reply from a RequestVote quorum call.
-// It contains the id of each node of the quorum that replied and a single reply.
-type RequestVoteReply struct {
-	// the actual reply
-	*raftpb.RequestVoteResponse
-	NodeIDs []uint32
-	err     error
-}
-
-func (r RequestVoteReply) String() string {
-	return fmt.Sprintf("node ids: %v | answer: %v", r.NodeIDs, r.RequestVoteResponse)
-}
-
-type requestVoteArg *raftpb.RequestVoteRequest
+/* Exported types and methods for quorum call method RequestVote */
 
 // RequestVote is invoked as a quorum call on all nodes in configuration c,
-// using the same argument arg, and returns the result as a RequestVoteReply.
-func (c *Configuration) RequestVote(ctx context.Context, arg *raftpb.RequestVoteRequest) (*RequestVoteReply, error) {
+// using the same argument arg, and returns the result.
+func (c *Configuration) RequestVote(ctx context.Context, arg *raftpb.RequestVoteRequest) (*raftpb.RequestVoteResponse, error) {
 	return c.requestVote(ctx, arg)
 }
 
-/* Methods on Manager for quorum call method RequestVote */
+/* Unexported types and methods for quorum call method RequestVote */
 
 type requestVoteReply struct {
 	nid   uint32
@@ -221,8 +177,7 @@ type requestVoteReply struct {
 	err   error
 }
 
-func (c *Configuration) requestVote(ctx context.Context, a requestVoteArg) (resp *RequestVoteReply, err error) {
-
+func (c *Configuration) requestVote(ctx context.Context, a *raftpb.RequestVoteRequest) (resp *raftpb.RequestVoteResponse, err error) {
 	var ti traceInfo
 	if c.mgr.opts.trace {
 		ti.tr = trace.New("gorums."+c.tstring()+".Sent", "RequestVote")
@@ -233,30 +188,24 @@ func (c *Configuration) requestVote(ctx context.Context, a requestVoteArg) (resp
 			ti.firstLine.deadline = deadline.Sub(time.Now())
 		}
 		ti.tr.LazyLog(&ti.firstLine, false)
+		ti.tr.LazyLog(&payload{sent: true, msg: a}, false)
 
 		defer func() {
 			ti.tr.LazyLog(&qcresult{
-				ids:   resp.NodeIDs,
-				reply: resp.RequestVoteResponse,
-				err:   resp.err,
+				reply: resp,
+				err:   err,
 			}, false)
-			if resp.err != nil {
+			if err != nil {
 				ti.tr.SetError()
 			}
 		}()
 	}
 
 	replyChan := make(chan requestVoteReply, c.n)
-
-	if c.mgr.opts.trace {
-		ti.tr.LazyLog(&payload{sent: true, msg: a}, false)
-	}
-
 	for _, n := range c.nodes {
 		go callGRPCRequestVote(ctx, n, a, replyChan)
 	}
 
-	resp = &RequestVoteReply{NodeIDs: make([]uint32, 0, c.n)}
 	var (
 		replyValues = make([]*raftpb.RequestVoteResponse, 0, c.n)
 		errCount    int
@@ -266,7 +215,6 @@ func (c *Configuration) requestVote(ctx context.Context, a requestVoteArg) (resp
 	for {
 		select {
 		case r := <-replyChan:
-			resp.NodeIDs = append(resp.NodeIDs, r.nid)
 			if r.err != nil {
 				errCount++
 				break
@@ -275,7 +223,7 @@ func (c *Configuration) requestVote(ctx context.Context, a requestVoteArg) (resp
 				ti.tr.LazyLog(&payload{sent: false, id: r.nid, msg: r.reply}, false)
 			}
 			replyValues = append(replyValues, r.reply)
-			if resp.RequestVoteResponse, quorum = c.qspec.RequestVoteQF(a, replyValues); quorum {
+			if resp, quorum = c.qspec.RequestVoteQF(a, replyValues); quorum {
 				return resp, nil
 			}
 		case <-ctx.Done():
@@ -288,13 +236,13 @@ func (c *Configuration) requestVote(ctx context.Context, a requestVoteArg) (resp
 	}
 }
 
-func callGRPCRequestVote(ctx context.Context, node *Node, args *raftpb.RequestVoteRequest, replyChan chan<- requestVoteReply) {
+func callGRPCRequestVote(ctx context.Context, node *Node, arg *raftpb.RequestVoteRequest, replyChan chan<- requestVoteReply) {
 	reply := new(raftpb.RequestVoteResponse)
 	start := time.Now()
 	err := grpc.Invoke(
 		ctx,
 		"/gorums.Raft/RequestVote",
-		args,
+		arg,
 		reply,
 		node.conn,
 	)
@@ -354,7 +302,7 @@ func (n *Node) close() error {
 type QuorumSpec interface {
 	// AppendEntriesQF is the quorum function for the AppendEntries
 	// quorum call method.
-	AppendEntriesQF(req *raftpb.AppendEntriesRequest, replies []*raftpb.AppendEntriesResponse) (*raftpb.AppendEntriesResponse, bool)
+	AppendEntriesQF(req *raftpb.AppendEntriesRequest, replies []*raftpb.AppendEntriesResponse) (*raftpb.AppendEntriesQFResponse, bool)
 
 	// RequestVoteQF is the quorum function for the RequestVote
 	// quorum call method.
@@ -1145,25 +1093,25 @@ var _Raft_serviceDesc = grpc.ServiceDesc{
 func init() { proto.RegisterFile("gorumspb/gorums.proto", fileDescriptorGorums) }
 
 var fileDescriptorGorums = []byte{
-	// 306 bytes of a gzipped FileDescriptorProto
+	// 318 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xe2, 0x12, 0x4d, 0xcf, 0x2f, 0x2a,
 	0xcd, 0x2d, 0x2e, 0x48, 0xd2, 0x87, 0x30, 0xf4, 0x0a, 0x8a, 0xf2, 0x4b, 0xf2, 0x85, 0xd8, 0x20,
 	0x3c, 0x29, 0x95, 0xf4, 0xcc, 0x92, 0x8c, 0xd2, 0x24, 0xbd, 0xe4, 0xfc, 0x5c, 0xfd, 0xa2, 0xd4,
 	0x9c, 0x44, 0x98, 0x32, 0x14, 0xd5, 0x52, 0x46, 0x18, 0xaa, 0x8a, 0x12, 0xd3, 0x4a, 0xc0, 0x04,
 	0x54, 0x39, 0x88, 0x59, 0x00, 0x11, 0x86, 0xea, 0xd1, 0xc4, 0xae, 0x27, 0x39, 0x3f, 0x37, 0x37,
-	0x3f, 0x0f, 0x45, 0xa9, 0xd1, 0x26, 0x26, 0x2e, 0x96, 0xa0, 0xc4, 0xb4, 0x12, 0xa1, 0x00, 0x2e,
+	0x3f, 0x0f, 0x45, 0xa9, 0xd1, 0x15, 0x26, 0x2e, 0x96, 0xa0, 0xc4, 0xb4, 0x12, 0xa1, 0x00, 0x2e,
 	0xee, 0xa0, 0xd4, 0xc2, 0xd2, 0xd4, 0xe2, 0x92, 0xb0, 0xfc, 0x92, 0x54, 0x21, 0x29, 0x3d, 0x88,
 	0xb1, 0x7a, 0x48, 0x82, 0x50, 0xa6, 0x94, 0x34, 0x56, 0xb9, 0xe2, 0x82, 0xfc, 0xbc, 0xe2, 0x54,
-	0x25, 0x8e, 0x86, 0xad, 0x12, 0x8c, 0x2b, 0xb6, 0x4a, 0x30, 0x0a, 0x45, 0x71, 0xf1, 0x3a, 0x16,
+	0x25, 0x8e, 0x86, 0xad, 0x12, 0x8c, 0x2b, 0xb6, 0x4a, 0x30, 0x0a, 0xd5, 0x70, 0xf1, 0x3a, 0x16,
 	0x14, 0xa4, 0xe6, 0xa5, 0xb8, 0xe6, 0x95, 0x14, 0x65, 0xa6, 0x16, 0x0b, 0xc9, 0xc0, 0xf4, 0xa1,
-	0x08, 0xc3, 0x4c, 0x95, 0xc5, 0x21, 0x0b, 0x35, 0x97, 0x07, 0x66, 0xee, 0x06, 0x90, 0xd9, 0x6e,
-	0x5c, 0xfc, 0x9e, 0x79, 0xc5, 0x25, 0x89, 0x39, 0x39, 0xc1, 0x79, 0x89, 0x05, 0xc5, 0x19, 0xf9,
-	0x25, 0x42, 0x42, 0x7a, 0x30, 0xff, 0xe9, 0xc1, 0xc4, 0xa4, 0xe4, 0x61, 0x66, 0xa2, 0x29, 0x86,
-	0x99, 0x2a, 0x64, 0xc2, 0xc5, 0xe9, 0x9c, 0x58, 0x92, 0x9c, 0xe1, 0x9b, 0x1a, 0x5a, 0x20, 0x24,
-	0x01, 0x53, 0x0d, 0x17, 0x82, 0xb9, 0x8d, 0x17, 0x26, 0xe3, 0x9a, 0x5b, 0x50, 0x52, 0xe9, 0xa4,
-	0x73, 0xe1, 0xa1, 0x1c, 0xc3, 0x8d, 0x87, 0x72, 0x0c, 0x0f, 0x1e, 0xca, 0x31, 0x36, 0x3c, 0x92,
-	0x63, 0x5c, 0xf1, 0x48, 0x8e, 0xf1, 0xc4, 0x23, 0x39, 0xc6, 0x0b, 0x8f, 0xe4, 0x18, 0x1f, 0x3c,
-	0x92, 0x63, 0x7c, 0xf1, 0x48, 0x8e, 0xe1, 0xc3, 0x23, 0x39, 0xc6, 0x09, 0x8f, 0xe5, 0x18, 0x92,
-	0xd8, 0xc0, 0x21, 0x6d, 0x0c, 0x08, 0x00, 0x00, 0xff, 0xff, 0xf2, 0xbb, 0x85, 0xd5, 0x0f, 0x02,
-	0x00, 0x00,
+	0x08, 0xc3, 0x4c, 0x95, 0xc5, 0x21, 0x0b, 0x35, 0x57, 0x0f, 0x66, 0xee, 0x86, 0xad, 0x12, 0x8c,
+	0x87, 0x3e, 0x4b, 0xc8, 0x61, 0x53, 0x1d, 0xe8, 0x06, 0x53, 0x2f, 0xe4, 0xc6, 0xc5, 0xef, 0x99,
+	0x57, 0x5c, 0x92, 0x98, 0x93, 0x13, 0x9c, 0x97, 0x58, 0x50, 0x9c, 0x91, 0x5f, 0x22, 0x24, 0xa4,
+	0x07, 0x0b, 0x01, 0x3d, 0x98, 0x98, 0x94, 0x3c, 0xcc, 0x56, 0x34, 0xc5, 0x70, 0x73, 0x4c, 0xb8,
+	0x38, 0x9d, 0x13, 0x4b, 0x92, 0x33, 0x7c, 0x53, 0x43, 0x0b, 0x84, 0x24, 0x60, 0xaa, 0xe1, 0x42,
+	0x30, 0xd7, 0xf3, 0xc2, 0x64, 0x5c, 0x73, 0x0b, 0x4a, 0x2a, 0x9d, 0x74, 0x2e, 0x3c, 0x94, 0x63,
+	0xb8, 0xf1, 0x50, 0x8e, 0xe1, 0xc1, 0x43, 0x39, 0xc6, 0x86, 0x47, 0x72, 0x8c, 0x2b, 0x1e, 0xc9,
+	0x31, 0x9e, 0x78, 0x24, 0xc7, 0x78, 0xe1, 0x91, 0x1c, 0xe3, 0x83, 0x47, 0x72, 0x8c, 0x2f, 0x1e,
+	0xc9, 0x31, 0x7c, 0x78, 0x24, 0xc7, 0x38, 0xe1, 0xb1, 0x1c, 0x43, 0x12, 0x1b, 0x38, 0x2e, 0x8c,
+	0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0x7f, 0xe1, 0x4f, 0x4b, 0x31, 0x02, 0x00, 0x00,
 }

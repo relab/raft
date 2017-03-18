@@ -141,11 +141,11 @@ func (n *Node) Run() error {
 				n.logger.WithError(err).Warnln("RequestVote failed")
 			}
 
-			if res.RequestVoteResponse == nil {
+			if res == nil {
 				continue
 			}
 
-			n.Raft.HandleRequestVoteResponse(res.RequestVoteResponse)
+			n.Raft.HandleRequestVoteResponse(res)
 
 		case req := <-n.Raft.aereqout:
 			next := make(map[uint32]uint64)
@@ -210,16 +210,16 @@ func (n *Node) Run() error {
 				n.logger.WithError(err).Warnln("AppendEntries failed")
 			}
 
-			if res.AppendEntriesResponse == nil {
+			if res == nil {
 				continue
 			}
 
 			// Cancel on abort.
-			if !res.AppendEntriesResponse.Success {
+			if !res.Success {
 				cancel()
 			}
 
-			n.Raft.HandleAppendEntriesResponse(res.AppendEntriesResponse, len(res.NodeIDs))
+			n.Raft.HandleAppendEntriesResponse(res, res.Replies)
 		}
 	}
 }

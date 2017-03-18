@@ -815,7 +815,7 @@ func (r *Raft) getAppendEntriesRequest(nextIndex uint64, entries []*commonpb.Ent
 
 // HandleAppendEntriesResponse must be invoked when receiving an
 // AppendEntriesResponse.
-func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse, responders int) {
+func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesQFResponse, replies uint64) {
 	r.Lock()
 	defer func() {
 		r.Unlock()
@@ -828,7 +828,7 @@ func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesResponse, r
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	// If we didn't get a response from a majority (excluding self) step down.
-	if response.Term > r.currentTerm || responders < len(r.addrs)/2 {
+	if response.Term > r.currentTerm || replies < uint64(len(r.addrs)/2) {
 		r.becomeFollower(response.Term)
 
 		return
