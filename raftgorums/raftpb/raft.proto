@@ -6,14 +6,13 @@ import "github.com/relab/raft/commonpb/raft.proto";
 package raftpb;
 
 option (gogoproto.goproto_enum_prefix_all) = false;
-option (gogoproto.goproto_getters_all) = false;
+option (gogoproto.goproto_getters_all)     = false;
 
 message RequestVoteRequest {
-  uint64 candidateID = 1;
-
-  uint64 term = 2;
+  uint64 candidateID  = 1;
+  uint64 term         = 2;
   uint64 lastLogIndex = 3;
-  uint64 lastLogTerm = 4;
+  uint64 lastLogTerm  = 4;
 
   bool preVote = 5;
 }
@@ -25,27 +24,26 @@ message RequestVoteResponse {
 }
 
 message AppendEntriesRequest {
-  uint64 leaderID = 1;
-
-  uint64 term = 2;
+  uint64 leaderID     = 1;
+  uint64 term         = 2;
   uint64 prevLogIndex = 3;
-  uint64 prevLogTerm = 4;
-  uint64 commitIndex = 5;
+  uint64 prevLogTerm  = 4;
+  uint64 commitIndex  = 5;
 
   repeated commonpb.Entry entries = 6;
 }
 
 message AppendEntriesResponse {
-  uint64 term = 1;
+  uint64 term       = 1;
   uint64 matchIndex = 2;
 
   bool success = 3;
 }
 
 message AppendEntriesQFResponse {
-  uint64 term = 1;
+  uint64 term       = 1;
   uint64 matchIndex = 2;
-  uint64 replies = 3;
+  uint64 replies    = 3;
 
   bool success = 4;
 }
@@ -56,8 +54,7 @@ message InstallSnapshotResponse {
 
 message CatchMeUpRequest {
   uint64 followerID = 1;
-
-  uint64 nextIndex = 2;
+  uint64 nextIndex  = 2;
 }
 
 message Empty {}
