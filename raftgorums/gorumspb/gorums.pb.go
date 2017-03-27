@@ -109,7 +109,7 @@ func (c *Configuration) appendEntries(ctx context.Context, a *raftpb.AppendEntri
 
 	replyChan := make(chan appendEntriesReply, c.n)
 	for _, n := range c.nodes {
-		go callGRPCAppendEntries(ctx, n, f(*a, n.id), replyChan)
+		go callGRPCAppendEntries(ctx, n, f(*a, n.id), replyChan, c.errs)
 	}
 
 	var (
@@ -142,7 +142,7 @@ func (c *Configuration) appendEntries(ctx context.Context, a *raftpb.AppendEntri
 	}
 }
 
-func callGRPCAppendEntries(ctx context.Context, node *Node, arg *raftpb.AppendEntriesRequest, replyChan chan<- appendEntriesReply) {
+func callGRPCAppendEntries(ctx context.Context, node *Node, arg *raftpb.AppendEntriesRequest, replyChan chan<- appendEntriesReply, errChan chan<- CallGRPCError) {
 	reply := new(raftpb.AppendEntriesResponse)
 	start := time.Now()
 	err := grpc.Invoke(
@@ -157,6 +157,13 @@ func callGRPCAppendEntries(ctx context.Context, node *Node, arg *raftpb.AppendEn
 		node.setLatency(time.Since(start))
 	default:
 		node.setLastErr(err)
+		select {
+		case errChan <- CallGRPCError{
+			NodeID: node.ID(),
+			Cause:  err,
+		}:
+		default:
+		}
 	}
 	replyChan <- appendEntriesReply{node.id, reply, err}
 }
@@ -203,7 +210,7 @@ func (c *Configuration) requestVote(ctx context.Context, a *raftpb.RequestVoteRe
 
 	replyChan := make(chan requestVoteReply, c.n)
 	for _, n := range c.nodes {
-		go callGRPCRequestVote(ctx, n, a, replyChan)
+		go callGRPCRequestVote(ctx, n, a, replyChan, c.errs)
 	}
 
 	var (
@@ -236,7 +243,7 @@ func (c *Configuration) requestVote(ctx context.Context, a *raftpb.RequestVoteRe
 	}
 }
 
-func callGRPCRequestVote(ctx context.Context, node *Node, arg *raftpb.RequestVoteRequest, replyChan chan<- requestVoteReply) {
+func callGRPCRequestVote(ctx context.Context, node *Node, arg *raftpb.RequestVoteRequest, replyChan chan<- requestVoteReply, errChan chan<- CallGRPCError) {
 	reply := new(raftpb.RequestVoteResponse)
 	start := time.Now()
 	err := grpc.Invoke(
@@ -251,6 +258,13 @@ func callGRPCRequestVote(ctx context.Context, node *Node, arg *raftpb.RequestVot
 		node.setLatency(time.Since(start))
 	default:
 		node.setLastErr(err)
+		select {
+		case errChan <- CallGRPCError{
+			NodeID: node.ID(),
+			Cause:  err,
+		}:
+		default:
+		}
 	}
 	replyChan <- requestVoteReply{node.id, reply, err}
 }
@@ -321,6 +335,13 @@ type Configuration struct {
 	n     int
 	mgr   *Manager
 	qspec QuorumSpec
+	errs  chan CallGRPCError
+}
+
+// SubError returns a channel for listening to individual node errors. Currently
+// only a single listener is supported.
+func (c *Configuration) SubError() <-chan CallGRPCError {
+	return c.errs
 }
 
 // ID reports the identifier for the configuration.
@@ -413,6 +434,16 @@ func (e QuorumCallError) Error() string {
 		"quorum call error: %s (errors: %d, replies: %d)",
 		e.Reason, e.ErrCount, e.ReplyCount,
 	)
+}
+
+// CallGRPCError is used to report that a single gRPC call failed.
+type CallGRPCError struct {
+	NodeID uint32
+	Cause  error
+}
+
+func (e CallGRPCError) Error() string {
+	return e.Cause.Error()
 }
 
 /* level.go */
@@ -664,6 +695,7 @@ func (m *Manager) NewConfiguration(ids []uint32, qspec QuorumSpec) (*Configurati
 		n:     len(cnodes),
 		mgr:   m,
 		qspec: qspec,
+		errs:  make(chan CallGRPCError, 128),
 	}
 	m.configs[cid] = c
 

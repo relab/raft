@@ -113,6 +113,14 @@ func (n *Node) Run() error {
 
 	for {
 		select {
+		case err := <-n.conf.SubError():
+			// TODO If a node becomes unavailable and there is a
+			// backup available in the same or an alternate region,
+			// instantiate reconfiguration. TODO How many errors
+			// before a node is considered unavailable? If there is
+			// no backup node available, don't do anything, but
+			// schedule the reconfiguration.
+			n.logger.WithField("nodeid", err.NodeID).Warnln("Node unavailable")
 		case req := <-n.Raft.cureqout:
 			// TODO Use config.
 			if time.Since(lastCuReq) < 100*time.Millisecond {
