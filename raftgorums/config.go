@@ -15,8 +15,6 @@ type Config struct {
 	Storage Storage
 
 	Batch            bool
-	QRPC             bool
-	SlowQuorum       bool
 	ElectionTimeout  time.Duration
 	HeartbeatTimeout time.Duration
 	MaxAppendEntries uint64
