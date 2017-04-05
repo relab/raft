@@ -42,7 +42,7 @@ enum ConfStatus {
 }
 
 message ConfChangeRequest {
-  string addr = 1;
+  uint64 serverID = 1;
 
   ConfType confType = 2;
 }
