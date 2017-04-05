@@ -161,8 +161,26 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 // method.
 func (r *Raft) RunDormant() {
 	go r.runStateMachine()
-	// TODO Blocks forever
-	<-make(chan struct{})
+
+	baseline := func() {
+		r.Lock()
+		defer r.Unlock()
+		if r.resetBaseline {
+			r.resetBaseline = false
+			return
+		}
+		r.heardFromLeader = false
+	}
+
+	baselineTimeout := time.After(r.electionTimeout)
+
+	for {
+		select {
+		case <-baselineTimeout:
+			baselineTimeout = time.After(r.electionTimeout)
+			baseline()
+		}
+	}
 }
 
 // Run handles timeouts.
