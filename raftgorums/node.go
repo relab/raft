@@ -1,6 +1,7 @@
 package raftgorums
 
 import (
+	"errors"
 	"io/ioutil"
 	"time"
 
@@ -101,12 +102,25 @@ func (n *Node) Run() error {
 
 	var clusterIDs []uint32
 
+	var active bool
+
 	for _, id := range n.cluster {
 		if n.id == id {
 			// Exclude self.
+			active = true
 			continue
 		}
+		n.logger.WithField("serverid", id).Warnln("Added to cluster")
 		clusterIDs = append(clusterIDs, n.getNodeID(id))
+	}
+
+	if !active {
+		// TODO We terminate this server after 10s as it is not part of
+		// the initial cluster. We need to change this so that the
+		// server stays dormant until a leader invokes a catch-up
+		// request on it.
+		time.Sleep(10 * time.Second)
+		return errors.New("not part of cluster")
 	}
 
 	n.conf, err = mgr.NewConfiguration(clusterIDs, NewQuorumSpec(len(clusterIDs)+1))
