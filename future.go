@@ -46,3 +46,11 @@ func (f *EntryFuture) Result() <-chan interface{} {
 func (f *EntryFuture) Respond(res interface{}) {
 	f.res <- res
 }
+
+// ConfChangeFuture wraps an EntryFuture. It contains an extra ConfChangeRequest
+// field, and the only configuration index on which it can be applied.
+type ConfChangeFuture struct {
+	Req           *commonpb.ConfChangeRequest
+	PrevConfIndex uint64
+	*EntryFuture
+}

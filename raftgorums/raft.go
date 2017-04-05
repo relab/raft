@@ -101,6 +101,8 @@ type Raft struct {
 	aereqout chan *pb.AppendEntriesRequest
 	cureqout chan *catchUpReq
 
+	confChange chan *raft.ConfChangeFuture
+
 	logger logrus.FieldLogger
 
 	metricsEnabled bool
@@ -145,6 +147,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		rvreqout:         make(chan *pb.RequestVoteRequest, 128),
 		aereqout:         make(chan *pb.AppendEntriesRequest, 128),
 		cureqout:         make(chan *catchUpReq, 16),
+		confChange:       make(chan *raft.ConfChangeFuture),
 		logger:           cfg.Logger,
 		metricsEnabled:   cfg.MetricsEnabled,
 	}
@@ -471,17 +474,35 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 }
 
 // ProposeConf implements raft.Raft.
-func (r *Raft) ProposeConf(ctx context.Context, cmd []byte) (raft.Future, error) {
-	return r.proposeCmd(ctx, cmd, commonpb.EntryConfChange)
+func (r *Raft) ProposeConf(ctx context.Context, confChange *commonpb.ConfChangeRequest) (raft.Future, error) {
+	cmd, err := confChange.Marshal()
+
+	if err != nil {
+		return nil, err
+	}
+
+	future, err := r.cmdToFuture(cmd, commonpb.EntryConfChange)
+
+	if err != nil {
+		return nil, err
+	}
+
+	confFuture := &raft.ConfChangeFuture{
+		Req:         confChange,
+		EntryFuture: future,
+	}
+
+	select {
+	case r.confChange <- confFuture:
+		return confFuture, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // ProposeCmd implements raft.Raft.
 func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) (raft.Future, error) {
-	return r.proposeCmd(ctx, cmd, commonpb.EntryNormal)
-}
-
-func (r *Raft) proposeCmd(ctx context.Context, cmd []byte, kind commonpb.EntryType) (raft.Future, error) {
-	future, err := r.cmdToFuture(cmd, kind)
+	future, err := r.cmdToFuture(cmd, commonpb.EntryNormal)
 
 	if err != nil {
 		return nil, err
