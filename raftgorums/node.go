@@ -1,7 +1,6 @@
 package raftgorums
 
 import (
-	"errors"
 	"io/ioutil"
 	"time"
 
@@ -114,15 +113,6 @@ func (n *Node) Run() error {
 		clusterIDs = append(clusterIDs, n.getNodeID(id))
 	}
 
-	if !active {
-		// TODO We terminate this server after 10s as it is not part of
-		// the initial cluster. We need to change this so that the
-		// server stays dormant until a leader invokes a catch-up
-		// request on it.
-		time.Sleep(10 * time.Second)
-		return errors.New("not part of cluster")
-	}
-
 	n.conf, err = mgr.NewConfiguration(clusterIDs, NewQuorumSpec(len(clusterIDs)+1))
 
 	if err != nil {
@@ -133,7 +123,11 @@ func (n *Node) Run() error {
 		n.match[nodeID] = make(chan uint64, 1)
 	}
 
-	go n.Raft.Run()
+	if active {
+		go n.Raft.Run()
+	} else {
+		go n.Raft.RunDormant()
+	}
 
 	// January 1, 1970 UTC.
 	var lastCuReq time.Time

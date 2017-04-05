@@ -155,6 +155,17 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 	return r
 }
 
+// RunDormant runs Raft in a dormant state where it only accepts incoming
+// requests and never times out. The server is able to receive AppendEntries
+// from a leader and replicate log entries. If the server receives a
+// configuration in which it is part of, it will transition to running the Run
+// method.
+func (r *Raft) RunDormant() {
+	go r.runStateMachine()
+	// TODO Blocks forever
+	<-make(chan struct{})
+}
+
 // Run handles timeouts.
 // All RPCs are handled by Gorums.
 func (r *Raft) Run() {
