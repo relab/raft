@@ -3,6 +3,8 @@ package raft
 import (
 	"fmt"
 
+	"github.com/relab/raft/commonpb"
+
 	"golang.org/x/net/context"
 )
 
@@ -35,5 +37,5 @@ type Raft interface {
 	ReadCmd(context.Context, []byte) (Future, error)
 
 	// ProposeConf proposes a new configuration. Behaves as ProposeCmd.
-	ProposeConf(context.Context, []byte) (Future, error)
+	ProposeConf(context.Context, *commonpb.ConfChangeRequest) (Future, error)
 }
