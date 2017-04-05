@@ -135,7 +135,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		sm:               sm,
 		storage:          storage,
 		batch:            cfg.Batch,
-		addrs:            cfg.Nodes,
+		addrs:            cfg.Servers,
 		nextIndex:        1,
 		electionTimeout:  cfg.ElectionTimeout,
 		heartbeatTimeout: cfg.HeartbeatTimeout,

@@ -23,8 +23,9 @@ type Node struct {
 
 	grpcServer *grpc.Server
 
-	lookup map[uint64]int
-	peers  []string
+	lookup  map[uint64]int
+	peers   []string
+	cluster []uint64
 
 	match map[uint32]chan uint64
 
@@ -36,9 +37,9 @@ type Node struct {
 
 // NewNode returns a Node with an instance of Raft given the configuration.
 func NewNode(server *grpc.Server, sm raft.StateMachine, cfg *Config) *Node {
-	peers := make([]string, len(cfg.Nodes))
-	// We don't want to mutate cfg.Nodes.
-	copy(peers, cfg.Nodes)
+	peers := make([]string, len(cfg.Servers))
+	// We don't want to mutate cfg.Servers.
+	copy(peers, cfg.Servers)
 
 	id := cfg.ID
 	// Exclude self.
@@ -47,8 +48,8 @@ func NewNode(server *grpc.Server, sm raft.StateMachine, cfg *Config) *Node {
 	var pos int
 	lookup := make(map[uint64]int)
 
-	for i := 0; i < len(cfg.Nodes); i++ {
-		if uint64(i)+1 == id {
+	for i := 1; i <= len(cfg.Servers); i++ {
+		if uint64(i) == id {
 			continue
 		}
 
@@ -71,6 +72,7 @@ func NewNode(server *grpc.Server, sm raft.StateMachine, cfg *Config) *Node {
 		grpcServer: server,
 		lookup:     lookup,
 		peers:      peers,
+		cluster:    cfg.InitialCluster,
 		match:      make(map[uint32]chan uint64),
 		logger:     cfg.Logger,
 	}
@@ -96,7 +98,18 @@ func (n *Node) Run() error {
 	gorums.RegisterRaftServer(n.grpcServer, n)
 
 	n.mgr = mgr
-	n.conf, err = mgr.NewConfiguration(mgr.NodeIDs(), NewQuorumSpec(len(n.peers)+1))
+
+	var clusterIDs []uint32
+
+	for _, id := range n.cluster {
+		if n.id == id {
+			// Exclude self.
+			continue
+		}
+		clusterIDs = append(clusterIDs, n.getNodeID(id))
+	}
+
+	n.conf, err = mgr.NewConfiguration(clusterIDs, NewQuorumSpec(len(clusterIDs)+1))
 
 	if err != nil {
 		return err
@@ -255,5 +268,5 @@ func (n *Node) CatchMeUp(ctx context.Context, req *pb.CatchMeUpRequest) (res *pb
 }
 
 func (n *Node) getNodeID(raftID uint64) uint32 {
-	return n.mgr.NodeIDs()[n.lookup[raftID-1]]
+	return n.mgr.NodeIDs()[n.lookup[raftID]]
 }

@@ -10,7 +10,10 @@ import (
 type Config struct {
 	ID uint64
 
-	Nodes []string
+	Servers []string
+	// IDs of server which forms the initial cluster. IDs start at 1, which
+	// refers to the first server in Servers.
+	InitialCluster []uint64
 
 	Storage Storage
 
