@@ -471,13 +471,17 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 }
 
 // ProposeConf implements raft.Raft.
-func (r *Raft) ProposeConf(ctx context.Context, conf raft.TODOConfChange) error {
-	panic("not implemented")
+func (r *Raft) ProposeConf(ctx context.Context, cmd []byte) (raft.Future, error) {
+	return r.proposeCmd(ctx, cmd, commonpb.EntryConfChange)
 }
 
 // ProposeCmd implements raft.Raft.
 func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) (raft.Future, error) {
-	future, err := r.cmdToFuture(cmd)
+	return r.proposeCmd(ctx, cmd, commonpb.EntryNormal)
+}
+
+func (r *Raft) proposeCmd(ctx context.Context, cmd []byte, kind commonpb.EntryType) (raft.Future, error) {
+	future, err := r.cmdToFuture(cmd, kind)
 
 	if err != nil {
 		return nil, err
@@ -496,7 +500,7 @@ func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) (raft.Future, error) 
 
 // ReadCmd implements raft.Raft.
 func (r *Raft) ReadCmd(ctx context.Context, cmd []byte) (raft.Future, error) {
-	future, err := r.cmdToFuture(cmd)
+	future, err := r.cmdToFuture(cmd, commonpb.EntryNormal)
 
 	if err != nil {
 		return nil, err
@@ -513,7 +517,7 @@ func (r *Raft) ReadCmd(ctx context.Context, cmd []byte) (raft.Future, error) {
 	return future, nil
 }
 
-func (r *Raft) cmdToFuture(cmd []byte) (*raft.EntryFuture, error) {
+func (r *Raft) cmdToFuture(cmd []byte, kind commonpb.EntryType) (*raft.EntryFuture, error) {
 	r.Lock()
 	state := r.state
 	leader := r.leader
@@ -525,7 +529,7 @@ func (r *Raft) cmdToFuture(cmd []byte) (*raft.EntryFuture, error) {
 	}
 
 	entry := &commonpb.Entry{
-		EntryType: commonpb.EntryNormal,
+		EntryType: kind,
 		Term:      term,
 		Data:      cmd,
 	}
