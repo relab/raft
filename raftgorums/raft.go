@@ -80,7 +80,6 @@ type Raft struct {
 	electionTimeout  time.Duration
 	heartbeatTimeout time.Duration
 
-	skipElection  bool
 	resetElection bool
 	resetBaseline bool
 
@@ -174,9 +173,6 @@ func (r *Raft) Run() {
 	startElection := func() {
 		r.Lock()
 		defer r.Unlock()
-		if r.skipElection {
-			return
-		}
 		if r.resetElection {
 			r.resetElection = false
 			return
@@ -202,7 +198,7 @@ func (r *Raft) Run() {
 	baseline := func() {
 		r.Lock()
 		defer r.Unlock()
-		if r.skipElection || r.state == Leader {
+		if r.state == Leader {
 			return
 		}
 		if r.resetBaseline {
