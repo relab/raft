@@ -25,7 +25,8 @@ type State int
 
 // Server states.
 const (
-	Follower State = iota
+	Inactive State = iota
+	Follower
 	Candidate
 	Leader
 )
