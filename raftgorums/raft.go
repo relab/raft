@@ -192,12 +192,10 @@ func (r *Raft) Run(server *grpc.Server) error {
 
 	var clusterIDs []uint32
 
-	var active bool
-
 	for _, id := range r.cluster {
 		if r.id == id {
 			// Exclude self.
-			active = true
+			r.state = Follower
 			continue
 		}
 		r.logger.WithField("serverid", id).Warnln("Added to cluster")
@@ -214,11 +212,7 @@ func (r *Raft) Run(server *grpc.Server) error {
 		r.match[nodeID] = make(chan uint64, 1)
 	}
 
-	if active {
-		go r.run()
-	} else {
-		go r.runDormant()
-	}
+	go r.run()
 
 	return r.handleOutgoing()
 }
@@ -369,14 +363,25 @@ func (r *Raft) initPeers() {
 	}
 }
 
+func (r *Raft) run() {
+	go r.runStateMachine()
+
+	for {
+		switch r.state {
+		case Inactive:
+			r.runDormant()
+		default:
+			r.runNormal()
+		}
+	}
+}
+
 // runDormant runs Raft in a dormant state where it only accepts incoming
 // requests and never times out. The server is able to receive AppendEntries
 // from a leader and replicate log entries. If the server receives a
 // configuration in which it is part of, it will transition to running the Run
 // method.
 func (r *Raft) runDormant() {
-	go r.runStateMachine()
-
 	baseline := func() {
 		r.Lock()
 		defer r.Unlock()
@@ -398,11 +403,9 @@ func (r *Raft) runDormant() {
 	}
 }
 
-// run handles timeouts.
+// runNormal handles timeouts.
 // All RPCs are handled by Gorums.
-func (r *Raft) run() {
-	go r.runStateMachine()
-
+func (r *Raft) runNormal() {
 	startElection := func() {
 		r.Lock()
 		defer r.Unlock()
