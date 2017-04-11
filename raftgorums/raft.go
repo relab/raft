@@ -5,12 +5,15 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc"
+
 	"golang.org/x/net/context"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/go-kit/kit/metrics"
 	"github.com/relab/raft"
 	"github.com/relab/raft/commonpb"
+	gorums "github.com/relab/raft/raftgorums/gorumspb"
 	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
@@ -70,6 +73,15 @@ type Raft struct {
 	state State
 
 	addrs []string
+
+	lookup  map[uint64]int
+	peers   []string
+	cluster []uint64
+
+	match map[uint32]chan uint64
+
+	mgr  *gorums.Manager
+	conf *gorums.Configuration
 
 	commitIndex  uint64
 	appliedIndex uint64
@@ -135,6 +147,8 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		storage:          storage,
 		batch:            cfg.Batch,
 		addrs:            cfg.Servers,
+		cluster:          cfg.InitialCluster,
+		match:            make(map[uint32]chan uint64),
 		nextIndex:        1,
 		electionTimeout:  cfg.ElectionTimeout,
 		heartbeatTimeout: cfg.HeartbeatTimeout,
@@ -154,12 +168,212 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 	return r
 }
 
-// RunDormant runs Raft in a dormant state where it only accepts incoming
+// Run starts a server running the Raft algorithm.
+func (r *Raft) Run(server *grpc.Server) error {
+	r.initPeers()
+
+	opts := []gorums.ManagerOption{
+		gorums.WithGrpcDialOptions(
+			grpc.WithBlock(),
+			grpc.WithInsecure(),
+			grpc.WithTimeout(TCPConnect*time.Millisecond)),
+	}
+
+	mgr, err := gorums.NewManager(r.peers, opts...)
+
+	if err != nil {
+		return err
+	}
+
+	gorums.RegisterRaftServer(server, r)
+
+	r.mgr = mgr
+
+	var clusterIDs []uint32
+
+	var active bool
+
+	for _, id := range r.cluster {
+		if r.id == id {
+			// Exclude self.
+			active = true
+			continue
+		}
+		r.logger.WithField("serverid", id).Warnln("Added to cluster")
+		clusterIDs = append(clusterIDs, r.getNodeID(id))
+	}
+
+	r.conf, err = mgr.NewConfiguration(clusterIDs, NewQuorumSpec(len(clusterIDs)+1))
+
+	if err != nil {
+		return err
+	}
+
+	for _, nodeID := range r.mgr.NodeIDs() {
+		r.match[nodeID] = make(chan uint64, 1)
+	}
+
+	if active {
+		go r.run()
+	} else {
+		go r.runDormant()
+	}
+
+	return r.handleOutgoing()
+}
+
+func (r *Raft) handleOutgoing() error {
+	// January 1, 1970 UTC.
+	var lastCuReq time.Time
+
+	for {
+		select {
+		case err := <-r.conf.SubError():
+			// TODO If a node becomes unavailable and there is a
+			// backup available in the same or an alternate region,
+			// instantiate reconfiguratior. TODO How many errors
+			// before a node is considered unavailable? If there is
+			// no backup node available, don't do anything, but
+			// schedule the reconfiguratior.
+			r.logger.WithField("nodeid", err.NodeID).Warnln("Node unavailable")
+		case req := <-r.cureqout:
+			// TODO Use config.
+			if time.Since(lastCuReq) < 100*time.Millisecond {
+				continue
+			}
+			lastCuReq = time.Now()
+
+			r.logger.WithField("matchindex", req.matchIndex).Warnln("Sending catch-up")
+			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
+			leader, _ := r.mgr.Node(r.getNodeID(req.leaderID))
+			_, err := leader.RaftClient.CatchMeUp(ctx, &pb.CatchMeUpRequest{
+				FollowerID: r.id,
+				NextIndex:  req.matchIndex + 1,
+			})
+			cancel()
+
+			if err != nil {
+				r.logger.WithError(err).Warnln("CatchMeUp failed")
+			}
+		case req := <-r.rvreqout:
+			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
+			res, err := r.conf.RequestVote(ctx, req)
+			cancel()
+
+			if err != nil {
+				r.logger.WithError(err).Warnln("RequestVote failed")
+			}
+
+			if res == nil {
+				continue
+			}
+
+			r.HandleRequestVoteResponse(res)
+
+		case req := <-r.aereqout:
+			next := make(map[uint32]uint64)
+			nextIndex := req.PrevLogIndex + 1
+
+			for nodeID, ch := range r.match {
+				select {
+				case index := <-ch:
+					// TODO Acessing maxAppendEntries, safe but needs fix.
+					atLeastMaxEntries := req.PrevLogIndex+1 > r.maxAppendEntries
+					lessThenMaxEntriesBehind := index < req.PrevLogIndex+1-r.maxAppendEntries
+
+					if atLeastMaxEntries && lessThenMaxEntriesBehind {
+						r.logger.WithField("gorumsid", nodeID).Warnln("Server too far behind")
+						index = req.PrevLogIndex + 1
+					}
+					next[nodeID] = index
+					if index < nextIndex {
+						nextIndex = index
+					}
+				default:
+				}
+			}
+
+			// TODO This should be safe as it only accesses storage
+			// which uses transactions. TODO It accesses
+			// maxAppendEntries but this on does not change after
+			// startup.
+			entries := r.getNextEntries(nextIndex)
+			e := uint64(len(entries))
+			maxIndex := nextIndex + e - 1
+
+			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
+			res, err := r.conf.AppendEntries(ctx, req,
+				// These functions will be executed concurrently.
+				func(req pb.AppendEntriesRequest, nodeID uint32) *pb.AppendEntriesRequest {
+					if index, ok := next[nodeID]; ok {
+						req.PrevLogIndex = index - 1
+						// TODO This should be safe as
+						// it only accesses storage
+						// which uses transactions.
+						req.PrevLogTerm = r.logTerm(index - 1)
+					}
+
+					need := maxIndex - req.PrevLogIndex
+					req.Entries = entries[e-need:]
+
+					r.logger.WithFields(logrus.Fields{
+						"prevlogindex": req.PrevLogIndex,
+						"prevlogterm":  req.PrevLogTerm,
+						"commitindex":  req.CommitIndex,
+						"currentterm":  req.Term,
+						"lenentries":   len(req.Entries),
+						"gorumsid":     nodeID,
+					}).Infoln("Sending AppendEntries")
+
+					return &req
+				},
+			)
+
+			if err != nil {
+				r.logger.WithError(err).Warnln("AppendEntries failed")
+			}
+
+			if res == nil {
+				continue
+			}
+
+			// Cancel on abort.
+			if !res.Success {
+				cancel()
+			}
+
+			r.HandleAppendEntriesResponse(res, res.Replies)
+		}
+	}
+}
+
+func (r *Raft) initPeers() {
+	peers := make([]string, len(r.addrs))
+	// We don't want to mutate r.addrs.
+	copy(peers, r.addrs)
+
+	// Exclude self.
+	r.peers = append(peers[:r.id-1], peers[r.id:]...)
+
+	var pos int
+	r.lookup = make(map[uint64]int)
+
+	for i := 1; i <= len(r.addrs); i++ {
+		if uint64(i) == r.id {
+			continue
+		}
+
+		r.lookup[uint64(i)] = pos
+		pos++
+	}
+}
+
+// runDormant runs Raft in a dormant state where it only accepts incoming
 // requests and never times out. The server is able to receive AppendEntries
 // from a leader and replicate log entries. If the server receives a
 // configuration in which it is part of, it will transition to running the Run
 // method.
-func (r *Raft) RunDormant() {
+func (r *Raft) runDormant() {
 	go r.runStateMachine()
 
 	baseline := func() {
@@ -183,9 +397,9 @@ func (r *Raft) RunDormant() {
 	}
 }
 
-// Run handles timeouts.
+// run handles timeouts.
 // All RPCs are handled by Gorums.
-func (r *Raft) Run() {
+func (r *Raft) run() {
 	go r.runStateMachine()
 
 	startElection := func() {
@@ -944,4 +1158,8 @@ func (r *Raft) State() State {
 	defer r.Unlock()
 
 	return r.state
+}
+
+func (r *Raft) getNodeID(raftID uint64) uint32 {
+	return r.mgr.NodeIDs()[r.lookup[raftID]]
 }
