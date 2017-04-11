@@ -68,7 +68,7 @@ func (m *Memory) Get(key uint64) (uint64, error) {
 
 // StoreEntries implements the Storage interface.
 func (m *Memory) StoreEntries(entries []*commonpb.Entry) error {
-	i, _ := m.NextIndex()
+	i := m.kvstore[KeyNextIndex]
 	for _, entry := range entries {
 		m.log[i] = entry
 		i++
@@ -111,13 +111,13 @@ func (m *Memory) RemoveEntries(first, last uint64) error {
 
 // FirstIndex implements the Storage interface.
 func (m *Memory) FirstIndex() (uint64, error) {
-	first, _ := m.Get(KeyFirstIndex)
+	first := m.kvstore[KeyFirstIndex]
 	return first, nil
 }
 
 // NextIndex implements the Storage interface.
 func (m *Memory) NextIndex() (uint64, error) {
-	next, _ := m.Get(KeyNextIndex)
+	next := m.kvstore[KeyNextIndex]
 	return next, nil
 }
 
