@@ -47,12 +47,6 @@ const None = 0
 // that directly depend on the number of requests being serviced.
 const BufferSize = 10000
 
-// UniqueCommand identifies a client command.
-type UniqueCommand struct {
-	ClientID       uint32
-	SequenceNumber uint64
-}
-
 // Raft represents an instance of the Raft algorithm.
 type Raft struct {
 	// Must be acquired before mutating Raft state.
