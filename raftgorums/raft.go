@@ -72,9 +72,6 @@ type Raft struct {
 
 	match map[uint32]chan uint64
 
-	mgr  *gorums.Manager
-	conf *gorums.Configuration
-
 	commitIndex  uint64
 	appliedIndex uint64
 
@@ -104,7 +101,8 @@ type Raft struct {
 	aereqout chan *pb.AppendEntriesRequest
 	cureqout chan *catchUpReq
 
-	confChange chan *raft.ConfChangeFuture
+	mem        *membership
+	confChange chan *gorums.Configuration
 
 	logger logrus.FieldLogger
 
@@ -152,7 +150,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		rvreqout:         make(chan *pb.RequestVoteRequest, 128),
 		aereqout:         make(chan *pb.AppendEntriesRequest, 128),
 		cureqout:         make(chan *catchUpReq, 16),
-		confChange:       make(chan *raft.ConfChangeFuture),
+		confChange:       make(chan *gorums.Configuration),
 		logger:           cfg.Logger,
 		metricsEnabled:   cfg.MetricsEnabled,
 	}
@@ -162,7 +160,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 
 // Run starts a server running the Raft algorithm.
 func (r *Raft) Run(server *grpc.Server) error {
-	r.initPeers()
+	peers, lookup := initPeers(r.id, r.addrs)
 
 	opts := []gorums.ManagerOption{
 		gorums.WithGrpcDialOptions(
@@ -171,15 +169,18 @@ func (r *Raft) Run(server *grpc.Server) error {
 			grpc.WithTimeout(TCPConnect*time.Millisecond)),
 	}
 
-	mgr, err := gorums.NewManager(r.peers, opts...)
+	mgr, err := gorums.NewManager(peers, opts...)
 
 	if err != nil {
 		return err
 	}
 
-	gorums.RegisterRaftServer(server, r)
+	mem := &membership{
+		mgr:    mgr,
+		lookup: lookup,
+	}
 
-	r.mgr = mgr
+	gorums.RegisterRaftServer(server, r)
 
 	var clusterIDs []uint32
 
@@ -190,16 +191,20 @@ func (r *Raft) Run(server *grpc.Server) error {
 			continue
 		}
 		r.logger.WithField("serverid", id).Warnln("Added to cluster")
-		clusterIDs = append(clusterIDs, r.getNodeID(id))
+		clusterIDs = append(clusterIDs, r.mem.getNodeID(id))
 	}
 
-	r.conf, err = mgr.NewConfiguration(clusterIDs, NewQuorumSpec(len(clusterIDs)+1))
+	conf, err := mgr.NewConfiguration(clusterIDs, NewQuorumSpec(len(clusterIDs)+1))
 
 	if err != nil {
 		return err
 	}
 
-	for _, nodeID := range r.mgr.NodeIDs() {
+	mem.latest = conf
+	mem.committed = conf
+	r.mem = mem
+
+	for _, nodeID := range mgr.NodeIDs() {
 		r.match[nodeID] = make(chan uint64, 1)
 	}
 
@@ -208,25 +213,23 @@ func (r *Raft) Run(server *grpc.Server) error {
 	return r.handleOutgoing()
 }
 
-func (r *Raft) initPeers() {
-	peers := make([]string, len(r.addrs))
-	// We don't want to mutate r.addrs.
-	copy(peers, r.addrs)
-
+func initPeers(self uint64, addrs []string) ([]string, map[uint64]int) {
 	// Exclude self.
-	r.peers = append(peers[:r.id-1], peers[r.id:]...)
+	peers := append(addrs[:self-1], addrs[self:]...)
 
 	var pos int
-	r.lookup = make(map[uint64]int)
+	lookup := make(map[uint64]int)
 
-	for i := 1; i <= len(r.addrs); i++ {
-		if uint64(i) == r.id {
+	for i := 1; i <= len(addrs); i++ {
+		if uint64(i) == self {
 			continue
 		}
 
-		r.lookup[uint64(i)] = pos
+		lookup[uint64(i)] = pos
 		pos++
 	}
+
+	return peers, lookup
 }
 
 func (r *Raft) run() {
@@ -598,8 +601,4 @@ func (r *Raft) State() State {
 	defer r.Unlock()
 
 	return r.state
-}
-
-func (r *Raft) getNodeID(raftID uint64) uint32 {
-	return r.mgr.NodeIDs()[r.lookup[raftID]]
 }

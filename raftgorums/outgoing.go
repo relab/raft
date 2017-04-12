@@ -15,7 +15,7 @@ func (r *Raft) handleOutgoing() error {
 
 	for {
 		select {
-		case err := <-r.conf.SubError():
+		case err := <-r.mem.latest.SubError():
 			// TODO If a node becomes unavailable and there is a
 			// backup available in the same or an alternate region,
 			// instantiate reconfiguratior. TODO How many errors
@@ -32,7 +32,7 @@ func (r *Raft) handleOutgoing() error {
 
 			r.logger.WithField("matchindex", req.matchIndex).Warnln("Sending catch-up")
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
-			leader, _ := r.mgr.Node(r.getNodeID(req.leaderID))
+			leader := r.mem.getNode(req.leaderID)
 			_, err := leader.RaftClient.CatchMeUp(ctx, &pb.CatchMeUpRequest{
 				FollowerID: r.id,
 				NextIndex:  req.matchIndex + 1,
@@ -44,7 +44,7 @@ func (r *Raft) handleOutgoing() error {
 			}
 		case req := <-r.rvreqout:
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
-			res, err := r.conf.RequestVote(ctx, req)
+			res, err := r.mem.latest.RequestVote(ctx, req)
 			cancel()
 
 			if err != nil {
@@ -89,7 +89,7 @@ func (r *Raft) handleOutgoing() error {
 			maxIndex := nextIndex + e - 1
 
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
-			res, err := r.conf.AppendEntries(ctx, req,
+			res, err := r.mem.latest.AppendEntries(ctx, req,
 				// These functions will be executed concurrently.
 				func(req pb.AppendEntriesRequest, nodeID uint32) *pb.AppendEntriesRequest {
 					if index, ok := next[nodeID]; ok {

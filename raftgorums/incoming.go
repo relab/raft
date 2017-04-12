@@ -30,7 +30,7 @@ func (r *Raft) InstallSnapshot(ctx context.Context, snapshot *commonpb.Snapshot)
 // CatchMeUp implements gorums.RaftServer.
 func (r *Raft) CatchMeUp(ctx context.Context, req *pb.CatchMeUpRequest) (res *pb.Empty, err error) {
 	res = &pb.Empty{}
-	r.match[r.getNodeID(req.FollowerID)] <- req.NextIndex
+	r.match[r.mem.getNodeID(req.FollowerID)] <- req.NextIndex
 	return
 }
 

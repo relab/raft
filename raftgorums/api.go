@@ -24,18 +24,9 @@ func (r *Raft) ProposeConf(ctx context.Context, confChange *commonpb.ConfChangeR
 		return nil, err
 	}
 
-	// TODO We can probably drop this.
-	confFuture := &raft.ConfChangeFuture{
-		Req:         confChange,
-		EntryFuture: future,
-	}
+	go r.replicate(confChange.ServerID, future)
 
-	select {
-	case r.confChange <- confFuture:
-		return confFuture, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+	return future, nil
 }
 
 // ProposeCmd implements raft.Raft.
