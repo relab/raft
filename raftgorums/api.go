@@ -19,9 +19,17 @@ func (r *Raft) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (ra
 
 	if err != nil {
 		err := err.(raft.ErrNotLeader)
+		leader := err.Leader - 1
+
+		hint := ""
+
+		if leader > 0 {
+			hint = r.addrs[leader]
+		}
+
 		future.Respond(&commonpb.ReconfResponse{
 			Status:     commonpb.ReconfNotLeader,
-			LeaderHint: r.addrs[err.Leader-1],
+			LeaderHint: hint,
 		})
 		return future, nil
 	}
