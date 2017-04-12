@@ -39,12 +39,15 @@ enum ConfType {
 enum ConfStatus {
   ConfOK        = 0;
   ConfTimeout   = 2;
+  ConfNotLeader = 3;
 }
 
 message ConfChangeRequest {
   uint64 serverID = 1;
 
-  ConfType confType = 2;
+  uint64 prevConf = 2;
+
+  ConfType confType = 3;
 }
 
 message ConfChangeResponse {
