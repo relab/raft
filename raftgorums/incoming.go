@@ -187,6 +187,8 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	r.seenLeader = true
 
 	if !success {
+		// TODO This is potentially wrong, we cannot send match index
+		// for entries that are not committed? Also use logLen...
 		r.cureqout <- &catchUpReq{
 			leaderID:   req.LeaderID,
 			matchIndex: r.storage.NextIndex() - 1,

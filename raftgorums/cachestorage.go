@@ -6,6 +6,9 @@ import (
 	"github.com/relab/raft/commonpb"
 )
 
+// TODO Make unexported to prevent passing CacheStorage to Raft as Raft uses it
+// again internally...
+
 // CacheStorage wraps a Storage adding a layer of caching. It uses the
 // underlying storage as a fallback if the data is not cached.
 type CacheStorage struct {
@@ -112,6 +115,7 @@ func (cs *CacheStorage) GetEntries(first, last uint64) ([]*commonpb.Entry, error
 // RemoveEntries implements the Storage interface.
 func (cs *CacheStorage) RemoveEntries(first, last uint64) error {
 	cs.l.Lock()
+	// TODO Don't invalidate key-values.
 	cs.stateCache = make(map[uint64]uint64)
 	cs.logCache = make([]*commonpb.Entry, len(cs.logCache))
 	cs.l.Unlock()
