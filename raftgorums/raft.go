@@ -194,7 +194,7 @@ func (r *Raft) Run(server *grpc.Server) error {
 			continue
 		}
 		r.logger.WithField("serverid", id).Warnln("Added to cluster")
-		clusterIDs = append(clusterIDs, r.mem.getNodeID(id))
+		clusterIDs = append(clusterIDs, mem.getNodeID(id))
 	}
 
 	conf, err := mgr.NewConfiguration(clusterIDs, NewQuorumSpec(len(clusterIDs)+1))
