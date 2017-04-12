@@ -160,7 +160,10 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 
 // Run starts a server running the Raft algorithm.
 func (r *Raft) Run(server *grpc.Server) error {
-	peers, lookup := initPeers(r.id, r.addrs)
+	addrs := make([]string, len(r.addrs))
+	// We don't want to mutate r.addrs.
+	copy(addrs, r.addrs)
+	peers, lookup := initPeers(r.id, addrs)
 
 	opts := []gorums.ManagerOption{
 		gorums.WithGrpcDialOptions(
