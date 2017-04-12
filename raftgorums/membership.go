@@ -97,7 +97,7 @@ func (r *Raft) replicate(serverID uint64, future *raft.EntryFuture) {
 		}
 
 		r.Lock()
-		entries := r.getNextEntries(matchIndex)
+		entries := r.getNextEntries(matchIndex + 1)
 		req := r.getAppendEntriesRequest(matchIndex+1, entries)
 		r.Unlock()
 
