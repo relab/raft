@@ -37,5 +37,5 @@ type Raft interface {
 	ReadCmd(context.Context, []byte) (Future, error)
 
 	// ProposeConf proposes a new configuration. Behaves as ProposeCmd.
-	ProposeConf(context.Context, *commonpb.ConfChangeRequest) (Future, error)
+	ProposeConf(context.Context, *commonpb.ReconfRequest) (Future, error)
 }

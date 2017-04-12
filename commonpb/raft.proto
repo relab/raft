@@ -31,27 +31,25 @@ message Snapshot {
   bytes data   = 5;
 }
 
-enum ConfType {
-  ConfAdd    = 0;
-  ConfRemove = 1;
+enum ReconfStatus {
+  ReconfOK        = 0;
+  ReconfTimeout   = 2;
+  ReconfNotLeader = 3;
 }
 
-enum ConfStatus {
-  ConfOK        = 0;
-  ConfTimeout   = 2;
-  ConfNotLeader = 3;
+enum ReconfType {
+  ReconfAdd    = 0;
+  ReconfRemove = 1;
 }
 
-message ConfChangeRequest {
+message ReconfRequest {
   uint64 serverID = 1;
 
-  uint64 prevConf = 2;
-
-  ConfType confType = 3;
+  ReconfType reconfType = 2;
 }
 
-message ConfChangeResponse {
-  ConfStatus status = 1;
+message ReconfResponse {
+  ReconfStatus status = 1;
 
   string leaderHint = 2;
 }
