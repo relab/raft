@@ -29,7 +29,8 @@ func randomTimeout(base time.Duration) time.Duration {
 	return base + rnd
 }
 
-// NewQuorumSpec returns a QuorumSpec for len(peers).
+// NewQuorumSpec returns a QuorumSpec for len(peers). You need to add 1 if you
+// don't include yourself.
 func NewQuorumSpec(peers int) gorums.QuorumSpec {
 	return &QuorumSpec{
 		N: peers - 1,
