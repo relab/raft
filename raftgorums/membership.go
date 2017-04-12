@@ -75,55 +75,57 @@ func (m *membership) getNode(serverID uint64) *gorums.Node {
 	return node
 }
 
-func (m *membership) reconfigure(conf *gorums.Configuration) {
-
+func (r *Raft) allowReconfiguration() bool {
+	return true
 }
 
 func (r *Raft) replicate(serverID uint64, future *raft.EntryFuture) {
-	defer func() {
-	}()
-
-	nodeID := r.mem.getNodeID(serverID)
-	node, found := r.mem.mgr.Node(nodeID)
-
-	if !found {
-		return
-	}
-
-	matchIndex := r.matchIndex
+	node := r.mem.getNode(serverID)
+	var matchIndex uint64
+	var errs int
 
 	for {
-		// TODO Can't do close enough here due to setting matchIndex to
-		// r.matchIndex above.
-
 		r.Lock()
+		if r.matchIndex-matchIndex < r.maxAppendEntries {
+			// TODO r.addServer(serverID) -> send request on queue,
+			// modify aereqout to contain new configuration.
+			return
+		}
+
 		entries := r.getNextEntries(matchIndex)
+		ctx, cancel := context.WithTimeout(context.Background(), r.electionTimeout)
 		res, err := node.RaftClient.AppendEntries(
-			context.TODO(),
+			ctx,
 			r.getAppendEntriesRequest(matchIndex+1, entries),
 		)
+		cancel()
 		r.Unlock()
 
+		// TODO handle better.
 		if err != nil {
-			// TODO handle
+			errs++
+
+			if errs > 3 {
+				return
+			}
 		}
 
 		r.Lock()
-		if r.state != Leader || res.Term > r.currentTerm {
+		state := r.state
+		term := r.currentTerm
+		r.Unlock()
+
+		if state != Leader || res.Term > term {
 			// TODO Become follower? Or should we assume that we are
 			// informed otherwise?
 			return
 		}
-		r.Unlock()
 
 		if res.Success {
 			matchIndex = res.MatchIndex
-			// TODO Close enough?
-			// r.addServer(serverID)
-			// send request on queue
-			// sendAppendEntries should set latest
 			continue
 		}
+
 		matchIndex = max(0, res.MatchIndex)
 	}
 }

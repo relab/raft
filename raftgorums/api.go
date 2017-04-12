@@ -9,9 +9,6 @@ import (
 
 // ProposeConf implements raft.Raft.
 func (r *Raft) ProposeConf(ctx context.Context, confChange *commonpb.ConfChangeRequest) (raft.Future, error) {
-	// TODO Tag conf. change with the only configuration it can applied on top of.
-	// confChange.PrevConf = r.latestConf
-
 	cmd, err := confChange.Marshal()
 
 	if err != nil {
@@ -21,7 +18,19 @@ func (r *Raft) ProposeConf(ctx context.Context, confChange *commonpb.ConfChangeR
 	future, err := r.cmdToFuture(cmd, commonpb.EntryConfChange)
 
 	if err != nil {
-		return nil, err
+		err := err.(raft.ErrNotLeader)
+		future.Respond(&commonpb.ConfChangeResponse{
+			Status:     commonpb.ConfNotLeader,
+			LeaderHint: r.addrs[err.Leader-1],
+		})
+		return future, nil
+	}
+
+	if !r.allowReconfiguration() {
+		future.Respond(&commonpb.ConfChangeResponse{
+			Status: commonpb.ConfTimeout,
+		})
+		return future, nil
 	}
 
 	go r.replicate(confChange.ServerID, future)
