@@ -17,21 +17,9 @@ func (r *Raft) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (ra
 
 	future, err := r.cmdToFuture(cmd, commonpb.EntryConfChange)
 
+	// TODO Fix error returned here, NotLeader should be a status code.
 	if err != nil {
-		err := err.(raft.ErrNotLeader)
-		leader := err.Leader - 1
-
-		hint := ""
-
-		if leader > 0 {
-			hint = r.addrs[leader]
-		}
-
-		future.Respond(&commonpb.ReconfResponse{
-			Status:     commonpb.ReconfNotLeader,
-			LeaderHint: hint,
-		})
-		return future, nil
+		return nil, err
 	}
 
 	if !r.allowReconfiguration() {
