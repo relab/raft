@@ -64,6 +64,8 @@ type Raft struct {
 
 	state State
 
+	mem *membership
+
 	addrs []string
 
 	lookup  map[uint64]int
@@ -101,7 +103,6 @@ type Raft struct {
 	aereqout chan *pb.AppendEntriesRequest
 	cureqout chan *catchUpReq
 
-	mem        *membership
 	confChange chan *gorums.Configuration
 
 	logger logrus.FieldLogger
