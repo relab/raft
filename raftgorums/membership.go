@@ -99,6 +99,8 @@ func (m *membership) get() *gorums.Configuration {
 	return m.latest
 }
 
+// TODO Return the same configuration if adding/removing self.
+
 // addServer returns a new configuration including the given server.
 func (m *membership) addServer(serverID uint64) (conf *gorums.Configuration, enabled bool) {
 	// TODO Clean up.
@@ -135,12 +137,22 @@ func (m *membership) removeServer(serverID uint64) (conf *gorums.Configuration, 
 	// TODO Clean up.
 	enabled = true
 
+	oldIDs := m.committed.NodeIDs()
+
 	if serverID == m.id {
 		enabled = false
+
+		var err error
+		conf, err = m.mgr.NewConfiguration(oldIDs, NewQuorumSpec(len(oldIDs)+1))
+
+		if err != nil {
+			panic("removeServer: " + err.Error())
+		}
+
+		return
 	}
 
 	id := m.getNodeID(serverID)
-	oldIDs := m.committed.NodeIDs()
 	var nodeIDs []uint32
 
 	for _, nodeID := range oldIDs {
