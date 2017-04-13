@@ -15,7 +15,7 @@ func (r *Raft) handleOutgoing() error {
 
 	for {
 		select {
-		case err := <-r.mem.latest.SubError():
+		case err := <-r.mem.get().SubError():
 			// TODO If a node becomes unavailable and there is a
 			// backup available in the same or an alternate region,
 			// instantiate reconfiguratior. TODO How many errors
@@ -43,8 +43,12 @@ func (r *Raft) handleOutgoing() error {
 				r.logger.WithError(err).Warnln("CatchMeUp failed")
 			}
 		case req := <-r.rvreqout:
+			conf := r.mem.get()
+
+			r.logger.WithField("conf", conf.NodeIDs()).Println("Sending request for vote")
+
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
-			res, err := r.mem.latest.RequestVote(ctx, req)
+			res, err := conf.RequestVote(ctx, req)
 			cancel()
 
 			if err != nil {
@@ -69,7 +73,10 @@ func (r *Raft) handleOutgoing() error {
 					lessThenMaxEntriesBehind := index < req.PrevLogIndex+1-r.maxAppendEntries
 
 					if atLeastMaxEntries && lessThenMaxEntriesBehind {
-						r.logger.WithField("gorumsid", nodeID).Warnln("Server too far behind")
+						r.logger.WithFields(logrus.Fields{
+							"gorumsid": nodeID,
+							"raftid":   r.id,
+						}).Warnln("Server too far behind")
 						index = req.PrevLogIndex + 1
 					}
 					next[nodeID] = index
@@ -88,8 +95,11 @@ func (r *Raft) handleOutgoing() error {
 			e := uint64(len(entries))
 			maxIndex := nextIndex + e - 1
 
+			conf := r.mem.get()
+			r.logger.WithField("conf", conf.NodeIDs()).Println("Sending append entries request")
+
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
-			res, err := r.mem.latest.AppendEntries(ctx, req,
+			res, err := conf.AppendEntries(ctx, req,
 				// These functions will be executed concurrently.
 				func(req pb.AppendEntriesRequest, nodeID uint32) *pb.AppendEntriesRequest {
 					if index, ok := next[nodeID]; ok {
@@ -110,6 +120,7 @@ func (r *Raft) handleOutgoing() error {
 						"currentterm":  req.Term,
 						"lenentries":   len(req.Entries),
 						"gorumsid":     nodeID,
+						"raftid":       r.id,
 					}).Infoln("Sending AppendEntries")
 
 					return &req

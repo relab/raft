@@ -113,6 +113,7 @@ type catchUpReq struct {
 	matchIndex uint64
 }
 
+// TODO Just use future.
 type entryFuture struct {
 	entry  *commonpb.Entry
 	future *raft.EntryFuture
@@ -177,8 +178,10 @@ func (r *Raft) Run(server *grpc.Server) error {
 	}
 
 	mem := &membership{
+		id:     r.id,
 		mgr:    mgr,
 		lookup: lookup,
+		logger: r.logger,
 	}
 
 	gorums.RegisterRaftServer(server, r)
@@ -384,6 +387,7 @@ func (r *Raft) advanceCommitIndex() {
 	old := r.commitIndex
 
 	if r.logTerm(r.matchIndex) == r.currentTerm {
+		r.mem.setStable(true)
 		r.commitIndex = max(r.commitIndex, r.matchIndex)
 	}
 
@@ -443,8 +447,29 @@ func (r *Raft) newCommit(old uint64) {
 func (r *Raft) runStateMachine() {
 	apply := func(commit *entryFuture) {
 		var res interface{}
-		if commit.entry.EntryType != commonpb.EntryInternal {
+
+		switch commit.entry.EntryType {
+		case commonpb.EntryInternal:
+		case commonpb.EntryNormal:
 			res = r.sm.Apply(commit.entry)
+		case commonpb.EntryConfChange:
+			// TODO We should be able to skip the unmarshaling if we
+			// are not recovering.
+			var reconf commonpb.ReconfRequest
+			err := reconf.Unmarshal(commit.entry.Data)
+
+			if err != nil {
+				panic("could not unmarshal reconf")
+			}
+
+			r.mem.setPending(&reconf)
+			r.mem.set(commit.entry.Index)
+			// TODO Send to state machine.
+			r.logger.Warnln("Comitted configuration")
+			r.mem.commit()
+			res = &commonpb.ReconfResponse{
+				Status: commonpb.ReconfOK,
+			}
 		}
 
 		if commit.future != nil {
@@ -507,11 +532,20 @@ func (r *Raft) sendAppendEntries() {
 	var toSave []*commonpb.Entry
 	assignIndex := r.storage.NextIndex()
 
+	// TODO This means the first entry in the log cannot be a configuration
+	// change. This should not pose a problem as we always commit a no-op
+	// first. This needs to be dealt with if we decide to store the initial
+	// configuration at the first index however.
+	var reconf uint64
+
 LOOP:
 	for i := r.maxAppendEntries; i > 0; i-- {
 		select {
 		case future := <-r.queue:
 			future.Entry.Index = assignIndex
+			if future.Entry.EntryType == commonpb.EntryConfChange {
+				reconf = assignIndex
+			}
 			assignIndex++
 			toSave = append(toSave, future.Entry)
 			r.pending.PushBack(future)
@@ -522,6 +556,10 @@ LOOP:
 
 	if len(toSave) > 0 {
 		r.storage.StoreEntries(toSave)
+	}
+
+	if reconf > 0 {
+		r.mem.set(reconf)
 	}
 
 	r.aereqout <- r.getAppendEntriesRequest(r.nextIndex, nil)

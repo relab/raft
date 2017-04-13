@@ -2,41 +2,125 @@ package raftgorums
 
 import (
 	"fmt"
+	"sync"
 
 	"golang.org/x/net/context"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/relab/raft"
+	"github.com/relab/raft/commonpb"
 	gorums "github.com/relab/raft/raftgorums/gorumspb"
 )
 
 type membership struct {
-	mgr *gorums.Manager
+	id     uint64
+	mgr    *gorums.Manager
+	lookup map[uint64]int
+	logger logrus.FieldLogger
 
-	latest    *gorums.Configuration
-	committed *gorums.Configuration
-
+	// Protects the six fields below.
+	sync.RWMutex
+	latest         *gorums.Configuration
+	committed      *gorums.Configuration
 	latestIndex    uint64
 	committedIndex uint64
+	pending        *commonpb.ReconfRequest
+	stable         bool
+}
 
-	lookup map[uint64]int
+func (m *membership) startReconfiguration(req *commonpb.ReconfRequest) bool {
+	m.Lock()
+	defer m.Unlock()
+
+	// TODO If remove check if new cluster >= 2.
+	valid := true
+
+	if m.pending == nil && m.stable && valid {
+		m.pending = req
+		return true
+	}
+
+	return false
+}
+
+func (m *membership) setPending(req *commonpb.ReconfRequest) {
+	m.Lock()
+	m.pending = req
+	m.Unlock()
+}
+
+func (m *membership) setStable(stable bool) {
+	m.Lock()
+	// TODO Raft should setStable.
+	m.stable = stable
+	m.Unlock()
+}
+
+func (m *membership) set(index uint64) {
+	m.Lock()
+	defer m.Unlock()
+
+	switch m.pending.ReconfType {
+	case commonpb.ReconfAdd:
+		m.latest = m.addServer(m.pending.ServerID)
+	case commonpb.ReconfRemove:
+		m.latest = m.removeServer(m.pending.ServerID)
+	default:
+		panic("malformed reconf request")
+	}
+	m.latestIndex = index
+	m.logger.WithField("latest", m.latest.NodeIDs()).Warnln("New configuration")
+}
+
+func (m *membership) commit() {
+	m.Lock()
+	m.pending = nil
+	m.committed = m.latest
+	m.committedIndex = m.latestIndex
+	m.Unlock()
+}
+
+func (m *membership) rollback() {
+	m.Lock()
+	defer m.Unlock()
+
+	m.pending = nil
+	m.latest = m.committed
+	m.latestIndex = m.committedIndex
+}
+
+func (m *membership) get() *gorums.Configuration {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.latest
 }
 
 // addServer returns a new configuration including the given server.
-func (m *membership) addServer(serverID uint64) (*gorums.Configuration, error) {
-	id := m.getNodeID(serverID)
-	nodeIDs := append(m.committed.NodeIDs(), id)
+func (m *membership) addServer(serverID uint64) *gorums.Configuration {
+	nodeIDs := m.committed.NodeIDs()
 
+	// TODO Not including self in the configuration seems to complicate
+	// things. I Foresee a problem when removing the leader, and it is not
+	// part of it's own latest configuration.
+	if serverID != m.id {
+		id := m.getNodeID(serverID)
+		nodeIDs = append(nodeIDs, id)
+	}
+
+	// We can ignore the error as we are adding 1 server, and id is
+	// guaranteed to be in the manager or getNodeID would have panicked.
 	conf, err := m.mgr.NewConfiguration(nodeIDs, NewQuorumSpec(len(nodeIDs)+1))
 
 	if err != nil {
-		return nil, err
+		panic("addServer: " + err.Error())
 	}
 
-	return conf, nil
+	return conf
 }
 
 // removeServer returns a new configuration excluding the given server.
-func (m *membership) removeServer(serverID uint64) (*gorums.Configuration, error) {
+func (m *membership) removeServer(serverID uint64) *gorums.Configuration {
 	id := m.getNodeID(serverID)
 	oldIDs := m.committed.NodeIDs()
 	var nodeIDs []uint32
@@ -49,13 +133,17 @@ func (m *membership) removeServer(serverID uint64) (*gorums.Configuration, error
 		nodeIDs = append(nodeIDs, nodeID)
 	}
 
+	// We can ignore the error as we do not allow cluster size < 2, and id
+	// is guaranteed to be in the manager or getNodeID would have panicked.
+	// Cluster size > 2 is a limitation of Gorums and how we have chosen not
+	// to include ourselves in the manager.
 	conf, err := m.mgr.NewConfiguration(nodeIDs, NewQuorumSpec(len(nodeIDs)+1))
 
 	if err != nil {
-		return nil, err
+		panic("removeServer: " + err.Error())
 	}
 
-	return conf, nil
+	return conf
 }
 
 func (m *membership) getNodeID(serverID uint64) uint32 {
@@ -75,10 +163,6 @@ func (m *membership) getNode(serverID uint64) *gorums.Node {
 	return node
 }
 
-func (r *Raft) allowReconfiguration() bool {
-	return true
-}
-
 func (r *Raft) replicate(serverID uint64, future *raft.EntryFuture) {
 	node := r.mem.getNode(serverID)
 	var matchIndex uint64
@@ -87,12 +171,14 @@ func (r *Raft) replicate(serverID uint64, future *raft.EntryFuture) {
 	for {
 		r.Lock()
 		target := r.matchIndex
+		// TODO We don't need lock on maxAppendEntries as it's only read
+		// across all routines.
 		maxEntries := r.maxAppendEntries
 		r.Unlock()
 
 		if target-matchIndex < maxEntries {
-			// TODO r.addServer(serverID) -> send request on queue,
-			// modify aereqout to contain new configuration.
+			// TODO Context?
+			r.queue <- future
 			return
 		}
 
@@ -110,18 +196,21 @@ func (r *Raft) replicate(serverID uint64, future *raft.EntryFuture) {
 			errs++
 
 			if errs > 3 {
+				future.Respond(&commonpb.ReconfResponse{
+					Status: commonpb.ReconfTimeout,
+				})
 				return
 			}
 		}
 
 		r.Lock()
 		state := r.state
-		term := r.currentTerm
 		r.Unlock()
 
-		if state != Leader || res.Term > term {
-			// TODO Become follower? Or should we assume that we are
-			// informed otherwise?
+		if state != Leader {
+			future.Respond(&commonpb.ReconfResponse{
+				Status: commonpb.ReconfNotLeader,
+			})
 			return
 		}
 

@@ -238,6 +238,20 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	}
 	logLen = r.storage.NextIndex() - 1
 
+	for _, entry := range toSave {
+		if entry.EntryType == commonpb.EntryConfChange {
+			var reconf commonpb.ReconfRequest
+			err := reconf.Unmarshal(entry.Data)
+
+			if err != nil {
+				panic("could not unmarshal reconf")
+			}
+
+			r.mem.setPending(&reconf)
+			r.mem.set(entry.Index)
+		}
+	}
+
 	old := r.commitIndex
 	// Commit index can not exceed the length of our log.
 	r.commitIndex = min(req.CommitIndex, logLen)
@@ -339,6 +353,7 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		r.nextIndex = logLen + 1
 		r.pending = list.New()
 		r.pendingReads = nil
+		r.mem.setStable(false)
 
 		// Empty queue.
 	EMPTYCH:

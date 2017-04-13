@@ -22,7 +22,7 @@ func (r *Raft) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (ra
 		return nil, err
 	}
 
-	if !r.allowReconfiguration() {
+	if !r.mem.startReconfiguration(req) {
 		future.Respond(&commonpb.ReconfResponse{
 			Status: commonpb.ReconfTimeout,
 		})
