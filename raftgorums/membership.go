@@ -33,6 +33,7 @@ func (m *membership) startReconfiguration(req *commonpb.ReconfRequest) bool {
 	defer m.Unlock()
 
 	// TODO If remove check if new cluster >= 2.
+	// TODO Disallow configurations that do not result in a change.
 	valid := true
 
 	m.logger.WithFields(logrus.Fields{
