@@ -222,6 +222,7 @@ func (r *Raft) replicate(serverID uint64, future *raft.EntryFuture) {
 				future.Respond(&commonpb.ReconfResponse{
 					Status: commonpb.ReconfTimeout,
 				})
+				r.mem.rollback()
 				return
 			}
 		}
@@ -234,6 +235,7 @@ func (r *Raft) replicate(serverID uint64, future *raft.EntryFuture) {
 			future.Respond(&commonpb.ReconfResponse{
 				Status: commonpb.ReconfNotLeader,
 			})
+			r.mem.rollback()
 			return
 		}
 
