@@ -75,7 +75,6 @@ func (r *Raft) handleOutgoing() error {
 					if atLeastMaxEntries && lessThenMaxEntriesBehind {
 						r.logger.WithFields(logrus.Fields{
 							"gorumsid": nodeID,
-							"raftid":   r.id,
 						}).Warnln("Server too far behind")
 						index = req.PrevLogIndex + 1
 					}
@@ -120,7 +119,6 @@ func (r *Raft) handleOutgoing() error {
 						"currentterm":  req.Term,
 						"lenentries":   len(req.Entries),
 						"gorumsid":     nodeID,
-						"raftid":       r.id,
 					}).Infoln("Sending AppendEntries")
 
 					return &req
