@@ -277,6 +277,9 @@ func (r *Raft) runDormant() {
 			baselineTimeout = time.After(r.electionTimeout)
 			baseline()
 		case <-r.toggle:
+			r.logger.Warnln("Dormant -> Normal")
+			r.state = Follower
+			r.becomeFollower(r.currentTerm)
 			return
 		}
 	}
@@ -359,6 +362,9 @@ func (r *Raft) runNormal() {
 			}
 			r.sendAppendEntries()
 		case <-r.toggle:
+			r.logger.Warnln("Dormant -> Normal")
+			r.state = Inactive
+			r.becomeFollower(r.currentTerm)
 			return
 		}
 	}
@@ -480,16 +486,16 @@ func (r *Raft) runStateMachine() {
 			// TODO Send to state machine.
 			r.logger.Warnln("Comitted configuration")
 
-			if r.mem.commit() {
-				if r.state == Inactive {
-					r.logger.Warnln("Dormant -> Normal")
-					r.state = Follower
-					r.toggle <- struct{}{}
-				}
-			} else {
-				r.logger.Warnln("Normal -> Dormant")
-				r.becomeFollower(r.currentTerm)
-				r.state = Inactive
+			enabled := r.mem.commit()
+
+			switch {
+			case enabled && r.State() == Inactive:
+				// Enable inactive server part of configuration.
+				r.toggle <- struct{}{}
+
+			case !enabled:
+				// Disable active server not part of
+				// configuration.
 				r.toggle <- struct{}{}
 			}
 
