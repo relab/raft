@@ -513,7 +513,6 @@ func (r *Raft) runStateMachine() {
 func (r *Raft) startElection() {
 	r.state = Candidate
 	term := r.currentTerm + 1
-	r.mem.rollback()
 
 	if !r.preElection {
 		// We are now a candidate. See Raft Paper Figure 2 -> Rules for Servers -> Candidates.
