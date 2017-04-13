@@ -185,15 +185,7 @@ func (r *Raft) replicate(serverID uint64, future *raft.EntryFuture) {
 		// TODO We don't need lock on maxAppendEntries as it's only read
 		// across all routines.
 		maxEntries := r.maxAppendEntries
-		r.Unlock()
 
-		if target-matchIndex < maxEntries {
-			// TODO Context?
-			r.queue <- future
-			return
-		}
-
-		r.Lock()
 		entries := r.getNextEntries(matchIndex + 1)
 		req := r.getAppendEntriesRequest(matchIndex+1, entries)
 		r.Unlock()
@@ -222,6 +214,12 @@ func (r *Raft) replicate(serverID uint64, future *raft.EntryFuture) {
 			future.Respond(&commonpb.ReconfResponse{
 				Status: commonpb.ReconfNotLeader,
 			})
+			return
+		}
+
+		if target-matchIndex < maxEntries {
+			// TODO Context?
+			r.queue <- future
 			return
 		}
 
