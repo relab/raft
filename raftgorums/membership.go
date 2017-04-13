@@ -230,6 +230,8 @@ func (r *Raft) replicate(serverID uint64, future *raft.EntryFuture) {
 				r.mem.rollback()
 				return
 			}
+
+			continue
 		}
 
 		r.Lock()
