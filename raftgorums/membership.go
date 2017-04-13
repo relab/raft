@@ -18,7 +18,6 @@ type membership struct {
 	lookup map[uint64]int
 	logger logrus.FieldLogger
 
-	// Protects the six fields below.
 	sync.RWMutex
 	latest         *gorums.Configuration
 	committed      *gorums.Configuration
@@ -26,6 +25,7 @@ type membership struct {
 	committedIndex uint64
 	pending        *commonpb.ReconfRequest
 	stable         bool
+	enabled        bool
 }
 
 func (m *membership) startReconfiguration(req *commonpb.ReconfRequest) bool {
@@ -62,9 +62,9 @@ func (m *membership) set(index uint64) {
 
 	switch m.pending.ReconfType {
 	case commonpb.ReconfAdd:
-		m.latest = m.addServer(m.pending.ServerID)
+		m.latest, m.enabled = m.addServer(m.pending.ServerID)
 	case commonpb.ReconfRemove:
-		m.latest = m.removeServer(m.pending.ServerID)
+		m.latest, m.enabled = m.removeServer(m.pending.ServerID)
 	default:
 		panic("malformed reconf request")
 	}
@@ -72,12 +72,15 @@ func (m *membership) set(index uint64) {
 	m.logger.WithField("latest", m.latest.NodeIDs()).Warnln("New configuration")
 }
 
-func (m *membership) commit() {
+func (m *membership) commit() bool {
 	m.Lock()
+	defer m.Unlock()
+
 	m.pending = nil
 	m.committed = m.latest
 	m.committedIndex = m.latestIndex
-	m.Unlock()
+
+	return m.enabled
 }
 
 func (m *membership) rollback() {
@@ -97,7 +100,7 @@ func (m *membership) get() *gorums.Configuration {
 }
 
 // addServer returns a new configuration including the given server.
-func (m *membership) addServer(serverID uint64) *gorums.Configuration {
+func (m *membership) addServer(serverID uint64) (conf *gorums.Configuration, enabled bool) {
 	nodeIDs := m.committed.NodeIDs()
 
 	// TODO Not including self in the configuration seems to complicate
@@ -106,21 +109,28 @@ func (m *membership) addServer(serverID uint64) *gorums.Configuration {
 	if serverID != m.id {
 		id := m.getNodeID(serverID)
 		nodeIDs = append(nodeIDs, id)
+	} else {
+		enabled = true
 	}
 
 	// We can ignore the error as we are adding 1 server, and id is
 	// guaranteed to be in the manager or getNodeID would have panicked.
-	conf, err := m.mgr.NewConfiguration(nodeIDs, NewQuorumSpec(len(nodeIDs)+1))
+	var err error
+	conf, err = m.mgr.NewConfiguration(nodeIDs, NewQuorumSpec(len(nodeIDs)+1))
 
 	if err != nil {
 		panic("addServer: " + err.Error())
 	}
 
-	return conf
+	return
 }
 
 // removeServer returns a new configuration excluding the given server.
-func (m *membership) removeServer(serverID uint64) *gorums.Configuration {
+func (m *membership) removeServer(serverID uint64) (conf *gorums.Configuration, enabled bool) {
+	if serverID == m.id {
+		enabled = false
+	}
+
 	id := m.getNodeID(serverID)
 	oldIDs := m.committed.NodeIDs()
 	var nodeIDs []uint32
@@ -137,13 +147,14 @@ func (m *membership) removeServer(serverID uint64) *gorums.Configuration {
 	// is guaranteed to be in the manager or getNodeID would have panicked.
 	// Cluster size > 2 is a limitation of Gorums and how we have chosen not
 	// to include ourselves in the manager.
-	conf, err := m.mgr.NewConfiguration(nodeIDs, NewQuorumSpec(len(nodeIDs)+1))
+	var err error
+	conf, err = m.mgr.NewConfiguration(nodeIDs, NewQuorumSpec(len(nodeIDs)+1))
 
 	if err != nil {
 		panic("removeServer: " + err.Error())
 	}
 
-	return conf
+	return
 }
 
 func (m *membership) getNodeID(serverID uint64) uint32 {

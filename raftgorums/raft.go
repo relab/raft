@@ -103,6 +103,8 @@ type Raft struct {
 	aereqout chan *pb.AppendEntriesRequest
 	cureqout chan *catchUpReq
 
+	toggle chan struct{}
+
 	logger logrus.FieldLogger
 
 	metricsEnabled bool
@@ -150,6 +152,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		rvreqout:         make(chan *pb.RequestVoteRequest, 128),
 		aereqout:         make(chan *pb.AppendEntriesRequest, 128),
 		cureqout:         make(chan *catchUpReq, 16),
+		toggle:           make(chan struct{}, 1),
 		logger:           cfg.Logger,
 		metricsEnabled:   cfg.MetricsEnabled,
 	}
@@ -272,6 +275,8 @@ func (r *Raft) runDormant() {
 		case <-baselineTimeout:
 			baselineTimeout = time.After(r.electionTimeout)
 			baseline()
+		case <-r.toggle:
+			return
 		}
 	}
 }
@@ -352,6 +357,8 @@ func (r *Raft) runNormal() {
 				continue
 			}
 			r.sendAppendEntries()
+		case <-r.toggle:
+			return
 		}
 	}
 }
@@ -466,7 +473,17 @@ func (r *Raft) runStateMachine() {
 			r.mem.set(commit.entry.Index)
 			// TODO Send to state machine.
 			r.logger.Warnln("Comitted configuration")
-			r.mem.commit()
+
+			if r.mem.commit() {
+				if r.state == Inactive {
+					r.state = Follower
+					r.toggle <- struct{}{}
+				}
+			} else {
+				r.state = Inactive
+				r.toggle <- struct{}{}
+			}
+
 			res = &commonpb.ReconfResponse{
 				Status: commonpb.ReconfOK,
 			}
