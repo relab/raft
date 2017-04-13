@@ -101,6 +101,11 @@ func (m *membership) get() *gorums.Configuration {
 
 // addServer returns a new configuration including the given server.
 func (m *membership) addServer(serverID uint64) (conf *gorums.Configuration, enabled bool) {
+	// TODO Clean up.
+	if m.enabled {
+		enabled = true
+	}
+
 	nodeIDs := m.committed.NodeIDs()
 
 	// TODO Not including self in the configuration seems to complicate
@@ -127,6 +132,9 @@ func (m *membership) addServer(serverID uint64) (conf *gorums.Configuration, ena
 
 // removeServer returns a new configuration excluding the given server.
 func (m *membership) removeServer(serverID uint64) (conf *gorums.Configuration, enabled bool) {
+	// TODO Clean up.
+	enabled = true
+
 	if serverID == m.id {
 		enabled = false
 	}

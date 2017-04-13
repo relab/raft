@@ -195,6 +195,7 @@ func (r *Raft) Run(server *grpc.Server) error {
 		if r.id == id {
 			// Exclude self.
 			r.state = Follower
+			mem.enabled = true
 			continue
 		}
 		r.logger.WithField("serverid", id).Warnln("Added to cluster")
@@ -476,10 +477,12 @@ func (r *Raft) runStateMachine() {
 
 			if r.mem.commit() {
 				if r.state == Inactive {
+					r.logger.Warnln("Dormant -> Normal")
 					r.state = Follower
 					r.toggle <- struct{}{}
 				}
 			} else {
+				r.logger.Warnln("Normal -> Dormant")
 				r.state = Inactive
 				r.toggle <- struct{}{}
 			}
