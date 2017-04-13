@@ -624,7 +624,9 @@ func (r *Raft) getAppendEntriesRequest(nextIndex uint64, entries []*commonpb.Ent
 // TODO Tests.
 // TODO Assumes caller already holds lock on Raft.
 func (r *Raft) becomeFollower(term uint64) {
-	r.state = Follower
+	if r.state != Inactive {
+		r.state = Follower
+	}
 	r.preElection = true
 
 	if r.currentTerm != term {
