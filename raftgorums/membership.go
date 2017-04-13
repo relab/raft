@@ -35,6 +35,12 @@ func (m *membership) startReconfiguration(req *commonpb.ReconfRequest) bool {
 	// TODO If remove check if new cluster >= 2.
 	valid := true
 
+	m.logger.WithFields(logrus.Fields{
+		"pending": m.pending,
+		"stable":  m.stable,
+		"valid":   valid,
+	}).Warnln("Attempt start reconfiguration")
+
 	if m.pending == nil && m.stable && valid {
 		m.pending = req
 		return true
