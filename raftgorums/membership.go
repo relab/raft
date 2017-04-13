@@ -92,11 +92,9 @@ func (m *membership) commit() bool {
 
 func (m *membership) rollback() {
 	m.Lock()
-	defer m.Unlock()
-
-	m.pending = nil
 	m.latest = m.committed
 	m.latestIndex = m.committedIndex
+	m.Unlock()
 }
 
 func (m *membership) get() *gorums.Configuration {
