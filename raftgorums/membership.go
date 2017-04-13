@@ -28,6 +28,13 @@ type membership struct {
 	enabled        bool
 }
 
+func (m *membership) isActive() bool {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.enabled
+}
+
 func (m *membership) startReconfiguration(req *commonpb.ReconfRequest) bool {
 	m.Lock()
 	defer m.Unlock()
@@ -79,15 +86,12 @@ func (m *membership) set(index uint64) {
 	m.logger.WithField("latest", m.latest.NodeIDs()).Warnln("New configuration")
 }
 
-func (m *membership) commit() bool {
+func (m *membership) commit() {
 	m.Lock()
-	defer m.Unlock()
-
 	m.pending = nil
 	m.committed = m.latest
 	m.committedIndex = m.latestIndex
-
-	return m.enabled
+	m.Unlock()
 }
 
 func (m *membership) rollback() {
