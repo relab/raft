@@ -440,13 +440,18 @@ func (r *Raft) newCommit(old uint64) {
 			e := r.pending.Front()
 			if e != nil {
 				future := e.Value.(*raft.EntryFuture)
-				r.applyCh <- &entryFuture{future.Entry, future}
-				r.pending.Remove(e)
-				break
+				if future.Entry.Index == i {
+					r.applyCh <- &entryFuture{future.Entry, future}
+					r.pending.Remove(e)
+					break
+				}
 			}
 			fallthrough
 		default:
 			committed := r.storage.GetEntry(i)
+			if committed.Index != i {
+				panic("entry tried applied out of order")
+			}
 			r.applyCh <- &entryFuture{committed, nil}
 		}
 	}
