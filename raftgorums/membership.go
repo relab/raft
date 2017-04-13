@@ -39,9 +39,38 @@ func (m *membership) startReconfiguration(req *commonpb.ReconfRequest) bool {
 	m.Lock()
 	defer m.Unlock()
 
-	// TODO If remove check if new cluster >= 2.
-	// TODO Disallow configurations that do not result in a change.
 	valid := true
+
+	// Disallow servers not available in manager.
+	if req.ServerID < 1 || req.ServerID > uint64(len(m.lookup)+1) {
+		return false
+	}
+
+	switch req.ReconfType {
+	case commonpb.ReconfAdd:
+		conf, _ := m.addServer(req.ServerID)
+
+		// Disallow configurations that do not result in a change.
+		if conf == m.committed {
+			valid = false
+		}
+	case commonpb.ReconfRemove:
+		// Disallow configurations that result in a configuration
+		// without nodes.
+		if len(m.committed.NodeIDs()) == 1 {
+			valid = false
+		}
+
+		conf, enabled := m.removeServer(req.ServerID)
+
+		// Disallow configurations that do not result in a change, but
+		// only if we also don't step down.
+		if conf == m.committed && enabled {
+			valid = false
+		}
+	default:
+		panic("malformed reconf request")
+	}
 
 	m.logger.WithFields(logrus.Fields{
 		"pending": m.pending,
@@ -79,8 +108,6 @@ func (m *membership) set(index uint64) {
 		m.latest, m.enabled = m.addServer(m.pending.ServerID)
 	case commonpb.ReconfRemove:
 		m.latest, m.enabled = m.removeServer(m.pending.ServerID)
-	default:
-		panic("malformed reconf request")
 	}
 	m.latestIndex = index
 	m.logger.WithField("latest", m.latest.NodeIDs()).Warnln("New configuration")
@@ -126,6 +153,20 @@ func (m *membership) addServer(serverID uint64) (conf *gorums.Configuration, ena
 	// things. I Foresee a problem when removing the leader, and it is not
 	// part of it's own latest configuration.
 	if serverID != m.id {
+		// Work around bug in Gorums. Duplicated node ids are not deduplicated.
+		for _, nodeID := range nodeIDs {
+			if nodeID == m.getNodeID(serverID) {
+				var err error
+				conf, err = m.mgr.NewConfiguration(nodeIDs, NewQuorumSpec(len(nodeIDs)+1))
+
+				if err != nil {
+					panic("addServer: " + err.Error())
+				}
+
+				return
+			}
+		}
+
 		id := m.getNodeID(serverID)
 		nodeIDs = append(nodeIDs, id)
 	} else {

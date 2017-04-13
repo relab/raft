@@ -34,8 +34,6 @@ func (r *Raft) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (ra
 		go r.replicate(req.ServerID, future)
 	case commonpb.ReconfRemove:
 		r.queue <- future
-	default:
-		panic("malformed reconf request")
 	}
 
 	return future, nil
