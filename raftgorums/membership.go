@@ -86,12 +86,15 @@ func (m *membership) set(index uint64) {
 	m.logger.WithField("latest", m.latest.NodeIDs()).Warnln("New configuration")
 }
 
-func (m *membership) commit() {
+func (m *membership) commit() bool {
 	m.Lock()
+	defer m.Unlock()
+
 	m.pending = nil
 	m.committed = m.latest
 	m.committedIndex = m.latestIndex
-	m.Unlock()
+
+	return m.enabled
 }
 
 func (m *membership) rollback() {

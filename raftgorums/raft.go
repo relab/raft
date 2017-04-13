@@ -490,10 +490,14 @@ func (r *Raft) runStateMachine() {
 			// TODO Send to state machine.
 			r.logger.Warnln("Comitted configuration")
 
-			r.mem.commit()
-			select {
-			case r.toggle <- struct{}{}:
-			default:
+			enabled := r.mem.commit()
+
+			// Toggle if we need to change run routine.
+			if (enabled && r.state == Inactive) || !enabled {
+				select {
+				case r.toggle <- struct{}{}:
+				default:
+				}
 			}
 
 			res = &commonpb.ReconfResponse{
