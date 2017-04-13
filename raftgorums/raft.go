@@ -483,6 +483,7 @@ func (r *Raft) runStateMachine() {
 				}
 			} else {
 				r.logger.Warnln("Normal -> Dormant")
+				r.becomeFollower(r.currentTerm)
 				r.state = Inactive
 				r.toggle <- struct{}{}
 			}
