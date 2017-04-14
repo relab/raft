@@ -43,8 +43,8 @@ var handleAppendEntriesRequestTests = []struct {
 	{
 		"reject lower term",
 		newMemory(5, nil),
-		[]*pb.AppendEntriesRequest{&pb.AppendEntriesRequest{LeaderID: 1, Term: 1}},
-		[]*pb.AppendEntriesResponse{&pb.AppendEntriesResponse{Term: 5}},
+		[]*pb.AppendEntriesRequest{{LeaderID: 1, Term: 1}},
+		[]*pb.AppendEntriesResponse{{Term: 5}},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
 				raftgorums.KeyTerm:      5,
@@ -56,7 +56,7 @@ var handleAppendEntriesRequestTests = []struct {
 	{
 		"successfully append entry",
 		newMemory(5, log2()),
-		[]*pb.AppendEntriesRequest{&pb.AppendEntriesRequest{
+		[]*pb.AppendEntriesRequest{{
 			LeaderID:     1,
 			Term:         5,
 			PrevLogIndex: 2,
@@ -65,7 +65,7 @@ var handleAppendEntriesRequestTests = []struct {
 				noop(3, 5),
 			},
 		}},
-		[]*pb.AppendEntriesResponse{&pb.AppendEntriesResponse{Term: 5, MatchIndex: 3, Success: true}},
+		[]*pb.AppendEntriesResponse{{Term: 5, MatchIndex: 3, Success: true}},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
 				raftgorums.KeyTerm:      5,
@@ -77,7 +77,7 @@ var handleAppendEntriesRequestTests = []struct {
 	{
 		"successfully overwrite entry",
 		newMemory(5, logPlusEntry(log2(), noop(3, 5))),
-		[]*pb.AppendEntriesRequest{&pb.AppendEntriesRequest{
+		[]*pb.AppendEntriesRequest{{
 			LeaderID:     1,
 			Term:         6,
 			PrevLogIndex: 2,
@@ -86,7 +86,7 @@ var handleAppendEntriesRequestTests = []struct {
 				noop(3, 6),
 			},
 		}},
-		[]*pb.AppendEntriesResponse{&pb.AppendEntriesResponse{Term: 6, MatchIndex: 3, Success: true}},
+		[]*pb.AppendEntriesResponse{{Term: 6, MatchIndex: 3, Success: true}},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
 				raftgorums.KeyTerm:      6,
@@ -98,7 +98,7 @@ var handleAppendEntriesRequestTests = []struct {
 	{
 		"successfully overwrite entries",
 		newMemory(5, logPlusEntry(logPlusEntry(log2(), noop(3, 5)), noop(4, 5))),
-		[]*pb.AppendEntriesRequest{&pb.AppendEntriesRequest{
+		[]*pb.AppendEntriesRequest{{
 			LeaderID:     1,
 			Term:         6,
 			PrevLogIndex: 2,
@@ -107,7 +107,7 @@ var handleAppendEntriesRequestTests = []struct {
 				noop(3, 6), noop(4, 6),
 			},
 		}},
-		[]*pb.AppendEntriesResponse{&pb.AppendEntriesResponse{Term: 6, MatchIndex: 4, Success: true}},
+		[]*pb.AppendEntriesResponse{{Term: 6, MatchIndex: 4, Success: true}},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
 				raftgorums.KeyTerm:      6,
@@ -120,7 +120,7 @@ var handleAppendEntriesRequestTests = []struct {
 		"successful on already committed but ignore entries",
 		newMemory(5, log2()),
 		[]*pb.AppendEntriesRequest{
-			&pb.AppendEntriesRequest{
+			{
 				LeaderID:     1,
 				Term:         5,
 				PrevLogIndex: 2,
@@ -130,7 +130,7 @@ var handleAppendEntriesRequestTests = []struct {
 					noop(3, 5),
 				},
 			},
-			&pb.AppendEntriesRequest{
+			{
 				LeaderID:     1,
 				Term:         5,
 				PrevLogIndex: 3,
@@ -140,7 +140,7 @@ var handleAppendEntriesRequestTests = []struct {
 					noop(4, 5),
 				},
 			},
-			&pb.AppendEntriesRequest{
+			{
 				LeaderID:     1,
 				Term:         5,
 				PrevLogIndex: 2,
@@ -152,9 +152,9 @@ var handleAppendEntriesRequestTests = []struct {
 			},
 		},
 		[]*pb.AppendEntriesResponse{
-			&pb.AppendEntriesResponse{Term: 5, MatchIndex: 3, Success: true},
-			&pb.AppendEntriesResponse{Term: 5, MatchIndex: 4, Success: true},
-			&pb.AppendEntriesResponse{Term: 5, MatchIndex: 4, Success: true},
+			{Term: 5, MatchIndex: 3, Success: true},
+			{Term: 5, MatchIndex: 4, Success: true},
+			{Term: 5, MatchIndex: 4, Success: true},
 		},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{

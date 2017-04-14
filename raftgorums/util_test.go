@@ -21,48 +21,48 @@ func TestMergeIntervals(t *testing.T) {
 		{
 			"single",
 			[]*raftgorums.Interval{
-				&raftgorums.Interval{Start: 1, End: 2},
+				{Start: 1, End: 2},
 			},
 			[]*raftgorums.Interval{
-				&raftgorums.Interval{Start: 1, End: 2},
+				{Start: 1, End: 2},
 			},
 		},
 		{
 			"two disjoint",
 			[]*raftgorums.Interval{
-				&raftgorums.Interval{Start: 1, End: 2},
-				&raftgorums.Interval{Start: 3, End: 4},
+				{Start: 1, End: 2},
+				{Start: 3, End: 4},
 			},
 			[]*raftgorums.Interval{
-				&raftgorums.Interval{Start: 3, End: 4},
-				&raftgorums.Interval{Start: 1, End: 2},
+				{Start: 3, End: 4},
+				{Start: 1, End: 2},
 			},
 		},
 		{
 			"two overlapping",
 			[]*raftgorums.Interval{
-				&raftgorums.Interval{Start: 1, End: 2},
-				&raftgorums.Interval{Start: 2, End: 4},
+				{Start: 1, End: 2},
+				{Start: 2, End: 4},
 			},
 			[]*raftgorums.Interval{
-				&raftgorums.Interval{Start: 1, End: 4},
+				{Start: 1, End: 4},
 			},
 		},
 		{
 			"multiple intervals",
 			[]*raftgorums.Interval{
-				&raftgorums.Interval{Start: 2, End: 6},
-				&raftgorums.Interval{Start: 3, End: 7},
-				&raftgorums.Interval{Start: 7, End: 11},
-				&raftgorums.Interval{Start: 8, End: 12},
-				&raftgorums.Interval{Start: 10, End: 14},
-				&raftgorums.Interval{Start: 15, End: 19},
-				&raftgorums.Interval{Start: 30, End: 34},
+				{Start: 2, End: 6},
+				{Start: 3, End: 7},
+				{Start: 7, End: 11},
+				{Start: 8, End: 12},
+				{Start: 10, End: 14},
+				{Start: 15, End: 19},
+				{Start: 30, End: 34},
 			},
 			[]*raftgorums.Interval{
-				&raftgorums.Interval{Start: 30, End: 34},
-				&raftgorums.Interval{Start: 15, End: 19},
-				&raftgorums.Interval{Start: 2, End: 14},
+				{Start: 30, End: 34},
+				{Start: 15, End: 19},
+				{Start: 2, End: 14},
 			},
 		},
 	}

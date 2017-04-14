@@ -14,12 +14,12 @@ import (
 
 func log2() map[uint64]*commonpb.Entry {
 	return map[uint64]*commonpb.Entry{
-		1: &commonpb.Entry{
+		1: {
 			Index: 1,
 			Term:  4,
 			Data:  []byte("first"),
 		},
-		2: &commonpb.Entry{
+		2: {
 			Index: 2,
 			Term:  5,
 			Data:  []byte("second"),
@@ -46,8 +46,8 @@ var handleRequestVoteRequestTests = []struct {
 	{
 		"reject lower term",
 		newMemory(5, nil),
-		[]*pb.RequestVoteRequest{&pb.RequestVoteRequest{CandidateID: 1, Term: 1}},
-		[]*pb.RequestVoteResponse{&pb.RequestVoteResponse{Term: 5}},
+		[]*pb.RequestVoteRequest{{CandidateID: 1, Term: 1}},
+		[]*pb.RequestVoteResponse{{Term: 5}},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
 				raftgorums.KeyTerm:      5,
@@ -59,8 +59,8 @@ var handleRequestVoteRequestTests = []struct {
 	{
 		"accept same term if not voted",
 		newMemory(5, nil),
-		[]*pb.RequestVoteRequest{&pb.RequestVoteRequest{CandidateID: 1, Term: 5}},
-		[]*pb.RequestVoteResponse{&pb.RequestVoteResponse{Term: 5, VoteGranted: true}},
+		[]*pb.RequestVoteRequest{{CandidateID: 1, Term: 5}},
+		[]*pb.RequestVoteResponse{{Term: 5, VoteGranted: true}},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
 				raftgorums.KeyTerm:      5,
@@ -73,17 +73,17 @@ var handleRequestVoteRequestTests = []struct {
 		"accept one vote per term",
 		newMemory(5, nil),
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{CandidateID: 1, Term: 6},
-			&pb.RequestVoteRequest{CandidateID: 2, Term: 6},
-			&pb.RequestVoteRequest{CandidateID: 1, Term: 6},
+			{CandidateID: 1, Term: 6},
+			{CandidateID: 2, Term: 6},
+			{CandidateID: 1, Term: 6},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
-			&pb.RequestVoteResponse{Term: 6, VoteGranted: false},
+			{Term: 6, VoteGranted: true},
+			{Term: 6, VoteGranted: false},
 			// Multiple requests from the same candidate we voted
 			// for (in the same term) must always return true. This
 			// gives correct behavior even if the response is lost.
-			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
+			{Term: 6, VoteGranted: true},
 		},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
@@ -107,14 +107,14 @@ var handleRequestVoteRequestTests = []struct {
 		"accept higher terms",
 		newMemory(5, nil),
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{CandidateID: 1, Term: 4},
-			&pb.RequestVoteRequest{CandidateID: 2, Term: 5},
-			&pb.RequestVoteRequest{CandidateID: 3, Term: 6},
+			{CandidateID: 1, Term: 4},
+			{CandidateID: 2, Term: 5},
+			{CandidateID: 3, Term: 6},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 5},
-			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
-			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
+			{Term: 5},
+			{Term: 5, VoteGranted: true},
+			{Term: 6, VoteGranted: true},
 		},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
@@ -138,10 +138,10 @@ var handleRequestVoteRequestTests = []struct {
 		"reject lower prevote term",
 		newMemory(5, nil),
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{CandidateID: 1, Term: 4, PreVote: true},
+			{CandidateID: 1, Term: 4, PreVote: true},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 5},
+			{Term: 5},
 		},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
@@ -155,10 +155,10 @@ var handleRequestVoteRequestTests = []struct {
 		"accept prevote in same term if not voted",
 		newMemory(5, nil),
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{CandidateID: 1, Term: 5, PreVote: true},
+			{CandidateID: 1, Term: 5, PreVote: true},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
+			{Term: 5, VoteGranted: true},
 		},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
@@ -172,12 +172,12 @@ var handleRequestVoteRequestTests = []struct {
 		"reject prevote in same term if voted",
 		newMemory(5, nil),
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{CandidateID: 1, Term: 5},
-			&pb.RequestVoteRequest{CandidateID: 2, Term: 5, PreVote: true},
+			{CandidateID: 1, Term: 5},
+			{CandidateID: 2, Term: 5, PreVote: true},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
-			&pb.RequestVoteResponse{Term: 5},
+			{Term: 5, VoteGranted: true},
+			{Term: 5},
 		},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
@@ -197,10 +197,10 @@ var handleRequestVoteRequestTests = []struct {
 		"accept prevote in higher term",
 		newMemory(5, nil),
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{CandidateID: 1, Term: 6, PreVote: true},
+			{CandidateID: 1, Term: 6, PreVote: true},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
+			{Term: 6, VoteGranted: true},
 		},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
@@ -216,12 +216,12 @@ var handleRequestVoteRequestTests = []struct {
 		"accept prevote in higher term even if voted in current",
 		newMemory(5, nil),
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{CandidateID: 1, Term: 5},
-			&pb.RequestVoteRequest{CandidateID: 2, Term: 6, PreVote: true},
+			{CandidateID: 1, Term: 5},
+			{CandidateID: 2, Term: 6, PreVote: true},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
-			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
+			{Term: 5, VoteGranted: true},
+			{Term: 6, VoteGranted: true},
 		},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
@@ -240,7 +240,7 @@ var handleRequestVoteRequestTests = []struct {
 		"reject log not up-to-date",
 		newMemory(5, log2()),
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{
+			{
 				CandidateID:  1,
 				Term:         5,
 				LastLogIndex: 0,
@@ -248,7 +248,7 @@ var handleRequestVoteRequestTests = []struct {
 			},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 5},
+			{Term: 5},
 		},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
@@ -262,7 +262,7 @@ var handleRequestVoteRequestTests = []struct {
 		"reject log not up-to-date shorter log",
 		newMemory(5, log2()),
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{
+			{
 				CandidateID:  1,
 				Term:         5,
 				LastLogIndex: 0,
@@ -270,7 +270,7 @@ var handleRequestVoteRequestTests = []struct {
 			},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 5},
+			{Term: 5},
 		},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
@@ -284,7 +284,7 @@ var handleRequestVoteRequestTests = []struct {
 		"reject log not up-to-date lower term",
 		newMemory(5, log2()),
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{
+			{
 				CandidateID:  1,
 				Term:         5,
 				LastLogIndex: 10,
@@ -292,7 +292,7 @@ var handleRequestVoteRequestTests = []struct {
 			},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 5},
+			{Term: 5},
 		},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
@@ -306,7 +306,7 @@ var handleRequestVoteRequestTests = []struct {
 		"accpet log up-to-date",
 		newMemory(5, log2()),
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{
+			{
 				CandidateID:  1,
 				Term:         5,
 				LastLogIndex: 2,
@@ -314,7 +314,7 @@ var handleRequestVoteRequestTests = []struct {
 			},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
+			{Term: 5, VoteGranted: true},
 		},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
@@ -328,13 +328,13 @@ var handleRequestVoteRequestTests = []struct {
 		"reject log up-to-date already voted",
 		newMemory(5, log2()),
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{
+			{
 				CandidateID:  1,
 				Term:         5,
 				LastLogIndex: 2,
 				LastLogTerm:  5,
 			},
-			&pb.RequestVoteRequest{
+			{
 				CandidateID:  2,
 				Term:         5,
 				LastLogIndex: 15,
@@ -342,8 +342,8 @@ var handleRequestVoteRequestTests = []struct {
 			},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
-			&pb.RequestVoteResponse{Term: 5},
+			{Term: 5, VoteGranted: true},
+			{Term: 5},
 		},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
@@ -362,13 +362,13 @@ var handleRequestVoteRequestTests = []struct {
 		"accept log up-to-date already voted if higher term",
 		newMemory(5, log2()),
 		[]*pb.RequestVoteRequest{
-			&pb.RequestVoteRequest{
+			{
 				CandidateID:  1,
 				Term:         5,
 				LastLogIndex: 2,
 				LastLogTerm:  5,
 			},
-			&pb.RequestVoteRequest{
+			{
 				CandidateID:  2,
 				Term:         6,
 				LastLogIndex: 2,
@@ -376,8 +376,8 @@ var handleRequestVoteRequestTests = []struct {
 			},
 		},
 		[]*pb.RequestVoteResponse{
-			&pb.RequestVoteResponse{Term: 5, VoteGranted: true},
-			&pb.RequestVoteResponse{Term: 6, VoteGranted: true},
+			{Term: 5, VoteGranted: true},
+			{Term: 6, VoteGranted: true},
 		},
 		[]*raftgorums.Memory{
 			raftgorums.NewMemory(map[uint64]uint64{
