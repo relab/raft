@@ -1,4 +1,4 @@
-package raftgorums
+package raft
 
 import (
 	"github.com/Sirupsen/logrus"
@@ -7,10 +7,17 @@ import (
 
 // PanicStorage wraps a Storage with methods that panic instead of returning a
 // error.
-// TODO Expose or make function.
 type PanicStorage struct {
 	s      Storage
 	logger logrus.FieldLogger
+}
+
+// NewPanicStorage returns a new initialized PanicStorage.
+func NewPanicStorage(s Storage, logger logrus.FieldLogger) *PanicStorage {
+	return &PanicStorage{
+		s: s,
+		logger: logger,
+	}
 }
 
 // Set calls underlying Set method and panics if there is any error.

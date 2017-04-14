@@ -18,8 +18,6 @@ type raftMetrics struct {
 	writes      metrics.Counter
 	leader      metrics.Gauge
 	commitIndex metrics.Gauge
-	ioread      metrics.Histogram
-	iowrite     metrics.Histogram
 }
 
 var rmetrics = &raftMetrics{
@@ -88,17 +86,5 @@ var rmetrics = &raftMetrics{
 		Subsystem: "server",
 		Name:      "commit_index",
 		Help:      "Current commit index.",
-	}, []string{}),
-	ioread: prometheus.NewSummaryFrom(promc.SummaryOpts{
-		Namespace: "raft",
-		Subsystem: "server",
-		Name:      "io_read",
-		Help:      "Total time spent reading from disk.",
-	}, []string{}),
-	iowrite: prometheus.NewSummaryFrom(promc.SummaryOpts{
-		Namespace: "raft",
-		Subsystem: "server",
-		Name:      "io_write",
-		Help:      "Total time spent writing to disk.",
 	}, []string{}),
 }

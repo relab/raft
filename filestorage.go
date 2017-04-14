@@ -1,4 +1,4 @@
-package raftgorums
+package raft
 
 import (
 	"encoding/binary"

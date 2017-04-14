@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/relab/raft"
 )
 
 // Config contains the configuration needed to start an instance of Raft.
@@ -15,7 +16,7 @@ type Config struct {
 	// refers to the first server in Servers.
 	InitialCluster []uint64
 
-	Storage Storage
+	Storage raft.Storage
 
 	Batch            bool
 	ElectionTimeout  time.Duration

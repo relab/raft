@@ -1,4 +1,4 @@
-package raftgorums_test
+package raft
 
 import (
 	"reflect"

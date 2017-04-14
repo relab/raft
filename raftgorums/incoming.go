@@ -103,7 +103,7 @@ func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestV
 		}
 
 		r.votedFor = req.CandidateID
-		r.storage.Set(KeyVotedFor, req.CandidateID)
+		r.storage.Set(raft.KeyVotedFor, req.CandidateID)
 
 		// #F2 If election timeout elapses without receiving
 		// AppendEntries RPC from current leader or granting a vote to
