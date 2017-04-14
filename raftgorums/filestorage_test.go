@@ -42,24 +42,24 @@ func newFileStorage(t testing.TB, overwrite bool, filepath ...string) (fs *raftg
 }
 
 func TestNewFileStorage(t *testing.T) {
-	recover := false
+	overwrite := false
 
 	// Create storage on path.
-	_, path, _ := newFileStorage(t, !recover)
+	_, path, _ := newFileStorage(t, !overwrite)
 
 	// Recover from path, where file exists.
-	_, _, cleanup2 := newFileStorage(t, recover, path)
+	_, _, cleanup2 := newFileStorage(t, overwrite, path)
 	cleanup2()
 
 	// Recover from path, where file doesn't exist.
-	newFileStorage(t, recover, path)
+	newFileStorage(t, overwrite, path)
 
 	// Overwrite path, where file exists.
-	_, _, cleanup3 := newFileStorage(t, !recover, path)
+	_, _, cleanup3 := newFileStorage(t, !overwrite, path)
 	cleanup3()
 
 	// Overwrite path, where file doesn't exist.
-	_, _, cleanup4 := newFileStorage(t, !recover, path)
+	_, _, cleanup4 := newFileStorage(t, !overwrite, path)
 	cleanup4()
 
 	if _, err := os.Stat(path); err == nil {
