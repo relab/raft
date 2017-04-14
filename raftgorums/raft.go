@@ -14,9 +14,6 @@ import (
 	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
-// LogLevel sets the level of logging.
-const LogLevel = logrus.InfoLevel
-
 // State represents one of the Raft server states.
 type State int
 
