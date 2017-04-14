@@ -122,7 +122,7 @@ type entryFuture struct {
 func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 	// TODO Validate config, i.e., make sure to sensible defaults if an
 	// option is not configured.
-	storage := raft.NewPanicStorage(raft.NewCacheStorage(cfg.Storage, 20000), cfg.Logger)
+	storage := raft.NewPanicStorage(cfg.Storage, cfg.Logger)
 
 	term := storage.Get(raft.KeyTerm)
 	votedFor := storage.Get(raft.KeyVotedFor)
