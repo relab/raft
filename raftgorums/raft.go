@@ -242,10 +242,14 @@ func (r *Raft) run() {
 
 		if r.mem.isActive() {
 			r.logger.Warnln("Dormant -> Normal")
+			r.Lock()
 			r.state = Follower
+			r.Unlock()
 		} else {
 			r.logger.Warnln("Normal -> Dormant")
+			r.Lock()
 			r.state = Inactive
+			r.Unlock()
 		}
 
 		r.becomeFollower(r.currentTerm)
