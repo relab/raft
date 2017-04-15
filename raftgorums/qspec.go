@@ -20,6 +20,7 @@ type QuorumSpec struct {
 func (qs *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.RequestVoteResponse) (*pb.RequestVoteResponse, bool) {
 	// Make copy of last reply.
 	response := *replies[len(replies)-1]
+	response.VoteGranted = false
 
 	if response.Term > req.Term {
 		// Abort.
@@ -49,7 +50,7 @@ func (qs *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.Re
 		return nil, false
 	}
 
-	return nil, true
+	return &response, true
 }
 
 // AppendEntriesQF gathers AppendEntriesResponses and calculates the log entries
