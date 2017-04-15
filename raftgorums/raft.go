@@ -90,7 +90,7 @@ type Raft struct {
 
 	pendingReads []*raft.EntryFuture
 
-	applyCh chan *entryFuture
+	applyCh chan *raft.EntryFuture
 
 	batch bool
 
@@ -108,12 +108,6 @@ type Raft struct {
 type catchUpReq struct {
 	leaderID   uint64
 	matchIndex uint64
-}
-
-// TODO Just use future.
-type entryFuture struct {
-	entry  *commonpb.Entry
-	future *raft.EntryFuture
 }
 
 // NewRaft returns a new Raft given a configuration.
@@ -143,7 +137,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		preElection:      true,
 		maxAppendEntries: cfg.MaxAppendEntries,
 		queue:            make(chan *raft.EntryFuture, BufferSize),
-		applyCh:          make(chan *entryFuture, 128),
+		applyCh:          make(chan *raft.EntryFuture, 128),
 		rvreqout:         make(chan *pb.RequestVoteRequest, 128),
 		aereqout:         make(chan *pb.AppendEntriesRequest, 128),
 		cureqout:         make(chan *catchUpReq, 16),
@@ -418,7 +412,7 @@ func (r *Raft) advanceCommitIndex() {
 	}
 
 	for _, future := range r.pendingReads {
-		r.applyCh <- &entryFuture{future.Entry, future}
+		r.applyCh <- future
 		rmetrics.reads.Add(1)
 	}
 
@@ -446,7 +440,7 @@ func (r *Raft) newCommit(old uint64) {
 			if e != nil {
 				future := e.Value.(*raft.EntryFuture)
 				if future.Entry.Index == i {
-					r.applyCh <- &entryFuture{future.Entry, future}
+					r.applyCh <- future
 					r.pending.Remove(e)
 					break
 				}
@@ -457,31 +451,31 @@ func (r *Raft) newCommit(old uint64) {
 			if committed.Index != i {
 				panic("entry tried applied out of order")
 			}
-			r.applyCh <- &entryFuture{committed, nil}
+			r.applyCh <- raft.NewFuture(committed)
 		}
 	}
 }
 
 func (r *Raft) runStateMachine() {
-	apply := func(commit *entryFuture) {
+	apply := func(future *raft.EntryFuture) {
 		var res interface{}
 
-		switch commit.entry.EntryType {
+		switch future.Entry.EntryType {
 		case commonpb.EntryInternal:
 		case commonpb.EntryNormal:
-			res = r.sm.Apply(commit.entry)
+			res = r.sm.Apply(future.Entry)
 		case commonpb.EntryConfChange:
 			// TODO We should be able to skip the unmarshaling if we
 			// are not recovering.
 			var reconf commonpb.ReconfRequest
-			err := reconf.Unmarshal(commit.entry.Data)
+			err := reconf.Unmarshal(future.Entry.Data)
 
 			if err != nil {
 				panic("could not unmarshal reconf")
 			}
 
 			r.mem.setPending(&reconf)
-			r.mem.set(commit.entry.Index)
+			r.mem.set(future.Entry.Index)
 			// TODO Send to state machine.
 			r.logger.Warnln("Comitted configuration")
 
@@ -500,11 +494,9 @@ func (r *Raft) runStateMachine() {
 			}
 		}
 
-		if commit.future != nil {
-			commit.future.Respond(res)
-			if r.metricsEnabled {
-				rmetrics.cmdCommit.Observe(time.Since(commit.future.Created).Seconds())
-			}
+		future.Respond(res)
+		if r.metricsEnabled {
+			rmetrics.cmdCommit.Observe(time.Since(future.Created).Seconds())
 		}
 	}
 
