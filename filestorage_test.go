@@ -10,10 +10,9 @@ import (
 	"testing"
 
 	"github.com/relab/raft/commonpb"
-	"github.com/relab/raft/raftgorums"
 )
 
-func newFileStorage(t testing.TB, overwrite bool, filepath ...string) (fs *raftgorums.FileStorage, path string, cleanup func()) {
+func newFileStorage(t testing.TB, overwrite bool, filepath ...string) (fs *FileStorage, path string, cleanup func()) {
 	var dbfile string
 
 	if len(filepath) < 1 {
@@ -28,7 +27,7 @@ func newFileStorage(t testing.TB, overwrite bool, filepath ...string) (fs *raftg
 		dbfile = filepath[0]
 	}
 
-	storage, err := raftgorums.NewFileStorage(dbfile, overwrite)
+	storage, err := NewFileStorage(dbfile, overwrite)
 
 	if err != nil {
 		t.Fatal(err)
@@ -68,19 +67,19 @@ func TestNewFileStorage(t *testing.T) {
 }
 
 func TestFileStorageStoreValue(t *testing.T) {
-	var storage raftgorums.Storage
+	var storage Storage
 	storage, _, cleanup := newFileStorage(t, true)
 	defer cleanup()
 
 	var expected uint64 = 5
 
-	err := storage.Set(raftgorums.KeyTerm, expected)
+	err := storage.Set(KeyTerm, expected)
 
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := storage.Get(raftgorums.KeyTerm)
+	got, err := storage.Get(KeyTerm)
 
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +91,7 @@ func TestFileStorageStoreValue(t *testing.T) {
 }
 
 func TestFileStorageStoreEntry(t *testing.T) {
-	var storage raftgorums.Storage
+	var storage Storage
 	storage, _, cleanup := newFileStorage(t, true)
 	defer cleanup()
 
