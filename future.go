@@ -6,43 +6,78 @@ import (
 	"github.com/relab/raft/commonpb"
 )
 
+// Result contains the index of the committed entry and the accompanied
+// response.
+type Result struct {
+	Index uint64
+	Value interface{}
+}
+
 // Future allows a result to be read after the operation who created it has
 // completed.
 type Future interface {
-	// Must not be called until Result has been read.
-	Index() uint64
-	Result() <-chan interface{}
+	ResultCh() <-chan Result
 }
 
-// EntryFuture implements the Future interface.
-type EntryFuture struct {
-	Entry *commonpb.Entry
-
-	Created time.Time
-	res     chan interface{}
+type PromiseEntry interface {
+	Write(uint64) PromiseLogEntry
+	Read() PromiseLogEntry
+	Respond(interface{})
 }
 
-// NewFuture initializes and returns a new *EntryFuture.
-func NewFuture(entry *commonpb.Entry) *EntryFuture {
-	return &EntryFuture{
-		Entry:   entry,
-		Created: time.Now(),
-		res:     make(chan interface{}, 1),
+type PromiseLogEntry interface {
+	Entry() *commonpb.Entry
+	Duration() time.Duration
+	Respond(interface{})
+}
+
+func NewPromiseNoFuture(entry *commonpb.Entry) PromiseLogEntry {
+	return &promiseEntry{
+		entry:   entry,
+		created: time.Now(),
 	}
 }
 
-// Index implements Future.
-func (f *EntryFuture) Index() uint64 {
-	return f.Entry.Index
+func NewPromiseLogEntry(entry *commonpb.Entry) (PromiseEntry, Future) {
+	promise := &promiseEntry{
+		entry:   entry,
+		created: time.Now(),
+		res:     make(chan Result, 1),
+	}
+
+	return promise, promise
 }
 
-// Result implements Future.
-func (f *EntryFuture) Result() <-chan interface{} {
+type promiseEntry struct {
+	entry   *commonpb.Entry
+	created time.Time
+	res     chan Result
+}
+
+func (f *promiseEntry) Write(index uint64) PromiseLogEntry {
+	f.entry.Index = index
+	return f
+}
+
+func (f *promiseEntry) Read() PromiseLogEntry {
+	return f
+}
+
+func (f *promiseEntry) Entry() *commonpb.Entry {
+	return f.entry
+}
+
+func (f *promiseEntry) Duration() time.Duration {
+	return time.Since(f.created)
+}
+
+func (f *promiseEntry) Respond(value interface{}) {
+	if f.res == nil {
+		return
+	}
+	f.res <- Result{f.entry.Index, value}
+}
+
+func (f *promiseEntry) ResultCh() <-chan Result {
 	return f.res
-}
-
-// Respond stores res on a buffered channel so that it can be consumed by
-// reading from Result().
-func (f *EntryFuture) Respond(res interface{}) {
-	f.res <- res
 }

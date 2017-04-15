@@ -247,7 +247,7 @@ func (m *membership) getNode(serverID uint64) *gorums.Node {
 	return node
 }
 
-func (r *Raft) replicate(serverID uint64, future *raft.EntryFuture) {
+func (r *Raft) replicate(serverID uint64, promise raft.PromiseEntry) {
 	node := r.mem.getNode(serverID)
 	var matchIndex uint64
 	var errs int
@@ -272,7 +272,7 @@ func (r *Raft) replicate(serverID uint64, future *raft.EntryFuture) {
 			errs++
 
 			if errs > 3 {
-				future.Respond(&commonpb.ReconfResponse{
+				promise.Respond(&commonpb.ReconfResponse{
 					Status: commonpb.ReconfTimeout,
 				})
 				r.mem.rollback()
@@ -287,7 +287,7 @@ func (r *Raft) replicate(serverID uint64, future *raft.EntryFuture) {
 		r.Unlock()
 
 		if state != Leader {
-			future.Respond(&commonpb.ReconfResponse{
+			promise.Respond(&commonpb.ReconfResponse{
 				Status: commonpb.ReconfNotLeader,
 			})
 			r.mem.rollback()
@@ -296,7 +296,7 @@ func (r *Raft) replicate(serverID uint64, future *raft.EntryFuture) {
 
 		if target-matchIndex < maxEntries {
 			// TODO Context?
-			r.queue <- future
+			r.queue <- promise
 			return
 		}
 

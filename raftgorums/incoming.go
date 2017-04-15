@@ -365,11 +365,12 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 				// commits an entry from its own term. This
 				// ensures that the leader knows which entries
 				// are committed.
-				r.queue <- raft.NewFuture(&commonpb.Entry{
+				promise, _ := raft.NewPromiseLogEntry(&commonpb.Entry{
 					EntryType: commonpb.EntryInternal,
 					Term:      r.currentTerm,
 					Data:      raft.NOOP,
 				})
+				r.queue <- promise
 				break EMPTYCH
 			}
 		}

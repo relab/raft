@@ -15,7 +15,7 @@ func (r *Raft) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (ra
 		return nil, err
 	}
 
-	future, err := r.cmdToFuture(cmd, commonpb.EntryConfChange)
+	promise, future, err := r.cmdToFuture(cmd, commonpb.EntryConfChange)
 
 	// TODO Fix error returned here, NotLeader should be a status code.
 	if err != nil {
@@ -23,7 +23,7 @@ func (r *Raft) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (ra
 	}
 
 	if !r.mem.startReconfiguration(req) {
-		future.Respond(&commonpb.ReconfResponse{
+		promise.Respond(&commonpb.ReconfResponse{
 			Status: commonpb.ReconfTimeout,
 		})
 		return future, nil
@@ -31,9 +31,9 @@ func (r *Raft) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (ra
 
 	switch req.ReconfType {
 	case commonpb.ReconfAdd:
-		go r.replicate(req.ServerID, future)
+		go r.replicate(req.ServerID, promise)
 	case commonpb.ReconfRemove:
-		r.queue <- future
+		r.queue <- promise
 	}
 
 	return future, nil
@@ -41,14 +41,14 @@ func (r *Raft) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (ra
 
 // ProposeCmd implements raft.Raft.
 func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) (raft.Future, error) {
-	future, err := r.cmdToFuture(cmd, commonpb.EntryNormal)
+	promise, future, err := r.cmdToFuture(cmd, commonpb.EntryNormal)
 
 	if err != nil {
 		return nil, err
 	}
 
 	select {
-	case r.queue <- future:
+	case r.queue <- promise:
 		if r.metricsEnabled {
 			rmetrics.writeReqs.Add(1)
 		}
@@ -60,7 +60,7 @@ func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) (raft.Future, error) 
 
 // ReadCmd implements raft.Raft.
 func (r *Raft) ReadCmd(ctx context.Context, cmd []byte) (raft.Future, error) {
-	future, err := r.cmdToFuture(cmd, commonpb.EntryNormal)
+	promise, future, err := r.cmdToFuture(cmd, commonpb.EntryNormal)
 
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (r *Raft) ReadCmd(ctx context.Context, cmd []byte) (raft.Future, error) {
 	}
 
 	r.Lock()
-	r.pendingReads = append(r.pendingReads, future)
+	r.pendingReads = append(r.pendingReads, promise.Read())
 	r.Unlock()
 
 	return future, nil
