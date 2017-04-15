@@ -59,6 +59,7 @@ func (m *membership) startReconfiguration(req *commonpb.ReconfRequest) bool {
 		// without nodes.
 		if len(m.committed.NodeIDs()) == 1 {
 			valid = false
+			break
 		}
 
 		conf, enabled := m.removeServer(req.ServerID)
