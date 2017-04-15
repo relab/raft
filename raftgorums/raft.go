@@ -25,8 +25,6 @@ const (
 	Leader
 )
 
-//go:generate stringer -type=State
-
 // Timeouts in milliseconds.
 const (
 	// How long we wait for an answer.
