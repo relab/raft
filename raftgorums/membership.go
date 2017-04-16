@@ -129,16 +129,9 @@ func (m *membership) commit() bool {
 	return enabled
 }
 
-func (m *membership) abort() {
-	m.Lock()
-	m.pending = nil
-	m.latest = m.committed
-	m.latestIndex = m.committedIndex
-	m.Unlock()
-}
-
 func (m *membership) rollback() {
 	m.Lock()
+	m.pending = nil
 	m.latest = m.committed
 	m.latestIndex = m.committedIndex
 	m.Unlock()
@@ -297,7 +290,7 @@ func (r *Raft) replicate(serverID uint64, promise raft.PromiseEntry) {
 				promise.Respond(&commonpb.ReconfResponse{
 					Status: commonpb.ReconfTimeout,
 				})
-				r.mem.abort()
+				r.mem.rollback()
 				return
 			}
 
@@ -312,7 +305,7 @@ func (r *Raft) replicate(serverID uint64, promise raft.PromiseEntry) {
 			promise.Respond(&commonpb.ReconfResponse{
 				Status: commonpb.ReconfNotLeader,
 			})
-			r.mem.abort()
+			r.mem.rollback()
 			return
 		}
 
