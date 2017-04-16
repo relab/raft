@@ -38,7 +38,7 @@ func NewPromiseNoFuture(entry *commonpb.Entry) PromiseLogEntry {
 	}
 }
 
-func NewPromiseLogEntry(entry *commonpb.Entry) (PromiseEntry, Future) {
+func NewPromiseEntry(entry *commonpb.Entry) (PromiseEntry, Future) {
 	promise := &promiseEntry{
 		entry:   entry,
 		created: time.Now(),

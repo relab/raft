@@ -18,7 +18,7 @@ func TestNewPromiseLogEntryWrite(t *testing.T) {
 	value := "res"
 	entry := &commonpb.Entry{}
 
-	promise, future := raft.NewPromiseLogEntry(entry)
+	promise, future := raft.NewPromiseEntry(entry)
 	logPromise := promise.Write(index)
 	logPromise.Respond(value)
 
@@ -54,7 +54,7 @@ func TestNewPromiseLogEntryRead(t *testing.T) {
 	value := "res"
 	entry := &commonpb.Entry{}
 
-	promise, future := raft.NewPromiseLogEntry(entry)
+	promise, future := raft.NewPromiseEntry(entry)
 	readPromise := promise.Read()
 	readPromise.Respond(value)
 

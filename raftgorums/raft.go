@@ -383,7 +383,7 @@ func (r *Raft) cmdToFuture(cmd []byte, kind commonpb.EntryType) (raft.PromiseEnt
 		Data:      cmd,
 	}
 
-	promise, future := raft.NewPromiseLogEntry(entry)
+	promise, future := raft.NewPromiseEntry(entry)
 
 	return promise, future, nil
 }
