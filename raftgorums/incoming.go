@@ -186,17 +186,24 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	r.heardFromLeader = true
 	r.seenLeader = true
 
+	matchIndex := logLen
+
+	// If our last entry is not from the current leaders term, use
+	// commit index as the match index. This is because we cannot
+	// know if any entries have been overwritten.
+	if r.logTerm(matchIndex) != r.currentTerm {
+		matchIndex = r.commitIndex
+	}
+
 	if !success {
-		// TODO This is potentially wrong, we cannot send match index
-		// for entries that are not committed? Also use logLen...
 		r.cureqout <- &catchUpReq{
 			leaderID:   req.LeaderID,
-			matchIndex: r.storage.NextIndex() - 1,
+			matchIndex: matchIndex,
 		}
 
 		return &pb.AppendEntriesResponse{
 			Term:       req.Term,
-			MatchIndex: r.storage.NextIndex() - 1,
+			MatchIndex: matchIndex,
 		}
 	}
 
@@ -205,7 +212,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	if req.CommitIndex < r.commitIndex {
 		return &pb.AppendEntriesResponse{
 			Term:       req.Term,
-			MatchIndex: r.storage.NextIndex() - 1,
+			MatchIndex: matchIndex,
 			Success:    success,
 		}
 	}
@@ -281,9 +288,19 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		"success":    success,
 	}).Infoln("Saved entries to stable storage")
 
+	matchIndex = index
+
+	if index < r.commitIndex {
+		matchIndex = r.commitIndex
+	}
+
+	if r.logTerm(logLen) == r.currentTerm {
+		matchIndex = logLen
+	}
+
 	return &pb.AppendEntriesResponse{
 		Term:       req.Term,
-		MatchIndex: index,
+		MatchIndex: matchIndex,
 		Success:    success,
 	}
 }
