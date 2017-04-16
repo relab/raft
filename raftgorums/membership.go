@@ -39,6 +39,10 @@ func (m *membership) startReconfiguration(req *commonpb.ReconfRequest) bool {
 	m.Lock()
 	defer m.Unlock()
 
+	if m.pending != nil {
+		return false
+	}
+
 	valid := true
 
 	// Disallow servers not available in manager.
@@ -79,7 +83,7 @@ func (m *membership) startReconfiguration(req *commonpb.ReconfRequest) bool {
 		"valid":   valid,
 	}).Warnln("Attempt start reconfiguration")
 
-	if m.pending == nil && m.stable && valid {
+	if m.stable && valid {
 		m.pending = req
 		return true
 	}
