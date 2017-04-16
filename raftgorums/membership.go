@@ -127,6 +127,7 @@ func (m *membership) commit() bool {
 
 func (m *membership) rollback() {
 	m.Lock()
+	m.pending = nil
 	m.latest = m.committed
 	m.latestIndex = m.committedIndex
 	m.Unlock()
