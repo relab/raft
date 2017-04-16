@@ -121,11 +121,15 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 
 	// TODO Order.
 	r := &Raft{
-		id:               cfg.ID,
-		currentTerm:      term,
-		votedFor:         votedFor,
-		sm:               sm,
-		storage:          storage,
+		id:          cfg.ID,
+		currentTerm: term,
+		votedFor:    votedFor,
+		sm:          sm,
+		storage:     storage,
+		mem: &membership{
+			id:     cfg.ID,
+			logger: cfg.Logger,
+		},
 		batch:            cfg.Batch,
 		addrs:            cfg.Servers,
 		cluster:          cfg.InitialCluster,
@@ -169,12 +173,8 @@ func (r *Raft) Run(server *grpc.Server) error {
 		return err
 	}
 
-	mem := &membership{
-		id:     r.id,
-		mgr:    mgr,
-		lookup: lookup,
-		logger: r.logger,
-	}
+	r.mem.mgr = mgr
+	r.mem.lookup = lookup
 
 	gorums.RegisterRaftServer(server, r)
 
@@ -184,11 +184,11 @@ func (r *Raft) Run(server *grpc.Server) error {
 		if r.id == id {
 			// Exclude self.
 			r.state = Follower
-			mem.enabled = true
+			r.mem.enabled = true
 			continue
 		}
 		r.logger.WithField("serverid", id).Warnln("Added to cluster")
-		clusterIDs = append(clusterIDs, mem.getNodeID(id))
+		clusterIDs = append(clusterIDs, r.mem.getNodeID(id))
 	}
 
 	conf, err := mgr.NewConfiguration(clusterIDs, NewQuorumSpec(len(clusterIDs)+1))
@@ -197,9 +197,8 @@ func (r *Raft) Run(server *grpc.Server) error {
 		return err
 	}
 
-	mem.latest = conf
-	mem.committed = conf
-	r.mem = mem
+	r.mem.latest = conf
+	r.mem.committed = conf
 
 	for _, nodeID := range mgr.NodeIDs() {
 		r.match[nodeID] = make(chan uint64, 1)
