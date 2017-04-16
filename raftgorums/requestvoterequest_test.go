@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/relab/raft"
 	"github.com/relab/raft/commonpb"
 	"github.com/relab/raft/raftgorums"
 	pb "github.com/relab/raft/raftgorums/raftpb"
-	"github.com/relab/raft"
 )
 
 func log2() map[uint64]*commonpb.Entry {

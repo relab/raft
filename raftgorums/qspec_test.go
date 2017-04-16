@@ -18,10 +18,21 @@ var requestVoteQFTests = []struct {
 	reply   *pb.RequestVoteResponse
 }{
 	{
-		"do not grant vote",
+		"do not grant vote, single reply",
 		n3q1,
 		&pb.RequestVoteRequest{Term: 2},
 		[]*pb.RequestVoteResponse{
+			{Term: 2, VoteGranted: false},
+		},
+		false,
+		nil,
+	},
+	{
+		"do not grant vote, all replies",
+		n3q1,
+		&pb.RequestVoteRequest{Term: 2},
+		[]*pb.RequestVoteResponse{
+			{Term: 2, VoteGranted: false},
 			{Term: 2, VoteGranted: false},
 		},
 		false,
