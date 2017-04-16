@@ -30,9 +30,10 @@ type membership struct {
 
 func (m *membership) isActive() bool {
 	m.RLock()
-	defer m.RUnlock()
+	enabled := m.enabled
+	m.RUnlock()
 
-	return m.enabled
+	return enabled
 }
 
 func (m *membership) startReconfiguration(req *commonpb.ReconfRequest) bool {
@@ -106,8 +107,6 @@ func (m *membership) setStable(stable bool) {
 
 func (m *membership) set(index uint64) {
 	m.Lock()
-	defer m.Unlock()
-
 	switch m.pending.ReconfType {
 	case commonpb.ReconfAdd:
 		m.latest, m.enabled = m.addServer(m.pending.ServerID)
@@ -116,17 +115,18 @@ func (m *membership) set(index uint64) {
 	}
 	m.latestIndex = index
 	m.logger.WithField("latest", m.latest.NodeIDs()).Warnln("New configuration")
+	m.Unlock()
 }
 
 func (m *membership) commit() bool {
 	m.Lock()
-	defer m.Unlock()
-
 	m.pending = nil
 	m.committed = m.latest
 	m.committedIndex = m.latestIndex
+	enabled := m.enabled
+	m.Unlock()
 
-	return m.enabled
+	return enabled
 }
 
 func (m *membership) rollback() {
@@ -139,9 +139,10 @@ func (m *membership) rollback() {
 
 func (m *membership) get() *gorums.Configuration {
 	m.RLock()
-	defer m.RUnlock()
+	latest := m.latest
+	m.RUnlock()
 
-	return m.latest
+	return latest
 }
 
 // TODO Return the same configuration if adding/removing self.
