@@ -129,12 +129,27 @@ func (m *membership) commit() bool {
 	return enabled
 }
 
-func (m *membership) rollback() {
+func (m *membership) abort() {
 	m.Lock()
 	m.pending = nil
 	m.latest = m.committed
 	m.latestIndex = m.committedIndex
 	m.Unlock()
+}
+
+func (m *membership) rollback() {
+	m.Lock()
+	m.latest = m.committed
+	m.latestIndex = m.committedIndex
+	m.Unlock()
+}
+
+func (m *membership) getIndex() uint64 {
+	m.RLock()
+	index := m.latestIndex
+	m.RUnlock()
+
+	return index
 }
 
 func (m *membership) get() *gorums.Configuration {
@@ -282,7 +297,7 @@ func (r *Raft) replicate(serverID uint64, promise raft.PromiseEntry) {
 				promise.Respond(&commonpb.ReconfResponse{
 					Status: commonpb.ReconfTimeout,
 				})
-				r.mem.rollback()
+				r.mem.abort()
 				return
 			}
 
@@ -297,7 +312,7 @@ func (r *Raft) replicate(serverID uint64, promise raft.PromiseEntry) {
 			promise.Respond(&commonpb.ReconfResponse{
 				Status: commonpb.ReconfNotLeader,
 			})
-			r.mem.rollback()
+			r.mem.abort()
 			return
 		}
 

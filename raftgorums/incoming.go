@@ -226,6 +226,11 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		if entry.Term != r.logTerm(index) {
 			logLen = r.storage.NextIndex() - 1
 			for logLen > index-1 {
+				// If we are overwriting the latest
+				// configuration, rollback to the committed one.
+				if logLen == r.mem.getIndex() {
+					r.mem.rollback()
+				}
 				r.storage.RemoveEntries(logLen, logLen)
 				logLen = r.storage.NextIndex() - 1
 			}
