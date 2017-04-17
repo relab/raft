@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/relab/raft"
 	"github.com/relab/raft/commonpb"
 	"github.com/relab/raft/raftgorums"
 	pb "github.com/relab/raft/raftgorums/raftpb"
-	"github.com/relab/raft"
 )
 
 func noop(index uint64, term uint64) *commonpb.Entry {
@@ -184,6 +184,7 @@ func TestHandleAppendEntriesRequest(t *testing.T) {
 	for _, test := range handleAppendEntriesRequestTests {
 		t.Run(test.name, func(t *testing.T) {
 			r := raftgorums.NewRaft(&noopMachine{}, &raftgorums.Config{
+				ID:              1,
 				ElectionTimeout: time.Second,
 				Storage:         test.s,
 				Logger:          l,

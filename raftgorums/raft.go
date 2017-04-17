@@ -112,8 +112,13 @@ type catchUpReq struct {
 
 // NewRaft returns a new Raft given a configuration.
 func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
-	// TODO Validate config, i.e., make sure to sensible defaults if an
-	// option is not configured.
+	err := validate(cfg)
+
+	// TODO Make NewRaft return error.
+	if err != nil {
+		panic(err)
+	}
+
 	storage := raft.NewPanicStorage(cfg.Storage, cfg.Logger)
 
 	term := storage.Get(raft.KeyTerm)

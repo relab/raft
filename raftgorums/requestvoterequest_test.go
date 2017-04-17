@@ -402,6 +402,7 @@ func TestHandleRequestVoteRequest(t *testing.T) {
 	for _, test := range handleRequestVoteRequestTests {
 		t.Run(test.name, func(t *testing.T) {
 			r := raftgorums.NewRaft(&noopMachine{}, &raftgorums.Config{
+				ID:              1,
 				ElectionTimeout: time.Second,
 				Storage:         test.s,
 				Logger:          l,
