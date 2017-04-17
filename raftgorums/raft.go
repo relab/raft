@@ -153,7 +153,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		aereqout:         make(chan *pb.AppendEntriesRequest, 128),
 		cureqout:         make(chan *catchUpReq, 16),
 		toggle:           make(chan struct{}, 1),
-		logger:           cfg.Logger,
+		logger:           cfg.Logger.WithField("raftid", cfg.ID),
 		metricsEnabled:   cfg.MetricsEnabled,
 		stop:             make(chan struct{}),
 	}
