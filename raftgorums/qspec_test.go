@@ -35,8 +35,8 @@ var requestVoteQFTests = []struct {
 			{Term: 2, VoteGranted: false},
 			{Term: 2, VoteGranted: false},
 		},
-		false,
-		nil,
+		true,
+		&pb.RequestVoteResponse{Term: 2},
 	},
 	{
 		"grant vote",
