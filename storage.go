@@ -49,6 +49,12 @@ type Memory struct {
 
 // NewMemory returns a memory backed storage.
 func NewMemory(kvstore map[uint64]uint64, log map[uint64]*commonpb.Entry) *Memory {
+	if _, ok := kvstore[KeyFirstIndex]; !ok {
+		kvstore[KeyFirstIndex] = 1
+	}
+	if _, ok := kvstore[KeyNextIndex]; !ok {
+		kvstore[KeyNextIndex] = 1
+	}
 	return &Memory{
 		kvstore: kvstore,
 		log:     log,
