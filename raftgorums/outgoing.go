@@ -15,6 +15,8 @@ func (r *Raft) handleOutgoing() error {
 
 	for {
 		select {
+		case <-r.stop:
+			return nil
 		case err := <-r.mem.get().SubError():
 			// TODO If a node becomes unavailable and there is a
 			// backup available in the same or an alternate region,

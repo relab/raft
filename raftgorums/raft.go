@@ -103,6 +103,8 @@ type Raft struct {
 	logger logrus.FieldLogger
 
 	metricsEnabled bool
+
+	stop chan struct{}
 }
 
 type catchUpReq struct {
@@ -153,9 +155,15 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		toggle:           make(chan struct{}, 1),
 		logger:           cfg.Logger,
 		metricsEnabled:   cfg.MetricsEnabled,
+		stop:             make(chan struct{}),
 	}
 
 	return r
+}
+
+// Stop forcibly stops the Raft server.
+func (r *Raft) Stop() {
+	close(r.stop)
 }
 
 // Run starts a server running the Raft algorithm.
@@ -244,6 +252,12 @@ func (r *Raft) run() {
 			r.runNormal()
 		}
 
+		select {
+		case <-r.stop:
+			return
+		default:
+		}
+
 		if r.mem.isActive() {
 			r.logger.Warnln("Dormant -> Normal")
 			r.Lock()
@@ -284,6 +298,8 @@ func (r *Raft) runDormant() {
 			baselineTimeout = time.After(r.electionTimeout)
 			baseline()
 		case <-r.toggle:
+			return
+		case <-r.stop:
 			return
 		}
 	}
@@ -366,6 +382,8 @@ func (r *Raft) runNormal() {
 			}
 			r.sendAppendEntries()
 		case <-r.toggle:
+			return
+		case <-r.stop:
 			return
 		}
 	}
@@ -515,6 +533,8 @@ func (r *Raft) runStateMachine() {
 		select {
 		case commit := <-r.applyCh:
 			apply(commit)
+		case <-r.stop:
+			return
 		}
 	}
 }
