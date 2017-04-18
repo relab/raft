@@ -66,7 +66,8 @@ func TestMemory(t *testing.T) {
 		t.Errorf("got %d, want %d", first, firstIndex)
 	}
 
-	if next != nextIndex {
-		t.Errorf("got %d, want %d", next, nextIndex)
+	// Because we remove one entry.
+	if next != firstIndex {
+		t.Errorf("got %d, want %d", next, firstIndex)
 	}
 }
