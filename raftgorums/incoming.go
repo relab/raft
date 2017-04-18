@@ -357,7 +357,10 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 	if r.state == Candidate && response.VoteGranted {
 		if r.preElection {
 			r.preElection = false
-			r.startElectionNow <- struct{}{}
+			select {
+			case r.startElectionNow <- struct{}{}:
+			case <-r.stop:
+			}
 			return
 		}
 
@@ -430,7 +433,12 @@ func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesQFResponse,
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	// If we didn't get a response from a majority (excluding self) step down.
 	if response.Term > r.currentTerm || replies < uint64((len(r.mem.get().NodeIDs())+1)/2) {
-		r.becomeFollower(response.Term)
+		// Become follower.
+		select {
+		case r.toggle <- struct{}{}:
+			r.logger.Warnln("Leader stepping down")
+		case <-r.stop:
+		}
 
 		return
 	}
