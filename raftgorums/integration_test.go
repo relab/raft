@@ -17,54 +17,6 @@ import (
 	"github.com/relab/raft/raftgorums"
 )
 
-func newServer(t *testing.T, wait *sync.WaitGroup, id uint64, n uint64, memory *raft.Memory, electionTimeout time.Duration) (*raftgorums.Raft, *grpc.Server) {
-	initialCluster := make([]uint64, n)
-
-	for i := uint64(0); i < n; i++ {
-		initialCluster[i] = i + 1
-	}
-
-	servers := make([]string, n)
-
-	for i := uint64(0); i < n; i++ {
-		servers[i] = fmt.Sprintf(":92%02d", i+1)
-	}
-
-	cfg := &raftgorums.Config{
-		ID:               id,
-		Servers:          servers,
-		InitialCluster:   initialCluster,
-		Storage:          memory,
-		HeartbeatTimeout: 10 * time.Millisecond,
-		ElectionTimeout:  electionTimeout,
-		Logger: &logrus.Logger{
-			Out: ioutil.Discard,
-		},
-	}
-
-	grpcServer := grpc.NewServer()
-	lis, err := net.Listen("tcp", cfg.Servers[id-1])
-
-	if err != nil {
-		t.Errorf("could not listen on %s: %v", cfg.Servers[id-1], err)
-	}
-
-	go func() {
-		grpcServer.Serve(lis)
-		wait.Done()
-	}()
-
-	return raftgorums.NewRaft(&noopMachine{}, cfg), grpcServer
-}
-
-func runServer(t *testing.T, raft *raftgorums.Raft, grpcServer *grpc.Server) {
-	err := raft.Run(grpcServer)
-
-	if err != nil {
-		t.Error(err)
-	}
-}
-
 func TestLeaderElection(t *testing.T) {
 	logger := &logrus.Logger{
 		Out: ioutil.Discard,
@@ -73,78 +25,243 @@ func TestLeaderElection(t *testing.T) {
 
 	var n uint64 = 7
 
-	for i := uint64(1); i <= n; i++ {
-		t.Run(fmt.Sprintf("leader %d", i), func(t *testing.T) {
-			testElectLeader(t, n, i)
-		})
+	for i := n; i > 1; i-- {
+		for j := i; j > 1; j-- {
+			t.Run(fmt.Sprintf("leader %d, n: %d", j, i), func(t *testing.T) {
+				testElectLeader(t, i, j)
+			})
+			t.Run(fmt.Sprintf("leader stepdown %d, n: %d", j, i), func(t *testing.T) {
+				testElectLeaderStepDown(t, i, j)
+			})
+		}
+	}
+}
+
+type cfg struct {
+	id              uint64
+	n               uint64
+	electionTimeout time.Duration
+}
+
+type testServer struct {
+	t  *testing.T
+	wg *sync.WaitGroup
+
+	timeout    time.Duration
+	kv         map[uint64]uint64
+	log        map[uint64]*commonpb.Entry
+	mem        *raft.Memory
+	raft       *raftgorums.Raft
+	grpcServer *grpc.Server
+}
+
+var port uint64 = 9201
+
+func newTestServer(t *testing.T, wg *sync.WaitGroup, c *cfg, port uint64) *testServer {
+	initialCluster := make([]uint64, c.n)
+
+	for i := uint64(0); i < c.n; i++ {
+		initialCluster[i] = i + 1
+	}
+
+	servers := make([]string, c.n)
+
+	for i := c.n; i > 0; i-- {
+		servers[i-1] = fmt.Sprintf(":%d", port)
+		port++
+	}
+
+	kv := make(map[uint64]uint64)
+	raftLog := make(map[uint64]*commonpb.Entry)
+
+	server := &testServer{
+		t:       t,
+		wg:      wg,
+		timeout: c.electionTimeout,
+		kv:      kv,
+		log:     raftLog,
+		mem:     raft.NewMemory(kv, raftLog),
+	}
+
+	cfg := &raftgorums.Config{
+		ID:               c.id,
+		Servers:          servers,
+		InitialCluster:   initialCluster,
+		Storage:          server.mem,
+		HeartbeatTimeout: 10 * time.Millisecond,
+		ElectionTimeout:  c.electionTimeout,
+		Logger: &logrus.Logger{
+			Out: ioutil.Discard,
+		},
+	}
+
+	grpcServer := grpc.NewServer()
+	lis, err := net.Listen("tcp", cfg.Servers[c.id-1])
+
+	if err != nil {
+		t.Errorf("could not listen on %s: %v", cfg.Servers[c.id-1], err)
+	}
+
+	go func() {
+		grpcServer.Serve(lis)
+		wg.Done()
+	}()
+
+	raft := raftgorums.NewRaft(&noopMachine{}, cfg)
+
+	server.grpcServer = grpcServer
+	server.raft = raft
+
+	return server
+}
+
+func (t *testServer) Stop() {
+	t.raft.Stop()
+	t.grpcServer.Stop()
+}
+
+func (t *testServer) Run() {
+	err := t.raft.Run(t.grpcServer)
+
+	if err != nil {
+		t.t.Error(err)
 	}
 }
 
 func testElectLeader(t *testing.T, n uint64, leader uint64) {
 	var wg sync.WaitGroup
 
-	timeouts := make([]time.Duration, n)
-	kvs := make([]map[uint64]uint64, n)
-	logs := make([]map[uint64]*commonpb.Entry, n)
-	mems := make([]*raft.Memory, n)
-	rafts := make([]*raftgorums.Raft, n)
-	grpcServers := make([]*grpc.Server, n)
+	servers := make(map[uint64]*testServer, n)
 
-	for i := uint64(0); i < n; i++ {
-		timeouts[i] = time.Second
-	}
-	timeouts[leader-1] = 50 * time.Millisecond
+	p := port
+	port += n + 1
 
-	for i := uint64(0); i < n; i++ {
-		kvs[i], logs[i] = newKVLog()
-		mems[i] = raft.NewMemory(kvs[i], logs[i])
+	for i := n; i > 0; i-- {
 		wg.Add(1)
-		rafts[i], grpcServers[i] = newServer(t, &wg, i+1, n, mems[i], timeouts[i])
+		timeout := time.Second
+		if i == leader {
+			timeout = 25 * time.Millisecond
+		}
+		servers[i] = newTestServer(t, &wg, &cfg{
+			id:              i,
+			n:               n,
+			electionTimeout: timeout,
+		}, p)
 	}
 
-	time.AfterFunc(250*time.Millisecond, func() {
-		for i := uint64(0); i < n; i++ {
-			rafts[i].Stop()
-		}
-		for i := uint64(0); i < n; i++ {
-			grpcServers[i].GracefulStop()
+	time.AfterFunc(500*time.Millisecond, func() {
+		for i := n; i > 0; i-- {
+			servers[i].Stop()
 		}
 	})
 
-	for i := uint64(0); i < n; i++ {
-		go runServer(t, rafts[i], grpcServers[i])
+	for i := n; i > 0; i-- {
+		go servers[i].Run()
 	}
 	wg.Wait()
 
-	checkKVs := func(kvs map[uint64]uint64) uint64 {
-		if kvs[raft.KeyTerm] != 1 {
-			t.Errorf("term: got %d, want %d", kvs[raft.KeyTerm], 1)
+	var votes uint64
+
+	for i := n; i > 0; i-- {
+		votes += checkKVs(t, servers[i].kv, 1, 2, leader)
+	}
+
+	checkLeaderState(t, servers[leader].raft.State(), raftgorums.Leader)
+	checkFollowersState(t, servers, leader)
+	checkVotes(t, votes, n)
+}
+
+func testElectLeaderStepDown(t *testing.T, n uint64, leader uint64) {
+	var wg sync.WaitGroup
+
+	servers := make(map[uint64]*testServer, n)
+
+	p := port
+	port += n + 1
+
+	for i := n; i > 0; i-- {
+		wg.Add(1)
+		timeout := time.Second
+		if i == leader {
+			timeout = 25 * time.Millisecond
 		}
-		if kvs[raft.KeyNextIndex] != 2 {
-			t.Errorf("next index: got %d, want %d", kvs[raft.KeyNextIndex], 2)
-		}
-		votedFor := kvs[raft.KeyVotedFor]
-		if votedFor != leader && votedFor != raftgorums.None {
-			t.Errorf("voted for: got %d, want %d", kvs[raft.KeyVotedFor], leader)
+		servers[i] = newTestServer(t, &wg, &cfg{
+			id:              i,
+			n:               n,
+			electionTimeout: timeout,
+		}, p)
+	}
+
+	time.AfterFunc(500*time.Millisecond, func() {
+		for i := n; i > 0; i-- {
+			if i != leader {
+				servers[i].Stop()
+			}
 		}
 
-		if votedFor == leader {
-			return 1
-		}
-		return 0
+		time.Sleep(4 * servers[leader].timeout)
+		servers[leader].Stop()
+	})
+
+	for i := n; i > 0; i-- {
+		go servers[i].Run()
 	}
+	wg.Wait()
 
 	var votes uint64
 
-	for i := uint64(0); i < n; i++ {
-		votes += checkKVs(kvs[i])
+	for i := n; i > 0; i-- {
+		votes += checkKVs(t, servers[i].kv, 1, 2, leader)
 	}
 
+	checkLeaderState(t, servers[leader].raft.State(), raftgorums.Candidate)
+	checkFollowersState(t, servers, leader)
+	checkVotes(t, votes, n)
+}
+
+func checkFollowersState(t *testing.T, servers map[uint64]*testServer, leader uint64) {
+	for id, server := range servers {
+		if id == leader {
+			continue
+		}
+		if server.raft.State() != raftgorums.Follower {
+			t.Errorf("unexpected follower state: got %v, want %v", server.raft.State(), raftgorums.Follower)
+		}
+	}
+}
+
+func checkLeaderState(t *testing.T, got, want raftgorums.State) {
+	if want == raftgorums.Candidate {
+		if got > want {
+			t.Errorf("unexpected leader state: got %v, want at most %v", got, want)
+		}
+		return
+	}
+	if got != want {
+		t.Errorf("unexpected leader state: got %v, want %v", got, want)
+	}
+}
+
+func checkVotes(t *testing.T, votes, n uint64) {
 	if votes < n/2+1 {
 		t.Errorf("got %d votes, want at least %d", votes, n/2+1)
 	}
 }
 
-func newKVLog() (map[uint64]uint64, map[uint64]*commonpb.Entry) {
-	return make(map[uint64]uint64), make(map[uint64]*commonpb.Entry)
+func checkKVs(t *testing.T, kvs map[uint64]uint64, term, nextIndex, leader uint64) uint64 {
+	if kvs[raft.KeyTerm] != term {
+		t.Errorf("term: got %d, want %d", kvs[raft.KeyTerm], term)
+	}
+	if kvs[raft.KeyNextIndex] != nextIndex {
+		t.Errorf("next index: got %d, want %d", kvs[raft.KeyNextIndex], nextIndex)
+	}
+	votedFor := kvs[raft.KeyVotedFor]
+	if votedFor != leader && votedFor != raftgorums.None {
+		t.Errorf("voted for: got %d, want %d", kvs[raft.KeyVotedFor], leader)
+	}
+
+	if votedFor == leader {
+		return 1
+	}
+	return 0
 }
