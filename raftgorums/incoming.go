@@ -443,14 +443,15 @@ func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesQFResponse,
 		return
 	}
 
+	// Heartbeat to a majority.
+	r.resetElection = true
+
 	// Ignore late response
 	if response.Term < r.currentTerm {
 		return
 	}
 
 	if response.Success {
-		// Successful heartbeat to a majority.
-		r.resetElection = true
 		r.matchIndex = response.MatchIndex
 		r.nextIndex = r.matchIndex + 1
 
