@@ -326,6 +326,12 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		defer timer.ObserveDuration()
 	}
 
+	r.logger.WithFields(logrus.Fields{
+		"currentterm":  r.currentTerm,
+		"responseterm": response.Term,
+		"votegranted":  response.VoteGranted,
+	}).Infoln("Got vote response")
+
 	term := r.currentTerm
 
 	if r.preElection {
