@@ -132,7 +132,11 @@ func (r *Raft) handleOutgoing() error {
 			}
 
 			if res == nil {
-				continue
+				// This will cause the leader to step down as
+				// len(res.Replies) == 0.
+				res = &pb.AppendEntriesQFResponse{
+					Term: req.Term,
+				}
 			}
 
 			// Cancel on abort.
