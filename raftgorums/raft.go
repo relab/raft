@@ -2,6 +2,7 @@ package raftgorums
 
 import (
 	"container/list"
+	"fmt"
 	"sync"
 	"time"
 
@@ -164,6 +165,13 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 // Stop forcibly stops the Raft server.
 func (r *Raft) Stop() {
 	close(r.stop)
+	t := time.AfterFunc(time.Second, func() {
+		// Panic if Raft is locked on Stop.
+		panic(fmt.Sprintf("failed to aqcuire lock: %d", r.id))
+	})
+	r.Lock()
+	r.Unlock()
+	t.Stop()
 }
 
 // Run starts a server running the Raft algorithm.
