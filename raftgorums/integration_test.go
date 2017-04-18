@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/net/context"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
 
@@ -33,6 +35,11 @@ func TestLeaderElection(t *testing.T) {
 			t.Run(fmt.Sprintf("leader stepdown %d, n: %d", j, i), func(t *testing.T) {
 				testElectLeaderStepDown(t, i, j)
 			})
+			if i != j {
+				t.Run(fmt.Sprintf("leader %d, n: %d, add %d", j, i, i), func(t *testing.T) {
+					testProposeConf(t, i, j)
+				})
+			}
 		}
 	}
 }
@@ -57,10 +64,13 @@ type testServer struct {
 
 var port uint64 = 9201
 
-func newTestServer(t *testing.T, wg *sync.WaitGroup, c *cfg, port uint64) *testServer {
+func newTestServer(t *testing.T, wg *sync.WaitGroup, c *cfg, port uint64, exclude ...uint64) *testServer {
 	initialCluster := make([]uint64, c.n)
+	if len(exclude) > 0 {
+		initialCluster = make([]uint64, c.n-1)
+	}
 
-	for i := uint64(0); i < c.n; i++ {
+	for i := uint64(0); i < uint64(len(initialCluster)); i++ {
 		initialCluster[i] = i + 1
 	}
 
@@ -217,6 +227,69 @@ func testElectLeaderStepDown(t *testing.T, n uint64, leader uint64) {
 	checkLeaderState(t, servers[leader].raft.State(), raftgorums.Candidate)
 	checkFollowersState(t, servers, leader)
 	checkVotes(t, votes, n)
+}
+
+func testProposeConf(t *testing.T, n uint64, leader uint64) {
+	var wg sync.WaitGroup
+
+	servers := make(map[uint64]*testServer, n)
+
+	p := port
+	port += n + 1
+
+	for i := n; i > 0; i-- {
+		wg.Add(1)
+		timeout := time.Second
+		if i == leader {
+			timeout = 25 * time.Millisecond
+		}
+		servers[i] = newTestServer(t, &wg, &cfg{
+			id:              i,
+			n:               n,
+			electionTimeout: timeout,
+		}, p, n)
+	}
+
+	time.AfterFunc(500*time.Millisecond, func() {
+		for i := n; i > 0; i-- {
+			servers[i].Stop()
+		}
+	})
+
+	for i := n; i > 0; i-- {
+		go servers[i].Run()
+	}
+
+	time.Sleep(250 * time.Millisecond)
+	future, err := servers[leader].raft.ProposeConf(context.Background(), &commonpb.ReconfRequest{
+		ServerID:   n,
+		ReconfType: commonpb.ReconfAdd,
+	})
+
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	res := <-future.ResultCh()
+	reconfStatus := res.Value.(*commonpb.ReconfResponse).Status
+
+	if reconfStatus != commonpb.ReconfOK {
+		t.Errorf("reconf: got %d, want %d", reconfStatus, commonpb.ReconfOK)
+		return
+	}
+
+	wg.Wait()
+
+	var votes uint64
+
+	for i := n; i > 0; i-- {
+		votes += checkKVs(t, servers[i].kv, 1, 3, leader)
+	}
+
+	checkLeaderState(t, servers[leader].raft.State(), raftgorums.Leader)
+	checkFollowersState(t, servers, leader)
+	checkVotes(t, votes, n-1)
 }
 
 func checkFollowersState(t *testing.T, servers map[uint64]*testServer, leader uint64) {
