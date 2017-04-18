@@ -448,20 +448,17 @@ func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesQFResponse,
 		return
 	}
 
-	if r.state == Leader {
-		if response.Success {
-			// Successful heartbeat to a majority.
-			r.resetElection = true
+	if response.Success {
+		// Successful heartbeat to a majority.
+		r.resetElection = true
+		r.matchIndex = response.MatchIndex
+		r.nextIndex = r.matchIndex + 1
 
-			r.matchIndex = response.MatchIndex
-			r.nextIndex = r.matchIndex + 1
-
-			return
-		}
-
-		// If AppendEntries was not successful lower match index.
-		r.nextIndex = max(1, response.MatchIndex)
+		return
 	}
+
+	// If AppendEntries was not successful lower match index.
+	r.nextIndex = max(1, response.MatchIndex)
 }
 
 func (r *Raft) HandleInstallSnapshotResponse(res *pb.InstallSnapshotResponse) bool {
