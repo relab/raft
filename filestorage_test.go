@@ -44,7 +44,10 @@ func TestNewFileStorage(t *testing.T) {
 	overwrite := false
 
 	// Create storage on path.
-	_, path, _ := newFileStorage(t, !overwrite)
+	storage, path, _ := newFileStorage(t, !overwrite)
+	// Close storage so that the lock on the file is released in time for
+	// the recover below.
+	storage.Close()
 
 	// Recover from path, where file exists.
 	_, _, cleanup2 := newFileStorage(t, overwrite, path)
