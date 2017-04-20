@@ -15,7 +15,7 @@ func (r *Raft) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (ra
 		return nil, err
 	}
 
-	promise, future, err := r.cmdToFuture(cmd, commonpb.EntryConfChange)
+	promise, future, err := r.cmdToFuture(cmd, commonpb.EntryReconf)
 
 	// TODO Fix error returned here, NotLeader should be a status code.
 	if err != nil {

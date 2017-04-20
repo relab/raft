@@ -501,7 +501,7 @@ func (r *Raft) runStateMachine() {
 		case commonpb.EntryInternal:
 		case commonpb.EntryNormal:
 			res = r.sm.Apply(entry)
-		case commonpb.EntryConfChange:
+		case commonpb.EntryReconf:
 			// TODO We should be able to skip the unmarshaling if we
 			// are not recovering.
 			var reconf commonpb.ReconfRequest
@@ -604,7 +604,7 @@ LOOP:
 			promiseEntry := promise.Write(assignIndex)
 			entry := promiseEntry.Entry()
 
-			if entry.EntryType == commonpb.EntryConfChange {
+			if entry.EntryType == commonpb.EntryReconf {
 				reconf = assignIndex
 			}
 			assignIndex++

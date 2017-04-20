@@ -251,7 +251,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	logLen = r.storage.NextIndex() - 1
 
 	for _, entry := range toSave {
-		if entry.EntryType == commonpb.EntryConfChange {
+		if entry.EntryType == commonpb.EntryReconf {
 			var reconf commonpb.ReconfRequest
 			err := reconf.Unmarshal(entry.Data)
 
