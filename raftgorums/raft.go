@@ -43,7 +43,7 @@ const BufferSize = 10000
 // Raft represents an instance of the Raft algorithm.
 type Raft struct {
 	// Must be acquired before mutating Raft state.
-	sync.Mutex
+	mu sync.Mutex
 
 	id     uint64
 	leader uint64
@@ -169,8 +169,8 @@ func (r *Raft) Stop() {
 		// Panic if Raft is locked on Stop.
 		panic(fmt.Sprintf("failed to aqcuire lock: %d", r.id))
 	})
-	r.Lock()
-	r.Unlock()
+	r.mu.Lock()
+	r.mu.Unlock()
 	t.Stop()
 }
 
@@ -268,14 +268,14 @@ func (r *Raft) run() {
 
 		if r.mem.isActive() {
 			r.logger.Warnln("Now running in Normal mode")
-			r.Lock()
+			r.mu.Lock()
 			r.state = Follower
-			r.Unlock()
+			r.mu.Unlock()
 		} else {
 			r.logger.Warnln("Now running in Dormant mode")
-			r.Lock()
+			r.mu.Lock()
 			r.state = Inactive
-			r.Unlock()
+			r.mu.Unlock()
 		}
 
 		r.becomeFollower(r.currentTerm)
@@ -289,8 +289,8 @@ func (r *Raft) run() {
 // method.
 func (r *Raft) runDormant() {
 	baseline := func() {
-		r.Lock()
-		defer r.Unlock()
+		r.mu.Lock()
+		defer r.mu.Unlock()
 		if r.resetBaseline {
 			r.resetBaseline = false
 			return
@@ -317,8 +317,8 @@ func (r *Raft) runDormant() {
 // All RPCs are handled by Gorums.
 func (r *Raft) runNormal() {
 	startElection := func() {
-		r.Lock()
-		defer r.Unlock()
+		r.mu.Lock()
+		defer r.mu.Unlock()
 		if r.resetElection {
 			r.resetElection = false
 			return
@@ -342,8 +342,8 @@ func (r *Raft) runNormal() {
 	}
 
 	baseline := func() {
-		r.Lock()
-		defer r.Unlock()
+		r.mu.Lock()
+		defer r.mu.Unlock()
 		if r.state == Leader {
 			return
 		}
@@ -398,11 +398,11 @@ func (r *Raft) runNormal() {
 }
 
 func (r *Raft) cmdToFuture(cmd []byte, kind commonpb.EntryType) (raft.PromiseEntry, raft.Future, error) {
-	r.Lock()
+	r.mu.Lock()
 	state := r.state
 	leader := r.leader
 	term := r.currentTerm
-	r.Unlock()
+	r.mu.Unlock()
 
 	if state != Leader {
 		return nil, nil, raft.ErrNotLeader{Leader: leader}
@@ -420,8 +420,8 @@ func (r *Raft) cmdToFuture(cmd []byte, kind commonpb.EntryType) (raft.PromiseEnt
 }
 
 func (r *Raft) advanceCommitIndex() {
-	r.Lock()
-	defer r.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	if r.state != Leader {
 		return
@@ -585,8 +585,8 @@ func (r *Raft) startElection() {
 }
 
 func (r *Raft) sendAppendEntries() {
-	r.Lock()
-	defer r.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	var toSave []*commonpb.Entry
 	assignIndex := r.storage.NextIndex()
@@ -699,8 +699,8 @@ func (r *Raft) logTerm(index uint64) uint64 {
 
 // State returns the current raft state.
 func (r *Raft) State() State {
-	r.Lock()
-	defer r.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	return r.state
 }

@@ -268,7 +268,7 @@ func (r *Raft) replicate(serverID uint64, promise raft.PromiseEntry) {
 	var errs int
 
 	for {
-		r.Lock()
+		r.mu.Lock()
 		target := r.matchIndex
 		// TODO We don't need lock on maxAppendEntries as it's only read
 		// across all routines.
@@ -276,7 +276,7 @@ func (r *Raft) replicate(serverID uint64, promise raft.PromiseEntry) {
 
 		entries := r.getNextEntries(matchIndex + 1)
 		req := r.getAppendEntriesRequest(matchIndex+1, entries)
-		r.Unlock()
+		r.mu.Unlock()
 
 		ctx, cancel := context.WithTimeout(context.Background(), r.electionTimeout)
 		res, err := node.RaftClient.AppendEntries(ctx, req)
@@ -297,9 +297,9 @@ func (r *Raft) replicate(serverID uint64, promise raft.PromiseEntry) {
 			continue
 		}
 
-		r.Lock()
+		r.mu.Lock()
 		state := r.state
-		r.Unlock()
+		r.mu.Unlock()
 
 		if state != Leader {
 			promise.Respond(&commonpb.ReconfResponse{

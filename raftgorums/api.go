@@ -70,9 +70,9 @@ func (r *Raft) ReadCmd(ctx context.Context, cmd []byte) (raft.Future, error) {
 		rmetrics.readReqs.Add(1)
 	}
 
-	r.Lock()
+	r.mu.Lock()
 	r.pendingReads = append(r.pendingReads, promise.Read())
-	r.Unlock()
+	r.mu.Unlock()
 
 	return future, nil
 }

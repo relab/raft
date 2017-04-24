@@ -37,8 +37,8 @@ func (r *Raft) CatchMeUp(ctx context.Context, req *pb.CatchMeUpRequest) (res *pb
 // HandleRequestVoteRequest must be called when receiving a RequestVoteRequest,
 // the return value must be delivered to the requester.
 func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestVoteResponse {
-	r.Lock()
-	defer r.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.metricsEnabled {
 		timer := metrics.NewTimer(rmetrics.rvreq)
 		defer timer.ObserveDuration()
@@ -122,8 +122,8 @@ func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestV
 // HandleAppendEntriesRequest must be called when receiving a
 // AppendEntriesRequest, the return value must be delivered to the requester.
 func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
-	r.Lock()
-	defer r.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.metricsEnabled {
 		timer := metrics.NewTimer(rmetrics.aereq)
 		defer timer.ObserveDuration()
@@ -306,8 +306,8 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 }
 
 func (r *Raft) HandleInstallSnapshotRequest(snapshot *commonpb.Snapshot) (res *pb.InstallSnapshotResponse) {
-	r.Lock()
-	defer r.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	res = &pb.InstallSnapshotResponse{
 		Term: r.currentTerm,
@@ -319,8 +319,8 @@ func (r *Raft) HandleInstallSnapshotRequest(snapshot *commonpb.Snapshot) (res *p
 // HandleRequestVoteResponse must be invoked when receiving a
 // RequestVoteResponse.
 func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
-	r.Lock()
-	defer r.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.metricsEnabled {
 		timer := metrics.NewTimer(rmetrics.rvres)
 		defer timer.ObserveDuration()
@@ -420,9 +420,9 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 // HandleAppendEntriesResponse must be invoked when receiving an
 // AppendEntriesResponse.
 func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesQFResponse, replies uint64) {
-	r.Lock()
+	r.mu.Lock()
 	defer func() {
-		r.Unlock()
+		r.mu.Unlock()
 		r.advanceCommitIndex()
 	}()
 	if r.metricsEnabled {
@@ -463,8 +463,8 @@ func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesQFResponse,
 }
 
 func (r *Raft) HandleInstallSnapshotResponse(res *pb.InstallSnapshotResponse) bool {
-	r.Lock()
-	defer r.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	if res.Term > r.currentTerm {
 		r.becomeFollower(res.Term)
