@@ -1,6 +1,8 @@
 package raftgorums
 
 import (
+	"time"
+
 	"github.com/go-kit/kit/metrics"
 	"github.com/go-kit/kit/metrics/prometheus"
 	promc "github.com/prometheus/client_golang/prometheus"
@@ -26,30 +28,35 @@ var rmetrics = &raftMetrics{
 		Subsystem: "server",
 		Name:      "handle_append_entries_request",
 		Help:      "Total time spent handling request.",
+		MaxAge:    5 * time.Second,
 	}, []string{}),
 	aeres: prometheus.NewSummaryFrom(promc.SummaryOpts{
 		Namespace: "raft",
 		Subsystem: "server",
 		Name:      "handle_append_entries_response",
 		Help:      "Total time spent handling response.",
+		MaxAge:    5 * time.Second,
 	}, []string{}),
 	rvreq: prometheus.NewSummaryFrom(promc.SummaryOpts{
 		Namespace: "raft",
 		Subsystem: "server",
 		Name:      "handle_request_vote_request",
 		Help:      "Total time spent handling request.",
+		MaxAge:    5 * time.Second,
 	}, []string{}),
 	rvres: prometheus.NewSummaryFrom(promc.SummaryOpts{
 		Namespace: "raft",
 		Subsystem: "server",
 		Name:      "handle_request_vote_response",
 		Help:      "Total time spent handling response.",
+		MaxAge:    5 * time.Second,
 	}, []string{}),
 	cmdCommit: prometheus.NewSummaryFrom(promc.SummaryOpts{
 		Namespace: "raft",
 		Subsystem: "server",
 		Name:      "commit_client_command",
 		Help:      "Total time spent committing client command.",
+		MaxAge:    5 * time.Second,
 	}, []string{}),
 	readReqs: prometheus.NewCounterFrom(promc.CounterOpts{
 		Namespace: "raft",
