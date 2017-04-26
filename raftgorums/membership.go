@@ -3,6 +3,7 @@ package raftgorums
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"golang.org/x/net/context"
 
@@ -274,7 +275,7 @@ func (r *Raft) replicate(serverID uint64, promise raft.PromiseEntry) {
 		req := r.getAppendEntriesRequest(nextIndex, entries)
 		r.mu.Unlock()
 
-		ctx, cancel := context.WithTimeout(context.Background(), r.electionTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		res, err := node.RaftClient.AppendEntries(ctx, req)
 		cancel()
 
