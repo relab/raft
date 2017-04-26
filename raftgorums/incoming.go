@@ -140,15 +140,18 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	})
 	reqLogger.Infoln("Got AppendEntries")
 
-	// #AE1 Reply false if term < currentTerm.
-	if req.Term < r.currentTerm {
-		return &pb.AppendEntriesResponse{
-			Success: false,
-			Term:    r.currentTerm,
-		}
+	logLen := r.storage.NextIndex() - 1
+
+	res := &pb.AppendEntriesResponse{
+		Term:       r.currentTerm,
+		MatchIndex: logLen,
 	}
 
-	logLen := r.storage.NextIndex() - 1
+	// #AE1 Reply false if term < currentTerm.
+	if req.Term < r.currentTerm {
+		return res
+	}
+
 	prevTerm := r.logTerm(req.PrevLogIndex)
 
 	// An AppendEntries request is always successful for the first index. A
@@ -169,11 +172,11 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	success := firstIndex || gotPrevEntry
 
 	// #A2 If RPC request or response contains term T > currentTerm: set
-	// currentTerm = T, convert to follower.
-	if req.Term > r.currentTerm {
+	// currentTerm = T, convert to follower. Transition to follower upon
+	// receiving an AppendEntries call.
+	if req.Term > r.currentTerm || r.state != Follower {
 		r.becomeFollower(req.Term)
-	} else if r.id != req.LeaderID {
-		r.becomeFollower(r.currentTerm)
+		res.Term = req.Term
 	}
 
 	if r.metricsEnabled {
@@ -186,35 +189,14 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	r.heardFromLeader = true
 	r.seenLeader = true
 
-	matchIndex := logLen
-
-	// If our last entry is not from the current leaders term, use
-	// commit index as the match index. This is because we cannot
-	// know if any entries have been overwritten.
-	if r.logTerm(matchIndex) != r.currentTerm {
-		matchIndex = r.commitIndex
-	}
-
 	if !success {
 		r.cureqout <- &catchUpReq{
-			leaderID:   req.LeaderID,
-			matchIndex: matchIndex,
+			leaderID: req.LeaderID,
+			// TODO term: req.Term, ?
+			matchIndex: res.MatchIndex,
 		}
 
-		return &pb.AppendEntriesResponse{
-			Term:       req.Term,
-			MatchIndex: matchIndex,
-		}
-	}
-
-	// If we already know that the entries we are receiving are committed in
-	// our log, we can return early.
-	if req.CommitIndex < r.commitIndex {
-		return &pb.AppendEntriesResponse{
-			Term:       req.Term,
-			MatchIndex: matchIndex,
-			Success:    success,
-		}
+		return res
 	}
 
 	var toSave []*commonpb.Entry
@@ -282,27 +264,13 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	}
 
 	reqLogger.WithFields(logrus.Fields{
-		"lensaved":   len(toSave),
-		"lenlog":     logLen,
-		"matchindex": index,
-		"success":    success,
+		"lensaved": len(toSave),
+		"lenlog":   logLen,
+		"success":  success,
 	}).Infoln("Saved entries to stable storage")
 
-	matchIndex = index
-
-	if index < r.commitIndex {
-		matchIndex = r.commitIndex
-	}
-
-	if r.logTerm(logLen) == r.currentTerm {
-		matchIndex = logLen
-	}
-
-	return &pb.AppendEntriesResponse{
-		Term:       req.Term,
-		MatchIndex: matchIndex,
-		Success:    success,
-	}
+	res.Success = true
+	return res
 }
 
 func (r *Raft) HandleInstallSnapshotRequest(snapshot *commonpb.Snapshot) (res *pb.InstallSnapshotResponse) {
@@ -419,7 +387,7 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 
 // HandleAppendEntriesResponse must be invoked when receiving an
 // AppendEntriesResponse.
-func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesQFResponse, replies uint64) {
+func (r *Raft) HandleAppendEntriesResponse(req *pb.AppendEntriesRequest, response *pb.AppendEntriesQFResponse, replies uint64) {
 	r.mu.Lock()
 	defer func() {
 		r.mu.Unlock()
@@ -452,13 +420,14 @@ func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesQFResponse,
 	}
 
 	if response.Success {
-		r.matchIndex = response.MatchIndex
+		r.matchIndex = req.PrevLogIndex + uint64(len(req.Entries))
 		r.nextIndex = r.matchIndex + 1
 
 		return
 	}
 
 	// If AppendEntries was not successful lower match index.
+	// TODO r.nextIndex = max(1, min(r.nextIndex-r.burst, r.matchIndex+1))
 	r.nextIndex = max(1, response.MatchIndex)
 }
 

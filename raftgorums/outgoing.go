@@ -144,7 +144,7 @@ func (r *Raft) handleOutgoing() error {
 				cancel()
 			}
 
-			r.HandleAppendEntriesResponse(res, res.Replies)
+			r.HandleAppendEntriesResponse(req, res, res.Replies)
 		}
 	}
 }

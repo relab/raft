@@ -17,8 +17,8 @@ func noop(index uint64, term uint64) *commonpb.Entry {
 	return &commonpb.Entry{
 		Index:     index,
 		Term:      term,
-		EntryType: commonpb.EntryInternal,
-		Data:      []byte("noop"),
+		EntryType: commonpb.EntryNormal,
+		Data:      raft.NOOP,
 	}
 }
 
@@ -66,7 +66,7 @@ var handleAppendEntriesRequestTests = []struct {
 				noop(3, 5),
 			},
 		}},
-		[]*pb.AppendEntriesResponse{{Term: 5, MatchIndex: 3, Success: true}},
+		[]*pb.AppendEntriesResponse{{Term: 5, MatchIndex: 2, Success: true}},
 		[]*raft.Memory{
 			raft.NewMemory(map[uint64]uint64{
 				raft.KeyTerm:      5,
@@ -153,8 +153,8 @@ var handleAppendEntriesRequestTests = []struct {
 			},
 		},
 		[]*pb.AppendEntriesResponse{
+			{Term: 5, MatchIndex: 2, Success: true},
 			{Term: 5, MatchIndex: 3, Success: true},
-			{Term: 5, MatchIndex: 4, Success: true},
 			{Term: 5, MatchIndex: 4, Success: true},
 		},
 		[]*raft.Memory{
@@ -173,6 +173,334 @@ var handleAppendEntriesRequestTests = []struct {
 				raft.KeyVotedFor:  raftgorums.None,
 				raft.KeyNextIndex: 5,
 			}, logPlusEntry(logPlusEntry(log2(), noop(3, 5)), noop(4, 5))),
+		},
+	},
+	{
+		"raft paper fig 7 follower a",
+		raft.NewMemory(map[uint64]uint64{
+			raft.KeyTerm:      6,
+			raft.KeyVotedFor:  3,
+			raft.KeyNextIndex: 10,
+		}, map[uint64]*commonpb.Entry{
+			1: noop(1, 1),
+			2: noop(2, 1),
+			3: noop(3, 1),
+			4: noop(4, 4),
+			5: noop(5, 4),
+			6: noop(6, 5),
+			7: noop(7, 5),
+			8: noop(8, 6),
+			9: noop(9, 6),
+		}),
+		[]*pb.AppendEntriesRequest{
+			{
+				LeaderID:     1,
+				Term:         6,
+				PrevLogIndex: 10,
+				PrevLogTerm:  6,
+				Entries: []*commonpb.Entry{
+					noop(11, 6),
+				},
+			},
+			{
+				LeaderID:     1,
+				Term:         6,
+				PrevLogIndex: 9,
+				PrevLogTerm:  6,
+				Entries: []*commonpb.Entry{
+					noop(10, 6),
+					noop(11, 6),
+				},
+			},
+		},
+		[]*pb.AppendEntriesResponse{
+			{Term: 6, MatchIndex: 9},
+			{Term: 6, MatchIndex: 9, Success: true},
+		},
+		[]*raft.Memory{
+			raft.NewMemory(map[uint64]uint64{
+				raft.KeyTerm:      6,
+				raft.KeyVotedFor:  3,
+				raft.KeyNextIndex: 10,
+			}, map[uint64]*commonpb.Entry{
+				1: noop(1, 1),
+				2: noop(2, 1),
+				3: noop(3, 1),
+				4: noop(4, 4),
+				5: noop(5, 4),
+				6: noop(6, 5),
+				7: noop(7, 5),
+				8: noop(8, 6),
+				9: noop(9, 6),
+			}),
+			raft.NewMemory(map[uint64]uint64{
+				raft.KeyTerm:      6,
+				raft.KeyVotedFor:  3,
+				raft.KeyNextIndex: 12,
+			}, map[uint64]*commonpb.Entry{
+				1:  noop(1, 1),
+				2:  noop(2, 1),
+				3:  noop(3, 1),
+				4:  noop(4, 4),
+				5:  noop(5, 4),
+				6:  noop(6, 5),
+				7:  noop(7, 5),
+				8:  noop(8, 6),
+				9:  noop(9, 6),
+				10: noop(10, 6),
+				11: noop(11, 6),
+			}),
+		},
+	},
+	{
+		"raft paper fig 7 follower b",
+		raft.NewMemory(map[uint64]uint64{
+			raft.KeyTerm:      4,
+			raft.KeyVotedFor:  3,
+			raft.KeyNextIndex: 5,
+		}, map[uint64]*commonpb.Entry{
+			1: noop(1, 1),
+			2: noop(2, 1),
+			3: noop(3, 1),
+			4: noop(4, 4),
+		}),
+		[]*pb.AppendEntriesRequest{
+			{
+				LeaderID:     1,
+				Term:         6,
+				PrevLogIndex: 10,
+				PrevLogTerm:  6,
+				Entries: []*commonpb.Entry{
+					noop(11, 6),
+				},
+			},
+			{
+				LeaderID:     1,
+				Term:         6,
+				PrevLogIndex: 4,
+				PrevLogTerm:  4,
+				Entries: []*commonpb.Entry{
+					noop(5, 4),
+					noop(6, 5),
+					noop(7, 5),
+					noop(8, 6),
+					noop(9, 6),
+					noop(10, 6),
+					noop(11, 6),
+				},
+			},
+		},
+		[]*pb.AppendEntriesResponse{
+			{Term: 6, MatchIndex: 4},
+			{Term: 6, MatchIndex: 4, Success: true},
+		},
+		[]*raft.Memory{
+			raft.NewMemory(map[uint64]uint64{
+				raft.KeyTerm:      6,
+				raft.KeyVotedFor:  raftgorums.None,
+				raft.KeyNextIndex: 5,
+			}, map[uint64]*commonpb.Entry{
+				1: noop(1, 1),
+				2: noop(2, 1),
+				3: noop(3, 1),
+				4: noop(4, 4),
+			}),
+			raft.NewMemory(map[uint64]uint64{
+				raft.KeyTerm:      6,
+				raft.KeyVotedFor:  raftgorums.None,
+				raft.KeyNextIndex: 12,
+			}, map[uint64]*commonpb.Entry{
+				1:  noop(1, 1),
+				2:  noop(2, 1),
+				3:  noop(3, 1),
+				4:  noop(4, 4),
+				5:  noop(5, 4),
+				6:  noop(6, 5),
+				7:  noop(7, 5),
+				8:  noop(8, 6),
+				9:  noop(9, 6),
+				10: noop(10, 6),
+				11: noop(11, 6),
+			}),
+		},
+	},
+	{
+		"raft paper fig 7 follower c",
+		raft.NewMemory(map[uint64]uint64{
+			raft.KeyTerm:      6,
+			raft.KeyVotedFor:  3,
+			raft.KeyNextIndex: 12,
+		}, map[uint64]*commonpb.Entry{
+			1:  noop(1, 1),
+			2:  noop(2, 1),
+			3:  noop(3, 1),
+			4:  noop(4, 4),
+			5:  noop(5, 4),
+			6:  noop(6, 5),
+			7:  noop(7, 5),
+			8:  noop(8, 6),
+			9:  noop(9, 6),
+			10: noop(10, 6),
+			11: noop(11, 6),
+		}),
+		[]*pb.AppendEntriesRequest{
+			{
+				LeaderID:     1,
+				Term:         6,
+				PrevLogIndex: 10,
+				PrevLogTerm:  6,
+				Entries: []*commonpb.Entry{
+					noop(11, 6),
+				},
+			},
+		},
+		[]*pb.AppendEntriesResponse{
+			{Term: 6, MatchIndex: 11, Success: true},
+		},
+		[]*raft.Memory{
+			raft.NewMemory(map[uint64]uint64{
+				raft.KeyTerm:      6,
+				raft.KeyVotedFor:  3,
+				raft.KeyNextIndex: 12,
+			}, map[uint64]*commonpb.Entry{
+				1:  noop(1, 1),
+				2:  noop(2, 1),
+				3:  noop(3, 1),
+				4:  noop(4, 4),
+				5:  noop(5, 4),
+				6:  noop(6, 5),
+				7:  noop(7, 5),
+				8:  noop(8, 6),
+				9:  noop(9, 6),
+				10: noop(10, 6),
+				11: noop(11, 6),
+			}),
+		},
+	},
+	{
+		"raft paper fig 7 follower d",
+		raft.NewMemory(map[uint64]uint64{
+			raft.KeyTerm:      7,
+			raft.KeyVotedFor:  3,
+			raft.KeyNextIndex: 13,
+		}, map[uint64]*commonpb.Entry{
+			1:  noop(1, 1),
+			2:  noop(2, 1),
+			3:  noop(3, 1),
+			4:  noop(4, 4),
+			5:  noop(5, 4),
+			6:  noop(6, 5),
+			7:  noop(7, 5),
+			8:  noop(8, 6),
+			9:  noop(9, 6),
+			10: noop(10, 6),
+			11: noop(11, 7),
+			12: noop(12, 7),
+		}),
+		[]*pb.AppendEntriesRequest{
+			{
+				LeaderID:     1,
+				Term:         6,
+				PrevLogIndex: 10,
+				PrevLogTerm:  6,
+				Entries: []*commonpb.Entry{
+					noop(11, 6),
+				},
+			},
+		},
+		[]*pb.AppendEntriesResponse{
+			{Term: 7, MatchIndex: 12},
+		},
+		[]*raft.Memory{
+			raft.NewMemory(map[uint64]uint64{
+				raft.KeyTerm:      7,
+				raft.KeyVotedFor:  3,
+				raft.KeyNextIndex: 13,
+			}, map[uint64]*commonpb.Entry{
+				1:  noop(1, 1),
+				2:  noop(2, 1),
+				3:  noop(3, 1),
+				4:  noop(4, 4),
+				5:  noop(5, 4),
+				6:  noop(6, 5),
+				7:  noop(7, 5),
+				8:  noop(8, 6),
+				9:  noop(9, 6),
+				10: noop(10, 6),
+				11: noop(11, 7),
+				12: noop(12, 7),
+			}),
+		},
+	},
+	{
+		"raft paper fig 7 follower e",
+		raft.NewMemory(map[uint64]uint64{
+			raft.KeyTerm:      4,
+			raft.KeyVotedFor:  3,
+			raft.KeyNextIndex: 8,
+		}, map[uint64]*commonpb.Entry{
+			1: noop(1, 1),
+			2: noop(2, 1),
+			3: noop(3, 1),
+			4: noop(4, 4),
+			5: noop(5, 4),
+			6: noop(6, 4),
+			7: noop(7, 4),
+		}),
+		[]*pb.AppendEntriesRequest{
+			{
+				LeaderID:     1,
+				Term:         6,
+				PrevLogIndex: 10,
+				PrevLogTerm:  6,
+				Entries: []*commonpb.Entry{
+					noop(11, 6),
+				},
+			},
+			{
+				LeaderID:     1,
+				Term:         6,
+				PrevLogIndex: 7,
+				PrevLogTerm:  5,
+				Entries: []*commonpb.Entry{
+					noop(8, 6),
+					noop(9, 6),
+					noop(10, 6),
+					noop(11, 6),
+				},
+			},
+		},
+		[]*pb.AppendEntriesResponse{
+			{Term: 6, MatchIndex: 7},
+			{Term: 6, MatchIndex: 7},
+		},
+		[]*raft.Memory{
+			raft.NewMemory(map[uint64]uint64{
+				raft.KeyTerm:      6,
+				raft.KeyVotedFor:  raftgorums.None,
+				raft.KeyNextIndex: 8,
+			}, map[uint64]*commonpb.Entry{
+				1: noop(1, 1),
+				2: noop(2, 1),
+				3: noop(3, 1),
+				4: noop(4, 4),
+				5: noop(5, 4),
+				6: noop(6, 4),
+				7: noop(7, 4),
+			}),
+			raft.NewMemory(map[uint64]uint64{
+				raft.KeyTerm:      6,
+				raft.KeyVotedFor:  raftgorums.None,
+				raft.KeyNextIndex: 8,
+			}, map[uint64]*commonpb.Entry{
+				1: noop(1, 1),
+				2: noop(2, 1),
+				3: noop(3, 1),
+				4: noop(4, 4),
+				5: noop(5, 4),
+				6: noop(6, 4),
+				7: noop(7, 4),
+			}),
 		},
 	},
 }
