@@ -189,6 +189,11 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	r.heardFromLeader = true
 	r.seenLeader = true
 
+	// Don't timeout during catch up.
+	if uint64(len(req.Entries)) > r.burst {
+		r.resetElection = true
+	}
+
 	if !success {
 		r.cureqout <- &catchUpReq{
 			leaderID: req.LeaderID,
