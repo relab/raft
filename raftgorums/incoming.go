@@ -427,8 +427,7 @@ func (r *Raft) HandleAppendEntriesResponse(req *pb.AppendEntriesRequest, respons
 	}
 
 	// If AppendEntries was not successful lower match index.
-	// TODO r.nextIndex = max(1, min(r.nextIndex-r.burst, r.matchIndex+1))
-	r.nextIndex = max(1, response.MatchIndex)
+	r.nextIndex = max(1, min(r.nextIndex-r.burst, r.matchIndex+1))
 }
 
 func (r *Raft) HandleInstallSnapshotResponse(res *pb.InstallSnapshotResponse) bool {

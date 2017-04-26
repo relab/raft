@@ -85,9 +85,11 @@ type Raft struct {
 	startElectionNow chan struct{}
 	preElection      bool
 
-	maxAppendEntries uint64
-	queue            chan raft.PromiseEntry
-	pending          *list.List
+	entriesPerMsg uint64
+	burst         uint64
+
+	queue   chan raft.PromiseEntry
+	pending *list.List
 
 	pendingReads []raft.PromiseLogEntry
 
@@ -147,7 +149,8 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		heartbeatTimeout: cfg.HeartbeatTimeout,
 		startElectionNow: make(chan struct{}),
 		preElection:      true,
-		maxAppendEntries: cfg.MaxAppendEntries,
+		entriesPerMsg:    cfg.EntriesPerMsg,
+		burst:            cfg.EntriesPerMsg * cfg.CatchupMultiplier,
 		queue:            make(chan raft.PromiseEntry, BufferSize),
 		applyCh:          make(chan raft.PromiseLogEntry, 128),
 		rvreqout:         make(chan *pb.RequestVoteRequest, 128),
@@ -598,7 +601,7 @@ func (r *Raft) sendAppendEntries() {
 	var reconf uint64
 
 LOOP:
-	for i := r.maxAppendEntries; i > 0; i-- {
+	for i := r.entriesPerMsg; i > 0; i-- {
 		select {
 		case promise := <-r.queue:
 			promiseEntry := promise.Write(assignIndex)
@@ -634,7 +637,7 @@ func (r *Raft) getNextEntries(nextIndex uint64) []*commonpb.Entry {
 	logLen := r.storage.NextIndex() - 1
 
 	if next <= logLen {
-		maxEntries := min(next+r.maxAppendEntries, logLen)
+		maxEntries := min(next+r.burst, logLen)
 
 		if !r.batch {
 			// One entry at the time.

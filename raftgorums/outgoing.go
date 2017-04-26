@@ -70,11 +70,10 @@ func (r *Raft) handleOutgoing() error {
 			for nodeID, ch := range r.match {
 				select {
 				case index := <-ch:
-					// TODO Acessing maxAppendEntries, safe but needs fix.
-					atLeastMaxEntries := req.PrevLogIndex+1 > r.maxAppendEntries
-					lessThenMaxEntriesBehind := index < req.PrevLogIndex+1-r.maxAppendEntries
+					atLeastMaxEntries := req.PrevLogIndex+1 > r.burst
+					tooFarBehind := index < req.PrevLogIndex+1-r.burst
 
-					if atLeastMaxEntries && lessThenMaxEntriesBehind {
+					if atLeastMaxEntries && tooFarBehind {
 						r.logger.WithFields(logrus.Fields{
 							"gorumsid": nodeID,
 						}).Warnln("Server too far behind")

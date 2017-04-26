@@ -22,7 +22,11 @@ type Config struct {
 	Batch            bool
 	ElectionTimeout  time.Duration
 	HeartbeatTimeout time.Duration
-	MaxAppendEntries uint64
+
+	EntriesPerMsg uint64
+	// CatchupMultiplier is how many times more EntriesPerMsg we are allowed
+	// to use when doing a catch up, i.e., EntriesPerMsg*CatchupMultiplier.
+	CatchupMultiplier uint64
 
 	Logger         logrus.FieldLogger
 	MetricsEnabled bool
@@ -45,8 +49,12 @@ func validate(cfg *Config) error {
 		cfg.ElectionTimeout = 250 * time.Millisecond
 	}
 
-	if cfg.MaxAppendEntries == 0 {
-		cfg.MaxAppendEntries = 10000
+	if cfg.EntriesPerMsg == 0 {
+		cfg.EntriesPerMsg = 64
+	}
+
+	if cfg.CatchupMultiplier == 0 {
+		cfg.CatchupMultiplier = 160
 	}
 
 	return nil

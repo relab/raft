@@ -264,18 +264,15 @@ func (m *membership) getNode(serverID uint64) *gorums.Node {
 
 func (r *Raft) replicate(serverID uint64, promise raft.PromiseEntry) {
 	node := r.mem.getNode(serverID)
-	var matchIndex uint64
+	var nextIndex uint64 = 1
 	var errs int
 
 	for {
 		r.mu.Lock()
 		target := r.matchIndex
-		// TODO We don't need lock on maxAppendEntries as it's only read
-		// across all routines.
-		maxEntries := r.maxAppendEntries
 
-		entries := r.getNextEntries(matchIndex + 1)
-		req := r.getAppendEntriesRequest(matchIndex+1, entries)
+		entries := r.getNextEntries(nextIndex)
+		req := r.getAppendEntriesRequest(nextIndex, entries)
 		r.mu.Unlock()
 
 		ctx, cancel := context.WithTimeout(context.Background(), r.electionTimeout)
@@ -309,17 +306,17 @@ func (r *Raft) replicate(serverID uint64, promise raft.PromiseEntry) {
 			return
 		}
 
-		if target-matchIndex < maxEntries {
+		if target-nextIndex-1 < r.entriesPerMsg {
 			// TODO Context?
 			r.queue <- promise
 			return
 		}
 
 		if res.Success {
-			matchIndex = res.MatchIndex
+			nextIndex = req.PrevLogIndex + uint64(len(req.Entries)) + 1
 			continue
 		}
 
-		matchIndex = max(0, res.MatchIndex)
+		nextIndex = max(1, min(nextIndex-r.entriesPerMsg, res.MatchIndex+1))
 	}
 }
