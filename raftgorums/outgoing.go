@@ -87,10 +87,6 @@ func (r *Raft) handleOutgoing() error {
 				}
 			}
 
-			// TODO This should be safe as it only accesses storage
-			// which uses transactions. TODO It accesses
-			// maxAppendEntries but this on does not change after
-			// startup.
 			entries := r.getNextEntries(nextIndex)
 			e := uint64(len(entries))
 			maxIndex := nextIndex + e - 1
@@ -104,9 +100,6 @@ func (r *Raft) handleOutgoing() error {
 				func(req pb.AppendEntriesRequest, nodeID uint32) *pb.AppendEntriesRequest {
 					if index, ok := next[nodeID]; ok {
 						req.PrevLogIndex = index - 1
-						// TODO This should be safe as
-						// it only accesses storage
-						// which uses transactions.
 						req.PrevLogTerm = r.logTerm(index - 1)
 					}
 
@@ -143,7 +136,7 @@ func (r *Raft) handleOutgoing() error {
 				cancel()
 			}
 
-			r.HandleAppendEntriesResponse(req, res, res.Replies)
+			r.HandleAppendEntriesResponse(res, maxIndex)
 		}
 	}
 }

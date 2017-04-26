@@ -100,7 +100,6 @@ func (m *membership) setPending(req *commonpb.ReconfRequest) {
 
 func (m *membership) setStable(stable bool) {
 	m.Lock()
-	// TODO Raft should setStable.
 	m.stable = stable
 	m.Unlock()
 }
@@ -306,7 +305,7 @@ func (r *Raft) replicate(serverID uint64, promise raft.PromiseEntry) {
 			return
 		}
 
-		if target-nextIndex-1 < r.entriesPerMsg {
+		if nextIndex > target || target-(nextIndex-1) < r.entriesPerMsg {
 			// TODO Context?
 			r.queue <- promise
 			return

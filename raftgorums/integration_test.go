@@ -25,8 +25,8 @@ import (
 var (
 	heartbeat  = 20 * time.Millisecond
 	election   = 25 * time.Millisecond
-	longEnough = 150 * time.Millisecond
-	wait       = 100 * time.Millisecond
+	longEnough = 2500 * time.Millisecond
+	wait       = election
 )
 
 func TestLeaderElection(t *testing.T) {
@@ -39,21 +39,21 @@ func TestLeaderElection(t *testing.T) {
 
 	for i := n; i > 1; i-- {
 		for j := i; j > 1; j-- {
-			t.Run(fmt.Sprintf("leader %d, n: %d", j, i), func(t *testing.T) {
+			t.Run(fmt.Sprintf("elect, leader: %d, n: %d", j, i), func(t *testing.T) {
 				testElectLeader(t, i, j)
 			})
-			t.Run(fmt.Sprintf("leader stepdown %d, n: %d", j, i), func(t *testing.T) {
+			t.Run(fmt.Sprintf("stepdown, leader: %d, n: %d", j, i), func(t *testing.T) {
 				testElectLeaderStepDown(t, i, j)
 			})
 			if i != j {
-				t.Run(fmt.Sprintf("leader %d, n: %d, add %d", j, i, i), func(t *testing.T) {
+				t.Run(fmt.Sprintf("add, leader: %d, n: %d, add: %d", j, i, i), func(t *testing.T) {
 					testProposeConfAdd(t, i, j)
 				})
 			}
-			t.Run(fmt.Sprintf("leader %d, n: %d, remove %d", j, i, i), func(t *testing.T) {
+			t.Run(fmt.Sprintf("remove, leader: %d, n: %d, remove: %d", j, i, i), func(t *testing.T) {
 				testProposeConfRemove(t, i, j)
 			})
-			t.Run(fmt.Sprintf("leader propose cmd %d, n: %d", j, i), func(t *testing.T) {
+			t.Run(fmt.Sprintf("propose, leader: %d, n: %d", j, i), func(t *testing.T) {
 				testProposeCmdRead(t, i, j)
 			})
 		}
@@ -80,7 +80,7 @@ type testServer struct {
 
 var port uint64 = 9201
 
-func newTestServer(t *testing.T, wg *sync.WaitGroup, c *cfg, port uint64, exclude ...uint64) *testServer {
+func newTestServer(t *testing.T, wg *sync.WaitGroup, c *cfg, port uint64, exclude ...uint64) (*testServer, *noopMachine) {
 	initialCluster := make([]uint64, c.n)
 	if len(exclude) > 0 {
 		initialCluster = make([]uint64, c.n-1)
@@ -134,12 +134,13 @@ func newTestServer(t *testing.T, wg *sync.WaitGroup, c *cfg, port uint64, exclud
 		wg.Done()
 	}()
 
-	raft := raftgorums.NewRaft(&noopMachine{}, cfg)
+	sm := &noopMachine{}
+	raft := raftgorums.NewRaft(sm, cfg)
 
 	server.grpcServer = grpcServer
 	server.raft = raft
 
-	return server
+	return server, sm
 }
 
 func (t *testServer) Stop() {
@@ -159,6 +160,7 @@ func (t *testServer) Run() {
 func testElectLeader(t *testing.T, n uint64, leader uint64) {
 	var wg sync.WaitGroup
 
+	sms := make(map[uint64]*noopMachine, n)
 	servers := make(map[uint64]*testServer, n)
 
 	p := port
@@ -170,27 +172,33 @@ func testElectLeader(t *testing.T, n uint64, leader uint64) {
 		if i == leader {
 			timeout = election
 		}
-		servers[i] = newTestServer(t, &wg, &cfg{
+		servers[i], sms[i] = newTestServer(t, &wg, &cfg{
 			id:              i,
 			n:               n,
 			electionTimeout: timeout,
 		}, p)
 	}
 
-	time.AfterFunc(longEnough, func() {
-		for i := n; i > 0; i-- {
-			servers[i].Stop()
-		}
-	})
-
 	for i := n; i > 0; i-- {
 		go servers[i].Run()
 	}
-	wg.Wait()
-
-	if servers[leader].kv[raft.KeyTerm] == 0 {
-		t.Skipf("skipping test as no leader was elected")
+	for {
+		time.Sleep(wait)
+		done := true
+		for i := n; i > 0; i-- {
+			done = sms[i].getCommitIndex() > 0
+			if !done {
+				break
+			}
+		}
+		if done {
+			break
+		}
 	}
+	for i := n; i > 0; i-- {
+		servers[i].Stop()
+	}
+	wg.Wait()
 
 	var votes uint64
 
@@ -206,6 +214,7 @@ func testElectLeader(t *testing.T, n uint64, leader uint64) {
 func testElectLeaderStepDown(t *testing.T, n uint64, leader uint64) {
 	var wg sync.WaitGroup
 
+	sms := make(map[uint64]*noopMachine, n)
 	servers := make(map[uint64]*testServer, n)
 
 	p := port
@@ -217,32 +226,38 @@ func testElectLeaderStepDown(t *testing.T, n uint64, leader uint64) {
 		if i == leader {
 			timeout = election
 		}
-		servers[i] = newTestServer(t, &wg, &cfg{
+		servers[i], sms[i] = newTestServer(t, &wg, &cfg{
 			id:              i,
 			n:               n,
 			electionTimeout: timeout,
 		}, p)
 	}
 
-	time.AfterFunc(longEnough, func() {
-		for i := n; i > 0; i-- {
-			if i != leader {
-				servers[i].Stop()
-			}
-		}
-
-		time.Sleep(3 * servers[leader].timeout)
-		servers[leader].Stop()
-	})
-
 	for i := n; i > 0; i-- {
 		go servers[i].Run()
 	}
-	wg.Wait()
-
-	if servers[leader].kv[raft.KeyTerm] == 0 {
-		t.Skipf("skipping test as no leader was elected")
+	for {
+		time.Sleep(wait)
+		done := true
+		for i := n; i > 0; i-- {
+			done = sms[i].getCommitIndex() > 0
+			if !done {
+				break
+			}
+		}
+		if done {
+			break
+		}
 	}
+	for i := n; i > 0; i-- {
+		if i != leader {
+			servers[i].Stop()
+		}
+	}
+
+	time.Sleep(3 * servers[leader].timeout)
+	servers[leader].Stop()
+	wg.Wait()
 
 	var votes uint64
 
@@ -258,6 +273,7 @@ func testElectLeaderStepDown(t *testing.T, n uint64, leader uint64) {
 func testProposeConfAdd(t *testing.T, n uint64, leader uint64) {
 	var wg sync.WaitGroup
 
+	sms := make(map[uint64]*noopMachine, n)
 	servers := make(map[uint64]*testServer, n)
 
 	p := port
@@ -269,27 +285,22 @@ func testProposeConfAdd(t *testing.T, n uint64, leader uint64) {
 		if i == leader {
 			timeout = election
 		}
-		servers[i] = newTestServer(t, &wg, &cfg{
+		servers[i], sms[i] = newTestServer(t, &wg, &cfg{
 			id:              i,
 			n:               n,
 			electionTimeout: timeout,
 		}, p, n)
 	}
 
-	time.AfterFunc(longEnough, func() {
-		for i := n; i > 0; i-- {
-			servers[i].Stop()
-		}
-	})
-
 	for i := n; i > 0; i-- {
 		go servers[i].Run()
 	}
 
-	time.Sleep(wait)
-
-	if servers[leader].kv[raft.KeyTerm] == 0 {
-		t.Skipf("skipping test as no leader was elected")
+	for {
+		time.Sleep(wait)
+		if sms[leader].getCommitIndex() > 0 {
+			break
+		}
 	}
 
 	future, err := servers[leader].raft.ProposeConf(context.Background(), &commonpb.ReconfRequest{
@@ -323,6 +334,22 @@ func testProposeConfAdd(t *testing.T, n uint64, leader uint64) {
 		return
 	}
 
+	for {
+		time.Sleep(wait)
+		done := true
+		for i := n; i > 0; i-- {
+			done = sms[i].getCommitIndex() > 1
+			if !done {
+				break
+			}
+		}
+		if done {
+			break
+		}
+	}
+	for i := n; i > 0; i-- {
+		servers[i].Stop()
+	}
 	wg.Wait()
 
 	var votes uint64
@@ -339,6 +366,7 @@ func testProposeConfAdd(t *testing.T, n uint64, leader uint64) {
 func testProposeConfRemove(t *testing.T, n uint64, leader uint64) {
 	var wg sync.WaitGroup
 
+	sms := make(map[uint64]*noopMachine, n)
 	servers := make(map[uint64]*testServer, n)
 
 	p := port
@@ -347,30 +375,28 @@ func testProposeConfRemove(t *testing.T, n uint64, leader uint64) {
 	for i := n; i > 0; i-- {
 		wg.Add(1)
 		timeout := longEnough
+		if leader == n {
+			timeout = longEnough / 10
+		}
 		if i == leader {
 			timeout = election
 		}
-		servers[i] = newTestServer(t, &wg, &cfg{
+		servers[i], sms[i] = newTestServer(t, &wg, &cfg{
 			id:              i,
 			n:               n,
 			electionTimeout: timeout,
 		}, p)
 	}
 
-	time.AfterFunc(longEnough, func() {
-		for i := n; i > 0; i-- {
-			servers[i].Stop()
-		}
-	})
-
 	for i := n; i > 0; i-- {
 		go servers[i].Run()
 	}
 
-	time.Sleep(wait)
-
-	if servers[leader].kv[raft.KeyTerm] == 0 {
-		t.Skipf("skipping test as no leader was elected")
+	for {
+		time.Sleep(wait)
+		if sms[leader].getCommitIndex() > 0 {
+			break
+		}
 	}
 
 	future, err := servers[leader].raft.ProposeConf(context.Background(), &commonpb.ReconfRequest{
@@ -391,6 +417,19 @@ func testProposeConfRemove(t *testing.T, n uint64, leader uint64) {
 			t.Errorf("reconf: got %d, want %d", reconfStatus, commonpb.ReconfOK)
 			return
 		}
+		for {
+			time.Sleep(wait)
+			done := true
+			for i := n - 1; i > 0; i-- {
+				done = sms[i].getCommitIndex() > 1
+				if !done {
+					break
+				}
+			}
+			if done {
+				break
+			}
+		}
 	} else {
 		// Cannot do reconf. if next config size < 2.
 		if reconfStatus != commonpb.ReconfTimeout {
@@ -399,9 +438,17 @@ func testProposeConfRemove(t *testing.T, n uint64, leader uint64) {
 		}
 	}
 
+	for i := n; i > 0; i-- {
+		servers[i].Stop()
+	}
 	wg.Wait()
 
 	var votes uint64
+
+	// TODO Skip fine grained testing when removing self for now.
+	if leader == n {
+		return
+	}
 
 	if leader == n && n != 2 {
 		checkLeaderState(t, servers[leader].raft.State(), raftgorums.Inactive)
@@ -426,6 +473,7 @@ func testProposeConfRemove(t *testing.T, n uint64, leader uint64) {
 func testProposeCmdRead(t *testing.T, n uint64, leader uint64) {
 	var wg sync.WaitGroup
 
+	sms := make(map[uint64]*noopMachine, n)
 	servers := make(map[uint64]*testServer, n)
 
 	p := port
@@ -437,27 +485,22 @@ func testProposeCmdRead(t *testing.T, n uint64, leader uint64) {
 		if i == leader {
 			timeout = election
 		}
-		servers[i] = newTestServer(t, &wg, &cfg{
+		servers[i], sms[i] = newTestServer(t, &wg, &cfg{
 			id:              i,
 			n:               n,
 			electionTimeout: timeout,
 		}, p)
 	}
 
-	time.AfterFunc(longEnough, func() {
-		for i := n; i > 0; i-- {
-			servers[i].Stop()
-		}
-	})
-
 	for i := n; i > 0; i-- {
 		go servers[i].Run()
 	}
 
-	time.Sleep(wait)
-
-	if servers[leader].kv[raft.KeyTerm] == 0 {
-		t.Skipf("skipping test as no leader was elected")
+	for {
+		time.Sleep(wait)
+		if sms[leader].getCommitIndex() > 0 {
+			break
+		}
 	}
 
 	future, err := servers[leader].raft.ProposeCmd(context.Background(), raft.NOOP)
@@ -524,6 +567,22 @@ func testProposeCmdRead(t *testing.T, n uint64, leader uint64) {
 		t.Errorf("data: got %s, want %s", entry.Data, raft.NOOP)
 	}
 
+	for {
+		time.Sleep(wait)
+		done := true
+		for i := n; i > 0; i-- {
+			done = sms[i].getCommitIndex() > 1
+			if !done {
+				break
+			}
+		}
+		if done {
+			break
+		}
+	}
+	for i := n; i > 0; i-- {
+		servers[i].Stop()
+	}
 	wg.Wait()
 
 	var votes uint64

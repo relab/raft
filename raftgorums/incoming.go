@@ -387,7 +387,7 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 
 // HandleAppendEntriesResponse must be invoked when receiving an
 // AppendEntriesResponse.
-func (r *Raft) HandleAppendEntriesResponse(req *pb.AppendEntriesRequest, response *pb.AppendEntriesQFResponse, replies uint64) {
+func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesQFResponse, maxIndex uint64) {
 	r.mu.Lock()
 	defer func() {
 		r.mu.Unlock()
@@ -400,7 +400,7 @@ func (r *Raft) HandleAppendEntriesResponse(req *pb.AppendEntriesRequest, respons
 
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	// If we didn't get a response from a majority (excluding self) step down.
-	if response.Term > r.currentTerm || replies < uint64((len(r.mem.get().NodeIDs())+1)/2) {
+	if response.Term > r.currentTerm || response.Replies < uint64((len(r.mem.get().NodeIDs())+1)/2) {
 		// Become follower.
 		select {
 		case r.toggle <- struct{}{}:
@@ -420,8 +420,12 @@ func (r *Raft) HandleAppendEntriesResponse(req *pb.AppendEntriesRequest, respons
 	}
 
 	if response.Success {
-		r.matchIndex = req.PrevLogIndex + uint64(len(req.Entries))
+		r.matchIndex = maxIndex
 		r.nextIndex = r.matchIndex + 1
+		r.logger.WithFields(logrus.Fields{
+			"matchindex": r.matchIndex,
+			"nextindex":  r.nextIndex,
+		}).Warnln("Setting matchindex")
 
 		return
 	}

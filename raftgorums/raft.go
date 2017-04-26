@@ -502,6 +502,7 @@ func (r *Raft) runStateMachine() {
 
 		switch entry.EntryType {
 		case commonpb.EntryInternal:
+			r.sm.Apply(entry)
 		case commonpb.EntryNormal:
 			res = r.sm.Apply(entry)
 		case commonpb.EntryReconf:
@@ -516,7 +517,6 @@ func (r *Raft) runStateMachine() {
 
 			r.mem.setPending(&reconf)
 			r.mem.set(entry.Index)
-			// TODO Send to state machine.
 			r.logger.Warnln("Comitted configuration")
 
 			enabled := r.mem.commit()
@@ -532,6 +532,9 @@ func (r *Raft) runStateMachine() {
 			res = &commonpb.ReconfResponse{
 				Status: commonpb.ReconfOK,
 			}
+
+			// Inform state machine about new configuration.
+			r.sm.Apply(entry)
 		}
 
 		promise.Respond(res)
