@@ -21,12 +21,13 @@ import (
 // etcd/rafthttp.Raft.
 type Wrapper struct {
 	n         etcdraft.Node
+	storage   *etcdraft.MemoryStorage
 	transport *rafthttp.Transport
 	logger    logrus.FieldLogger
 }
 
-func NewRaft(cfg *etcdraft.Config, peers []etcdraft.Peer, logger logrus.FieldLogger) *Wrapper {
-	w := &Wrapper{logger: logger}
+func NewRaft(logger logrus.FieldLogger, storage *etcdraft.MemoryStorage, cfg *etcdraft.Config, peers []etcdraft.Peer) *Wrapper {
+	w := &Wrapper{logger: logger, storage: storage}
 	w.n = etcdraft.StartNode(cfg, peers)
 
 	ss := &stats.ServerStats{}
