@@ -1,6 +1,7 @@
 package etcd
 
 import (
+	"net/http"
 	"strconv"
 	"time"
 
@@ -59,6 +60,10 @@ func NewRaft(cfg *etcdraft.Config, peers []etcdraft.Peer, addrs []string, logger
 
 	go w.run()
 	return w
+}
+
+func (w *wrapper) Handler() http.Handler {
+	return w.transport.Handler()
 }
 
 func (w *wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, error) {
