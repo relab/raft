@@ -115,10 +115,11 @@ func (w *Wrapper) run() {
 			w.n.Tick()
 		case rd := <-w.n.Ready():
 			w.logger.WithField("rd", rd).Warnln("Ready")
-			// saveToStorage(rd.State, rd.Entries, rd.Snapshot)
+			w.storage.Append(rd.Entries)
+			w.storage.SetHardState(rd.HardState)
 			if !etcdraft.IsEmptySnap(rd.Snapshot) {
 				w.logger.WithField("snapshot", rd.Snapshot).Warnln("Snapshot")
-				// processSnapshot(rd.Snapshot)
+				w.storage.ApplySnapshot(rd.Snapshot)
 			}
 			w.logger.WithField("messages", rd.Messages).Warnln("Sending")
 			w.transport.Send(rd.Messages)
