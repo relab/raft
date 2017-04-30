@@ -129,10 +129,15 @@ func (w *Wrapper) run() {
 			for _, entry := range rd.CommittedEntries {
 				switch entry.Type {
 				case raftpb.EntryNormal:
-					w.logger.WithField("entry", entry).Warnln("Committed normal entry")
+					w.logger.WithField(
+						"entry", etcdraft.DescribeEntry(entry, nil),
+					).Warnln("Committed normal entry")
 					// process(entry)
 				case raftpb.EntryConfChange:
-					w.logger.WithField("entry", entry).Warnln("Committed conf change entry")
+					w.logger.WithField(
+						"entry", etcdraft.DescribeEntry(entry, nil),
+					).Warnln("Committed conf change entry")
+
 					var cc raftpb.ConfChange
 					err := cc.Unmarshal(entry.Data)
 
