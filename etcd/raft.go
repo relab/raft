@@ -25,8 +25,7 @@ type Wrapper struct {
 	logger    logrus.FieldLogger
 }
 
-// TODO Use Peer.Context for addr?
-func NewRaft(cfg *etcdraft.Config, peers []etcdraft.Peer, addrs []string, logger logrus.FieldLogger) *Wrapper {
+func NewRaft(cfg *etcdraft.Config, peers []etcdraft.Peer, logger logrus.FieldLogger) *Wrapper {
 	w := &Wrapper{logger: logger}
 	w.n = etcdraft.StartNode(cfg, peers)
 
@@ -50,12 +49,11 @@ func NewRaft(cfg *etcdraft.Config, peers []etcdraft.Peer, addrs []string, logger
 	for i, peer := range peers {
 		w.logger.WithFields(logrus.Fields{
 			"i":       i,
-			"addr":    addrs[i],
 			"id":      peer.ID,
 			"context": string(peer.Context),
 		}).Warnln("Add peer")
 
-		transport.AddPeer(types.ID(peer.ID), []string{addrs[i]})
+		transport.AddPeer(types.ID(peer.ID), []string{string(peer.Context)})
 	}
 
 	w.transport = transport
