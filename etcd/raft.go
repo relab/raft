@@ -139,6 +139,19 @@ func (w *Wrapper) run() {
 
 					w.logger.WithField("cc", cc).Warnln("Applying conf change")
 					w.n.ApplyConfChange(cc)
+					switch cc.Type {
+					case raftpb.ConfChangeAddNode:
+						if len(cc.Context) > 0 {
+							w.transport.AddPeer(types.ID(cc.NodeID), []string{string(cc.Context)})
+						}
+					case raftpb.ConfChangeRemoveNode:
+						tid := types.ID(cc.NodeID)
+						if tid == w.transport.ID {
+							w.logger.Warnln("Shutting down")
+							return
+						}
+						w.transport.RemovePeer(tid)
+					}
 				}
 			}
 			w.logger.Warnln("Advance")
