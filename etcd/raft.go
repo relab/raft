@@ -116,7 +116,10 @@ func (w *Wrapper) run() {
 		case rd := <-w.n.Ready():
 			w.logger.WithField("rd", rd).Warnln("Ready")
 			w.storage.Append(rd.Entries)
-			w.storage.SetHardState(rd.HardState)
+			if !etcdraft.IsEmptyHardState(rd.HardState) {
+				w.logger.WithField("hardstate", rd.HardState).Warnln("HardState")
+				w.storage.SetHardState(rd.HardState)
+			}
 			if !etcdraft.IsEmptySnap(rd.Snapshot) {
 				w.logger.WithField("snapshot", rd.Snapshot).Warnln("Snapshot")
 				w.storage.ApplySnapshot(rd.Snapshot)
