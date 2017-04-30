@@ -17,15 +17,17 @@ import (
 	"github.com/relab/raft/commonpb"
 )
 
-type wrapper struct {
+// Wrapper wraps an etcd/raft.Node and implements relab/raft.Raft and
+// etcd/rafthttp.Raft.
+type Wrapper struct {
 	n         etcdraft.Node
 	transport *rafthttp.Transport
 	logger    logrus.FieldLogger
 }
 
 // TODO Use Peer.Context for addr?
-func NewRaft(cfg *etcdraft.Config, peers []etcdraft.Peer, addrs []string, logger logrus.FieldLogger) raft.Raft {
-	w := &wrapper{logger: logger}
+func NewRaft(cfg *etcdraft.Config, peers []etcdraft.Peer, addrs []string, logger logrus.FieldLogger) *Wrapper {
+	w := &Wrapper{logger: logger}
 	w.n = etcdraft.StartNode(cfg, peers)
 
 	ss := &stats.ServerStats{}
@@ -62,11 +64,11 @@ func NewRaft(cfg *etcdraft.Config, peers []etcdraft.Peer, addrs []string, logger
 	return w
 }
 
-func (w *wrapper) Handler() http.Handler {
+func (w *Wrapper) Handler() http.Handler {
 	return w.transport.Handler()
 }
 
-func (w *wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, error) {
+func (w *Wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, error) {
 	w.logger.Warnln("ProposeCmd")
 
 	err := w.n.Propose(ctx, req)
@@ -78,12 +80,12 @@ func (w *wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, erro
 	return nil, nil
 }
 
-func (w *wrapper) ReadCmd(context.Context, []byte) (raft.Future, error) {
+func (w *Wrapper) ReadCmd(context.Context, []byte) (raft.Future, error) {
 	w.logger.Warnln("ProposeRead")
 	return nil, nil
 }
 
-func (w *wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (raft.Future, error) {
+func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (raft.Future, error) {
 	cc := raftpb.ConfChange{
 		Type:    raftpb.ConfChangeType(req.ReconfType),
 		ID:      req.ServerID, // ?
@@ -105,7 +107,7 @@ func (w *wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 	return nil, nil
 }
 
-func (w *wrapper) run() {
+func (w *Wrapper) run() {
 	s := time.NewTicker(5 * time.Millisecond)
 
 	for {
@@ -145,10 +147,10 @@ func (w *wrapper) run() {
 	}
 }
 
-func (w *wrapper) Process(ctx context.Context, m raftpb.Message) error {
+func (w *Wrapper) Process(ctx context.Context, m raftpb.Message) error {
 	w.logger.WithField("m", m).Warnln("Process")
 	return w.n.Step(ctx, m)
 }
-func (w *wrapper) IsIDRemoved(id uint64) bool                               { return false }
-func (w *wrapper) ReportUnreachable(id uint64)                              {}
-func (w *wrapper) ReportSnapshot(id uint64, status etcdraft.SnapshotStatus) {}
+func (w *Wrapper) IsIDRemoved(id uint64) bool                               { return false }
+func (w *Wrapper) ReportUnreachable(id uint64)                              {}
+func (w *Wrapper) ReportSnapshot(id uint64, status etcdraft.SnapshotStatus) {}
