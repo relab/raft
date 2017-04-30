@@ -28,7 +28,7 @@ type Wrapper struct {
 
 func NewRaft(logger logrus.FieldLogger, storage *etcdraft.MemoryStorage, cfg *etcdraft.Config, peers []etcdraft.Peer) *Wrapper {
 	w := &Wrapper{logger: logger, storage: storage}
-	w.n = etcdraft.StartNode(cfg, peers)
+	w.n = etcdraft.StartNode(cfg, append(peers, etcdraft.Peer{ID: cfg.ID}))
 
 	ss := &stats.ServerStats{}
 	ss.Initialize()
