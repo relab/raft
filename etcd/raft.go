@@ -1,8 +1,11 @@
 package etcd
 
 import (
+	"bytes"
+	"encoding/gob"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/context"
@@ -17,6 +20,19 @@ import (
 	"github.com/relab/raft/commonpb"
 )
 
+type tag struct {
+	UID  uint64
+	Data []byte
+}
+
+type future struct {
+	res chan raft.Result
+}
+
+func (f *future) ResultCh() <-chan raft.Result {
+	return f.res
+}
+
 // Wrapper wraps an etcd/raft.Node and implements relab/raft.Raft and
 // etcd/rafthttp.Raft.
 type Wrapper struct {
@@ -26,6 +42,40 @@ type Wrapper struct {
 	logger    logrus.FieldLogger
 
 	heartbeat time.Duration
+
+	uid       uint64
+	proposals map[uint64]*future
+}
+
+func (w *Wrapper) encodeProposal(data []byte) (uint64, []byte, error) {
+	uid := atomic.AddUint64(&w.uid, 1)
+	t := &tag{
+		UID:  uid,
+		Data: data,
+	}
+
+	var b bytes.Buffer
+	enc := gob.NewEncoder(&b)
+	err := enc.Encode(t)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return uid, b.Bytes(), nil
+}
+
+func (w *Wrapper) decodeCommit(commit []byte) (*tag, error) {
+	b := bytes.NewBuffer(commit)
+	dec := gob.NewDecoder(b)
+
+	var t tag
+	err := dec.Decode(&t)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &t, nil
 }
 
 func NewRaft(logger logrus.FieldLogger, storage *etcdraft.MemoryStorage, cfg *etcdraft.Config, peers []etcdraft.Peer, heartbeat time.Duration) *Wrapper {
@@ -76,13 +126,23 @@ func (w *Wrapper) Handler() http.Handler {
 func (w *Wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, error) {
 	w.logger.Warnln("ProposeCmd")
 
-	err := w.n.Propose(ctx, req)
+	uid, prop, err := w.encodeProposal(req)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return nil, nil
+	future := &future{make(chan raft.Result, 1)}
+	w.proposals[uid] = future
+
+	err = w.n.Propose(ctx, prop)
+
+	if err != nil {
+		delete(w.proposals, uid)
+		return nil, err
+	}
+
+	return future, nil
 }
 
 func (w *Wrapper) ReadCmd(context.Context, []byte) (raft.Future, error) {
@@ -133,6 +193,8 @@ func (w *Wrapper) run() {
 			w.logger.WithField("messages", rd.Messages).Warnln("Sending")
 			w.transport.Send(rd.Messages)
 			for _, entry := range rd.CommittedEntries {
+				// TODO Decode tag.
+
 				switch entry.Type {
 				case raftpb.EntryNormal:
 					w.logger.WithField(
@@ -167,6 +229,8 @@ func (w *Wrapper) run() {
 						w.transport.RemovePeer(tid)
 					}
 				}
+
+				// TODO Respond to future.
 			}
 			w.logger.Warnln("Advance")
 			w.n.Advance()
