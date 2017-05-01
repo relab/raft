@@ -173,7 +173,7 @@ func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 }
 
 func (w *Wrapper) run() {
-	s := time.NewTicker(w.heartbeat * time.Millisecond)
+	s := time.NewTicker(w.heartbeat)
 
 	for {
 		select {
