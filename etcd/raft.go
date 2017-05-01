@@ -153,8 +153,6 @@ func (w *Wrapper) Handler() http.Handler {
 }
 
 func (w *Wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, error) {
-	w.logger.Warnln("ProposeCmd")
-
 	uid, prop, err := w.encodeProposal(req)
 
 	if err != nil {
@@ -207,27 +205,19 @@ func (w *Wrapper) run() {
 		case <-s.C:
 			w.n.Tick()
 		case rd := <-w.n.Ready():
-			w.logger.WithField("rd", rd).Warnln("Ready")
 			w.storage.Append(rd.Entries)
 			if !etcdraft.IsEmptyHardState(rd.HardState) {
-				w.logger.WithField("hardstate", rd.HardState).Warnln("HardState")
 				w.storage.SetHardState(rd.HardState)
 			}
 			if !etcdraft.IsEmptySnap(rd.Snapshot) {
-				w.logger.WithField("snapshot", rd.Snapshot).Warnln("Snapshot")
 				w.storage.ApplySnapshot(rd.Snapshot)
 			}
-			w.logger.WithField("messages", rd.Messages).Warnln("Sending")
 			w.transport.Send(rd.Messages)
 			for _, entry := range rd.CommittedEntries {
 				t := w.decodeCommit(entry.Data)
 
 				switch entry.Type {
 				case raftpb.EntryNormal:
-					w.logger.WithField(
-						"entry", etcdraft.DescribeEntry(entry, nil),
-					).Warnln("Committed normal entry")
-
 					w.handleNormal(&entry, t)
 				case raftpb.EntryConfChange:
 					w.logger.WithField(
@@ -239,7 +229,6 @@ func (w *Wrapper) run() {
 
 				// TODO Respond to future.
 			}
-			w.logger.Warnln("Advance")
 			w.n.Advance()
 		}
 	}
@@ -310,7 +299,6 @@ func (w *Wrapper) handleConfChange(entry *raftpb.Entry, t *tag) {
 }
 
 func (w *Wrapper) Process(ctx context.Context, m raftpb.Message) error {
-	w.logger.WithField("m", m).Warnln("Process")
 	return w.n.Step(ctx, m)
 }
 func (w *Wrapper) IsIDRemoved(id uint64) bool                               { return false }
