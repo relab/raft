@@ -364,6 +364,7 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		for {
 			select {
 			case <-r.queue:
+				// TODO Respond with NotLeader.
 			default:
 				// Paper §8: We add a no-op, so that the leader
 				// commits an entry from its own term. This
