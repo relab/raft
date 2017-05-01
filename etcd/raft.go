@@ -169,7 +169,7 @@ func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 		return nil, err
 	}
 
-	return nil, nil
+	panic("ProposeConf not implemented")
 }
 
 func (w *Wrapper) run() {
