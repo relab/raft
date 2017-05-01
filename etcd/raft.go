@@ -65,6 +65,10 @@ func (w *Wrapper) encodeProposal(data []byte) (uint64, []byte, error) {
 	return uid, b.Bytes(), nil
 }
 
+// Hack: Returns nil if commit fails to decode. This when etcd append the
+// initial configuration to the log. Fix: Make state machine return
+// clientID/clientSeq along with result, we can then use that to figure out who
+// to respond to instead of using the tag struct.
 func (w *Wrapper) decodeCommit(commit []byte) *tag {
 	b := bytes.NewBuffer(commit)
 	dec := gob.NewDecoder(b)
@@ -73,7 +77,7 @@ func (w *Wrapper) decodeCommit(commit []byte) *tag {
 	err := dec.Decode(&t)
 
 	if err != nil {
-		panic("decodeCommit: " + err.Error())
+		return nil
 	}
 
 	return &t
@@ -226,6 +230,10 @@ func (w *Wrapper) run() {
 }
 
 func (w *Wrapper) handleNormal(entry *raftpb.Entry, t *tag) {
+	if t == nil {
+		return
+	}
+
 	res := w.sm.Apply(&commonpb.Entry{
 		Term:      entry.Term,
 		Index:     entry.Index,
@@ -264,6 +272,10 @@ func (w *Wrapper) handleConfChange(entry *raftpb.Entry, t *tag) {
 			return
 		}
 		w.transport.RemovePeer(tid)
+	}
+
+	if t == nil {
+		return
 	}
 
 	// Inform state machine about new configuration.
