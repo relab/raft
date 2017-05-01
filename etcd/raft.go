@@ -81,6 +81,7 @@ func (w *Wrapper) decodeCommit(commit []byte) (*tag, error) {
 func NewRaft(logger logrus.FieldLogger, storage *etcdraft.MemoryStorage, cfg *etcdraft.Config, peers []etcdraft.Peer, heartbeat time.Duration) *Wrapper {
 	w := &Wrapper{
 		heartbeat: heartbeat,
+		proposals: make(map[uint64]*future),
 		storage:   storage,
 		logger:    logger,
 	}
