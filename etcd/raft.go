@@ -87,7 +87,8 @@ func (w *Wrapper) deleteFuture(uid uint64) {
 // Hack: Returns nil if commit fails to decode. This when etcd append the
 // initial configuration to the log. Fix: Make state machine return
 // clientID/clientSeq along with result, we can then use that to figure out who
-// to respond to instead of using the tag struct.
+// to respond to instead of using the tag struct. Etcd uses the same hack
+// internally so we'll just leave it be for now.
 func (w *Wrapper) decodeCommit(commit []byte) *tag {
 	b := bytes.NewBuffer(commit)
 	dec := gob.NewDecoder(b)
