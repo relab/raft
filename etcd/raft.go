@@ -37,6 +37,7 @@ func (f *future) ResultCh() <-chan raft.Result {
 // etcd/rafthttp.Raft.
 type Wrapper struct {
 	n         etcdraft.Node
+	sm        raft.StateMachine
 	storage   *etcdraft.MemoryStorage
 	transport *rafthttp.Transport
 	logger    logrus.FieldLogger
@@ -44,7 +45,7 @@ type Wrapper struct {
 	heartbeat time.Duration
 
 	uid       uint64
-	proposals map[uint64]*future
+	proposals map[uint64]chan<- raft.Result
 }
 
 func (w *Wrapper) encodeProposal(data []byte) (uint64, []byte, error) {
@@ -64,7 +65,7 @@ func (w *Wrapper) encodeProposal(data []byte) (uint64, []byte, error) {
 	return uid, b.Bytes(), nil
 }
 
-func (w *Wrapper) decodeCommit(commit []byte) (*tag, error) {
+func (w *Wrapper) decodeCommit(commit []byte) *tag {
 	b := bytes.NewBuffer(commit)
 	dec := gob.NewDecoder(b)
 
@@ -72,17 +73,21 @@ func (w *Wrapper) decodeCommit(commit []byte) (*tag, error) {
 	err := dec.Decode(&t)
 
 	if err != nil {
-		return nil, err
+		panic("decodeCommit: " + err.Error())
 	}
 
-	return &t, nil
+	return &t
 }
 
-func NewRaft(logger logrus.FieldLogger, storage *etcdraft.MemoryStorage, cfg *etcdraft.Config, peers []etcdraft.Peer, heartbeat time.Duration) *Wrapper {
+func NewRaft(logger logrus.FieldLogger,
+	sm raft.StateMachine, storage *etcdraft.MemoryStorage, cfg *etcdraft.Config,
+	peers []etcdraft.Peer, heartbeat time.Duration,
+) *Wrapper {
 	w := &Wrapper{
-		heartbeat: heartbeat,
-		proposals: make(map[uint64]*future),
+		sm:        sm,
 		storage:   storage,
+		heartbeat: heartbeat,
+		proposals: make(map[uint64]chan<- raft.Result),
 		logger:    logger,
 	}
 	w.n = etcdraft.StartNode(cfg, append(peers, etcdraft.Peer{ID: cfg.ID}))
@@ -133,8 +138,9 @@ func (w *Wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, erro
 		return nil, err
 	}
 
-	future := &future{make(chan raft.Result, 1)}
-	w.proposals[uid] = future
+	res := make(chan raft.Result, 1)
+	future := &future{res}
+	w.proposals[uid] = res
 
 	err = w.n.Propose(ctx, prop)
 
@@ -194,41 +200,21 @@ func (w *Wrapper) run() {
 			w.logger.WithField("messages", rd.Messages).Warnln("Sending")
 			w.transport.Send(rd.Messages)
 			for _, entry := range rd.CommittedEntries {
-				// TODO Decode tag.
+				t := w.decodeCommit(entry.Data)
 
 				switch entry.Type {
 				case raftpb.EntryNormal:
 					w.logger.WithField(
 						"entry", etcdraft.DescribeEntry(entry, nil),
 					).Warnln("Committed normal entry")
-					// process(entry)
+
+					w.handleNormal(&entry, t)
 				case raftpb.EntryConfChange:
 					w.logger.WithField(
 						"entry", etcdraft.DescribeEntry(entry, nil),
 					).Warnln("Committed conf change entry")
 
-					var cc raftpb.ConfChange
-					err := cc.Unmarshal(entry.Data)
-
-					if err != nil {
-						panic("unmarshal conf change: " + err.Error())
-					}
-
-					w.logger.WithField("cc", cc).Warnln("Applying conf change")
-					w.n.ApplyConfChange(cc)
-					switch cc.Type {
-					case raftpb.ConfChangeAddNode:
-						if len(cc.Context) > 0 {
-							w.transport.AddPeer(types.ID(cc.NodeID), []string{string(cc.Context)})
-						}
-					case raftpb.ConfChangeRemoveNode:
-						tid := types.ID(cc.NodeID)
-						if tid == w.transport.ID {
-							w.logger.Warnln("Shutting down")
-							return
-						}
-						w.transport.RemovePeer(tid)
-					}
+					w.handleConfChange(&entry, t)
 				}
 
 				// TODO Respond to future.
@@ -237,6 +223,58 @@ func (w *Wrapper) run() {
 			w.n.Advance()
 		}
 	}
+}
+
+func (w *Wrapper) handleNormal(entry *raftpb.Entry, t *tag) {
+	res := w.sm.Apply(&commonpb.Entry{
+		Term:      entry.Term,
+		Index:     entry.Index,
+		EntryType: commonpb.EntryNormal,
+		Data:      t.Data,
+	})
+
+	if respCh, ok := w.proposals[t.UID]; ok {
+		respCh <- raft.Result{
+			Index: entry.Index,
+			Value: res,
+		}
+		delete(w.proposals, t.UID)
+	}
+}
+
+func (w *Wrapper) handleConfChange(entry *raftpb.Entry, t *tag) {
+	var cc raftpb.ConfChange
+	err := cc.Unmarshal(entry.Data)
+
+	if err != nil {
+		panic("unmarshal conf change: " + err.Error())
+	}
+
+	w.logger.WithField("cc", cc).Warnln("Applying conf change")
+	w.n.ApplyConfChange(cc)
+	switch cc.Type {
+	case raftpb.ConfChangeAddNode:
+		if len(cc.Context) > 0 {
+			w.transport.AddPeer(types.ID(cc.NodeID), []string{string(cc.Context)})
+		}
+	case raftpb.ConfChangeRemoveNode:
+		tid := types.ID(cc.NodeID)
+		if tid == w.transport.ID {
+			w.logger.Warnln("Shutting down")
+			return
+		}
+		w.transport.RemovePeer(tid)
+	}
+
+	// Inform state machine about new configuration.
+	w.sm.Apply(&commonpb.Entry{
+		Term:      entry.Term,
+		Index:     entry.Index,
+		EntryType: commonpb.EntryReconf,
+		Data:      t.Data,
+	})
+
+	// TODO Respond / Cleanup future.
 }
 
 func (w *Wrapper) Process(ctx context.Context, m raftpb.Message) error {
