@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"net/http"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -45,6 +46,7 @@ type Wrapper struct {
 	heartbeat time.Duration
 
 	uid       uint64
+	propLock  sync.RWMutex
 	proposals map[uint64]chan<- raft.Result
 }
 
@@ -63,6 +65,23 @@ func (w *Wrapper) encodeProposal(data []byte) (uint64, []byte, error) {
 	}
 
 	return uid, b.Bytes(), nil
+}
+
+func (w *Wrapper) newFuture(uid uint64) raft.Future {
+	res := make(chan raft.Result, 1)
+	future := &future{res}
+
+	w.propLock.Lock()
+	w.proposals[uid] = res
+	w.propLock.Unlock()
+
+	return future
+}
+
+func (w *Wrapper) deleteFuture(uid uint64) {
+	w.propLock.Lock()
+	delete(w.proposals, uid)
+	w.propLock.Unlock()
 }
 
 // Hack: Returns nil if commit fails to decode. This when etcd append the
@@ -142,10 +161,7 @@ func (w *Wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, erro
 		return nil, err
 	}
 
-	res := make(chan raft.Result, 1)
-	future := &future{res}
-	w.proposals[uid] = res
-
+	future := w.newFuture(uid)
 	err = w.n.Propose(ctx, prop)
 
 	if err != nil {
@@ -241,12 +257,16 @@ func (w *Wrapper) handleNormal(entry *raftpb.Entry, t *tag) {
 		Data:      t.Data,
 	})
 
-	if respCh, ok := w.proposals[t.UID]; ok {
+	w.propLock.RLock()
+	respCh, ok := w.proposals[t.UID]
+	w.propLock.RUnlock()
+
+	if ok {
 		respCh <- raft.Result{
 			Index: entry.Index,
 			Value: res,
 		}
-		delete(w.proposals, t.UID)
+		w.deleteFuture(t.UID)
 	}
 }
 
