@@ -24,10 +24,16 @@ type Wrapper struct {
 	storage   *etcdraft.MemoryStorage
 	transport *rafthttp.Transport
 	logger    logrus.FieldLogger
+
+	heartbeat time.Duration
 }
 
-func NewRaft(logger logrus.FieldLogger, storage *etcdraft.MemoryStorage, cfg *etcdraft.Config, peers []etcdraft.Peer) *Wrapper {
-	w := &Wrapper{logger: logger, storage: storage}
+func NewRaft(logger logrus.FieldLogger, storage *etcdraft.MemoryStorage, cfg *etcdraft.Config, peers []etcdraft.Peer, heartbeat time.Duration) *Wrapper {
+	w := &Wrapper{
+		heartbeat: heartbeat,
+		storage:   storage,
+		logger:    logger,
+	}
 	w.n = etcdraft.StartNode(cfg, append(peers, etcdraft.Peer{ID: cfg.ID}))
 
 	ss := &stats.ServerStats{}
@@ -107,7 +113,7 @@ func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 }
 
 func (w *Wrapper) run() {
-	s := time.NewTicker(5 * time.Millisecond)
+	s := time.NewTicker(w.heartbeat * time.Millisecond)
 
 	for {
 		select {
