@@ -46,7 +46,7 @@ type Wrapper struct {
 }
 
 func NewRaft(logger logrus.FieldLogger,
-	sm raft.StateMachine, cfg *hraft.Config, trans hraft.Transport,
+	sm raft.StateMachine, cfg *hraft.Config, servers []hraft.Server, trans hraft.Transport,
 	logs hraft.LogStore, stable hraft.StableStore, snaps hraft.SnapshotStore,
 ) *Wrapper {
 	w := &Wrapper{
@@ -55,8 +55,12 @@ func NewRaft(logger logrus.FieldLogger,
 	}
 
 	node, err := hraft.NewRaft(cfg, w, logs, stable, snaps, trans)
-
 	if err != nil {
+		panic(err)
+	}
+
+	f := node.BootstrapCluster(hraft.Configuration{Servers: servers})
+	if err := f.Error(); err != nil {
 		panic(err)
 	}
 
