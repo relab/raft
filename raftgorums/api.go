@@ -29,6 +29,8 @@ func (r *Raft) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (ra
 		return future, nil
 	}
 
+	r.incCmd()
+
 	switch req.ReconfType {
 	case commonpb.ReconfAdd:
 		go r.replicate(req.ServerID, promise)
@@ -46,6 +48,8 @@ func (r *Raft) ProposeCmd(ctx context.Context, cmd []byte) (raft.Future, error) 
 	if err != nil {
 		return nil, err
 	}
+
+	r.incCmd()
 
 	select {
 	case r.queue <- promise:

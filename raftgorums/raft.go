@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -88,8 +89,10 @@ type Raft struct {
 	entriesPerMsg uint64
 	burst         uint64
 
-	queue   chan raft.PromiseEntry
-	pending *list.List
+	heartbeatNow chan struct{}
+	cmdCount     uint64
+	queue        chan raft.PromiseEntry
+	pending      *list.List
 
 	pendingReads []raft.PromiseLogEntry
 
@@ -108,6 +111,20 @@ type Raft struct {
 	metricsEnabled bool
 
 	stop chan struct{}
+}
+
+func (r *Raft) incCmd() {
+	count := atomic.AddUint64(&r.cmdCount, 1)
+
+	if count > r.entriesPerMsg {
+		// Subtract count.
+		atomic.AddUint64(&r.cmdCount, ^(count - 1))
+
+		select {
+		case r.heartbeatNow <- struct{}{}:
+		default:
+		}
+	}
 }
 
 type catchUpReq struct {
@@ -148,6 +165,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		electionTimeout:  cfg.ElectionTimeout,
 		heartbeatTimeout: cfg.HeartbeatTimeout,
 		startElectionNow: make(chan struct{}),
+		heartbeatNow:     make(chan struct{}, 128),
 		preElection:      true,
 		entriesPerMsg:    cfg.EntriesPerMsg,
 		burst:            cfg.EntriesPerMsg * cfg.CatchupMultiplier,
@@ -386,6 +404,12 @@ func (r *Raft) runNormal() {
 				Infoln("Set election timeout")
 
 			startElection()
+		case <-r.heartbeatNow:
+			heartbeatTimeout = time.After(r.heartbeatTimeout)
+			if r.State() != Leader {
+				continue
+			}
+			r.sendAppendEntries()
 		case <-heartbeatTimeout:
 			heartbeatTimeout = time.After(r.heartbeatTimeout)
 			if r.State() != Leader {

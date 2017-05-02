@@ -380,7 +380,10 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 			}
 		}
 
-		// TODO r.sendAppendEntries()?
+		select {
+		case r.heartbeatNow <- struct{}{}:
+		default:
+		}
 
 		return
 	}
