@@ -92,6 +92,7 @@ type Raft struct {
 	inflight      uint64
 
 	heartbeatNow chan struct{}
+	countLock    sync.Mutex
 	cmdCount     uint64
 	queue        chan raft.PromiseEntry
 	pending      *list.List
@@ -116,11 +117,13 @@ type Raft struct {
 }
 
 func (r *Raft) incCmd() {
-	count := atomic.AddUint64(&r.cmdCount, 1)
+	r.countLock.Lock()
+	defer r.countLock.Unlock()
 
-	if count > r.entriesPerMsg {
-		// Subtract count.
-		atomic.AddUint64(&r.cmdCount, ^(count - 1))
+	r.cmdCount++
+
+	if r.cmdCount > r.entriesPerMsg {
+		r.cmdCount = 0
 
 		select {
 		case r.heartbeatNow <- struct{}{}:
