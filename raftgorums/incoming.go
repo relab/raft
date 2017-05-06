@@ -395,6 +395,7 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesQFResponse, maxIndex uint64) {
 	r.mu.Lock()
 	defer func() {
+		r.inflight--
 		r.mu.Unlock()
 		r.advanceCommitIndex()
 	}()

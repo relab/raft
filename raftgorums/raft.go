@@ -4,7 +4,6 @@ import (
 	"container/list"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -40,6 +39,8 @@ const None = 0
 // BufferSize is the initial buffer size used for maps and buffered channels
 // that directly depend on the number of requests being serviced.
 const BufferSize = 10000
+
+const maxInflight = 1000
 
 // Raft represents an instance of the Raft algorithm.
 type Raft struct {
@@ -88,6 +89,7 @@ type Raft struct {
 
 	entriesPerMsg uint64
 	burst         uint64
+	inflight      uint64
 
 	heartbeatNow chan struct{}
 	cmdCount     uint64
@@ -600,16 +602,12 @@ func (r *Raft) startElection() {
 	lastLogTerm := r.logTerm(lastLogIndex)
 
 	// #C4 Send RequestVote RPCs to all other servers.
-	select {
-	case r.rvreqout <- &pb.RequestVoteRequest{
+	r.rvreqout <- &pb.RequestVoteRequest{
 		CandidateID:  r.id,
 		Term:         term,
 		LastLogIndex: lastLogIndex,
 		LastLogTerm:  lastLogTerm,
 		PreVote:      r.preElection,
-	}:
-	default:
-		r.logger.Warnln("RequestVote queue full")
 	}
 
 	// Election is now started. Election will be continued in handleRequestVote when a response from Gorums is received.
@@ -619,6 +617,12 @@ func (r *Raft) startElection() {
 func (r *Raft) sendAppendEntries() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.inflight > maxInflight {
+		return
+	}
+
+	r.inflight++
 
 	var toSave []*commonpb.Entry
 	assignIndex := r.storage.NextIndex()
@@ -655,11 +659,7 @@ LOOP:
 		r.mem.set(reconf)
 	}
 
-	select {
-	case r.aereqout <- r.getAppendEntriesRequest(r.nextIndex, nil):
-	default:
-		r.logger.Warnln("AppendEntries queue full")
-	}
+	r.aereqout <- r.getAppendEntriesRequest(r.nextIndex, nil)
 }
 
 // TODO Assumes caller holds lock on Raft.
