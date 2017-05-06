@@ -31,6 +31,7 @@ func (r *Raft) handleOutgoing() error {
 				continue
 			}
 			lastCuReq = time.Now()
+			rmetrics.catchups.Add(1)
 
 			r.logger.WithField("matchindex", req.matchIndex).Warnln("Sending catch-up")
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)

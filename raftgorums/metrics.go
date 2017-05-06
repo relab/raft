@@ -18,6 +18,7 @@ type raftMetrics struct {
 	writeReqs   metrics.Counter
 	reads       metrics.Counter
 	writes      metrics.Counter
+	catchups    metrics.Counter
 	leader      metrics.Gauge
 	commitIndex metrics.Gauge
 }
@@ -81,6 +82,12 @@ var rmetrics = &raftMetrics{
 		Subsystem: "server",
 		Name:      "writes",
 		Help:      "Writes processed.",
+	}, []string{}),
+	catchups: prometheus.NewCounterFrom(promc.CounterOpts{
+		Namespace: "raft",
+		Subsystem: "server",
+		Name:      "catchups",
+		Help:      "Catchups invoked.",
 	}, []string{}),
 	leader: prometheus.NewGaugeFrom(promc.GaugeOpts{
 		Namespace: "raft",
