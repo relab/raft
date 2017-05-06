@@ -188,11 +188,8 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	r.leader = req.LeaderID
 	r.heardFromLeader = true
 	r.seenLeader = true
-
-	// Don't timeout during catch up.
-	if uint64(len(req.Entries)) > r.burst {
-		r.resetElection = true
-	}
+	// TODO Revisit heartbeat mechanism.
+	r.resetElection = true
 
 	if !success {
 		r.cureqout <- &catchUpReq{
