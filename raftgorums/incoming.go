@@ -356,12 +356,11 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		r.pendingReads = nil
 		r.mem.setStable(false)
 
-		// Empty queue.
 	EMPTYCH:
 		for {
+			// Empty queue.
 			select {
 			case <-r.queue:
-				// TODO Respond with NotLeader.
 			default:
 				// Paper §8: We add a no-op, so that the leader
 				// commits an entry from its own term. This

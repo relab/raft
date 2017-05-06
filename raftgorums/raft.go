@@ -701,6 +701,19 @@ func (r *Raft) getAppendEntriesRequest(nextIndex uint64, entries []*commonpb.Ent
 // TODO Tests.
 // TODO Assumes caller already holds lock on Raft.
 func (r *Raft) becomeFollower(term uint64) {
+	if r.state == Leader {
+	EMPTYCH:
+		for {
+			// Empty queue.
+			select {
+			case promise := <-r.queue:
+				promise.Respond(raft.ErrNotLeader{Leader: r.leader})
+			default:
+				break EMPTYCH
+			}
+		}
+	}
+
 	if r.state != Inactive {
 		r.state = Follower
 	}
