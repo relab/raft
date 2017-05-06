@@ -170,9 +170,9 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		entriesPerMsg:    cfg.EntriesPerMsg,
 		burst:            cfg.EntriesPerMsg * cfg.CatchupMultiplier,
 		queue:            make(chan raft.PromiseEntry, BufferSize),
-		applyCh:          make(chan raft.PromiseLogEntry, 128),
-		rvreqout:         make(chan *pb.RequestVoteRequest, 128),
-		aereqout:         make(chan *pb.AppendEntriesRequest, 128),
+		applyCh:          make(chan raft.PromiseLogEntry, 1024),
+		rvreqout:         make(chan *pb.RequestVoteRequest, 1024),
+		aereqout:         make(chan *pb.AppendEntriesRequest, 1024),
 		cureqout:         make(chan *catchUpReq, 16),
 		toggle:           make(chan struct{}),
 		logger:           cfg.Logger.WithField("raftid", cfg.ID),
@@ -602,12 +602,16 @@ func (r *Raft) startElection() {
 	lastLogTerm := r.logTerm(lastLogIndex)
 
 	// #C4 Send RequestVote RPCs to all other servers.
-	r.rvreqout <- &pb.RequestVoteRequest{
+	select {
+	case r.rvreqout <- &pb.RequestVoteRequest{
 		CandidateID:  r.id,
 		Term:         term,
 		LastLogIndex: lastLogIndex,
 		LastLogTerm:  lastLogTerm,
 		PreVote:      r.preElection,
+	}:
+	default:
+		r.logger.Warnln("RequestVote queue full")
 	}
 
 	// Election is now started. Election will be continued in handleRequestVote when a response from Gorums is received.
@@ -653,7 +657,11 @@ LOOP:
 		r.mem.set(reconf)
 	}
 
-	r.aereqout <- r.getAppendEntriesRequest(r.nextIndex, nil)
+	select {
+	case r.aereqout <- r.getAppendEntriesRequest(r.nextIndex, nil):
+	default:
+		r.logger.Warnln("AppendEntries queue full")
+	}
 }
 
 // TODO Assumes caller holds lock on Raft.
