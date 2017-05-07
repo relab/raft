@@ -87,6 +87,8 @@ func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 }
 
 func (w *Wrapper) Apply(logentry *hraft.Log) interface{} {
+	rmetrics.commitIndex.Set(float64(logentry.Index))
+
 	switch logentry.Type {
 	case hraft.LogCommand:
 		res := w.sm.Apply(&commonpb.Entry{

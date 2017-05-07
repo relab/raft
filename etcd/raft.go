@@ -206,6 +206,8 @@ func (w *Wrapper) run() {
 		case <-s.C:
 			w.n.Tick()
 		case rd := <-w.n.Ready():
+			rmetrics.leader.Set(float64(rd.SoftState.Lead))
+
 			w.storage.Append(rd.Entries)
 			if !etcdraft.IsEmptyHardState(rd.HardState) {
 				w.storage.SetHardState(rd.HardState)
@@ -215,6 +217,8 @@ func (w *Wrapper) run() {
 			}
 			w.transport.Send(rd.Messages)
 			for _, entry := range rd.CommittedEntries {
+				rmetrics.commitIndex.Set(float64(entry.Index))
+
 				t := w.decodeCommit(entry.Data)
 
 				switch entry.Type {
