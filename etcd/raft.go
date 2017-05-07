@@ -206,8 +206,6 @@ func (w *Wrapper) run() {
 		case <-s.C:
 			w.n.Tick()
 		case rd := <-w.n.Ready():
-			rmetrics.leader.Set(float64(rd.SoftState.Lead))
-
 			w.storage.Append(rd.Entries)
 			if !etcdraft.IsEmptyHardState(rd.HardState) {
 				w.storage.SetHardState(rd.HardState)
