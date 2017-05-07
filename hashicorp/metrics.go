@@ -14,13 +14,13 @@ type raftMetrics struct {
 var rmetrics = &raftMetrics{
 	leader: prometheus.NewGaugeFrom(promc.GaugeOpts{
 		Namespace: "raft",
-		Subsystem: "server",
+		Subsystem: "hashicorp_server",
 		Name:      "leader",
 		Help:      "Current Raft leader.",
 	}, []string{}),
 	commitIndex: prometheus.NewGaugeFrom(promc.GaugeOpts{
 		Namespace: "raft",
-		Subsystem: "server",
+		Subsystem: "hashicorp_server",
 		Name:      "commit_index",
 		Help:      "Current commit index.",
 	}, []string{}),
