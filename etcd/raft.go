@@ -206,6 +206,19 @@ func (w *Wrapper) run() {
 		case <-s.C:
 			w.n.Tick()
 		case rd := <-w.n.Ready():
+			if rd.SoftState != nil {
+				rmetrics.leader.Set(float64(rd.Lead))
+				if rd.RaftState != etcdraft.StateLeader && len(w.proposals) > 0 {
+					w.propLock.Lock()
+					for uid, respCh := range w.proposals {
+						respCh <- raft.Result{
+							Value: raft.ErrNotLeader{Leader: rd.Lead},
+						}
+						delete(w.proposals, uid)
+					}
+					w.propLock.Unlock()
+				}
+			}
 			w.storage.Append(rd.Entries)
 			if !etcdraft.IsEmptyHardState(rd.HardState) {
 				w.storage.SetHardState(rd.HardState)
