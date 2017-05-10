@@ -46,8 +46,10 @@ type Wrapper struct {
 	heartbeat time.Duration
 
 	uid       uint64
-	propLock  sync.RWMutex
+	propLock  sync.Mutex
 	proposals map[uint64]chan<- raft.Result
+
+	apply chan []raftpb.Entry
 }
 
 func (w *Wrapper) encodeProposal(data []byte) (uint64, []byte, error) {
@@ -76,12 +78,6 @@ func (w *Wrapper) newFuture(uid uint64) raft.Future {
 	w.propLock.Unlock()
 
 	return future
-}
-
-func (w *Wrapper) deleteFuture(uid uint64) {
-	w.propLock.Lock()
-	delete(w.proposals, uid)
-	w.propLock.Unlock()
 }
 
 // Hack: Returns nil if commit fails to decode. This when etcd append the
@@ -113,6 +109,7 @@ func NewRaft(logger logrus.FieldLogger,
 		heartbeat: heartbeat,
 		proposals: make(map[uint64]chan<- raft.Result),
 		logger:    logger,
+		apply:     make(chan []raftpb.Entry, 2048),
 	}
 	w.n = etcdraft.StartNode(cfg, append(peers, etcdraft.Peer{ID: cfg.ID}))
 
@@ -145,6 +142,7 @@ func NewRaft(logger logrus.FieldLogger,
 
 	w.transport = transport
 
+	go w.runSM()
 	go w.run()
 	return w
 }
@@ -226,31 +224,64 @@ func (w *Wrapper) run() {
 			if !etcdraft.IsEmptySnap(rd.Snapshot) {
 				w.storage.ApplySnapshot(rd.Snapshot)
 			}
-			w.transport.Send(rd.Messages)
-			for _, entry := range rd.CommittedEntries {
-				rmetrics.commitIndex.Set(float64(entry.Index))
-
-				t := w.decodeCommit(entry.Data)
-
-				switch entry.Type {
-				case raftpb.EntryNormal:
-					w.handleNormal(&entry, t)
-				case raftpb.EntryConfChange:
-					w.logger.WithField(
-						"entry", etcdraft.DescribeEntry(entry, nil),
-					).Warnln("Committed conf change entry")
-
-					w.handleConfChange(&entry, t)
-				}
-
-				// TODO Respond to future.
-			}
 			w.n.Advance()
+			w.transport.Send(rd.Messages)
+			w.apply <- rd.CommittedEntries
 		}
 	}
 }
 
-func (w *Wrapper) handleNormal(entry *raftpb.Entry, t *tag) {
+func (w *Wrapper) runSM() {
+	for entries := range w.apply {
+		tags := make(map[uint64]*tag)
+
+		for _, entry := range entries {
+			tags[entry.Index] = w.decodeCommit(entry.Data)
+		}
+
+		chs := make(map[uint64]chan<- raft.Result)
+
+		w.propLock.Lock()
+		for index, tag := range tags {
+			if tag == nil {
+				continue
+			}
+			chs[index] = w.proposals[tag.UID]
+		}
+		w.propLock.Unlock()
+
+		for _, entry := range entries {
+			rmetrics.commitIndex.Set(float64(entry.Index))
+
+			t := tags[entry.Index]
+			ch := chs[entry.Index]
+
+			switch entry.Type {
+			case raftpb.EntryNormal:
+				w.handleNormal(&entry, t, ch)
+			case raftpb.EntryConfChange:
+				w.logger.WithField(
+					"entry", etcdraft.DescribeEntry(entry, nil),
+				).Warnln("Committed conf change entry")
+
+				w.handleConfChange(&entry, t, ch)
+			}
+
+			// TODO Respond to future.
+		}
+
+		w.propLock.Lock()
+		for _, tag := range tags {
+			if tag == nil {
+				continue
+			}
+			delete(w.proposals, tag.UID)
+		}
+		w.propLock.Unlock()
+	}
+}
+
+func (w *Wrapper) handleNormal(entry *raftpb.Entry, t *tag, respCh chan<- raft.Result) {
 	if t == nil {
 		return
 	}
@@ -262,20 +293,17 @@ func (w *Wrapper) handleNormal(entry *raftpb.Entry, t *tag) {
 		Data:      t.Data,
 	})
 
-	w.propLock.RLock()
-	respCh, ok := w.proposals[t.UID]
-	w.propLock.RUnlock()
+	if respCh == nil {
+		return
+	}
 
-	if ok {
-		respCh <- raft.Result{
-			Index: entry.Index,
-			Value: res,
-		}
-		w.deleteFuture(t.UID)
+	respCh <- raft.Result{
+		Index: entry.Index,
+		Value: res,
 	}
 }
 
-func (w *Wrapper) handleConfChange(entry *raftpb.Entry, t *tag) {
+func (w *Wrapper) handleConfChange(entry *raftpb.Entry, t *tag, respCh chan<- raft.Result) {
 	var cc raftpb.ConfChange
 	err := cc.Unmarshal(entry.Data)
 
