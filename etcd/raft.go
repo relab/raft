@@ -162,7 +162,9 @@ func (w *Wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, erro
 	err = w.n.Propose(ctx, prop)
 
 	if err != nil {
+		w.propLock.Lock()
 		delete(w.proposals, uid)
+		w.propLock.Unlock()
 		return nil, err
 	}
 
@@ -206,16 +208,16 @@ func (w *Wrapper) run() {
 		case rd := <-w.n.Ready():
 			if rd.SoftState != nil {
 				rmetrics.leader.Set(float64(rd.Lead))
+				w.propLock.Lock()
 				if rd.RaftState != etcdraft.StateLeader && len(w.proposals) > 0 {
-					w.propLock.Lock()
 					for uid, respCh := range w.proposals {
 						respCh <- raft.Result{
 							Value: raft.ErrNotLeader{Leader: rd.Lead},
 						}
 						delete(w.proposals, uid)
 					}
-					w.propLock.Unlock()
 				}
+				w.propLock.Unlock()
 			}
 			w.storage.Append(rd.Entries)
 			if !etcdraft.IsEmptyHardState(rd.HardState) {
