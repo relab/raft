@@ -1,8 +1,7 @@
 package etcd
 
 import (
-	"bytes"
-	"encoding/gob"
+	"encoding/binary"
 	"net/http"
 	"strconv"
 	"sync"
@@ -20,11 +19,6 @@ import (
 	"github.com/relab/raft"
 	"github.com/relab/raft/commonpb"
 )
-
-type tag struct {
-	UID  uint64
-	Data []byte
-}
 
 type future struct {
 	res chan raft.Result
@@ -52,23 +46,6 @@ type Wrapper struct {
 	apply chan []raftpb.Entry
 }
 
-func (w *Wrapper) encodeProposal(data []byte) (uint64, []byte, error) {
-	uid := atomic.AddUint64(&w.uid, 1)
-	t := &tag{
-		UID:  uid,
-		Data: data,
-	}
-
-	var b bytes.Buffer
-	enc := gob.NewEncoder(&b)
-	err := enc.Encode(t)
-	if err != nil {
-		return 0, nil, err
-	}
-
-	return uid, b.Bytes(), nil
-}
-
 func (w *Wrapper) newFuture(uid uint64) raft.Future {
 	res := make(chan raft.Result, 1)
 	future := &future{res}
@@ -78,25 +55,6 @@ func (w *Wrapper) newFuture(uid uint64) raft.Future {
 	w.propLock.Unlock()
 
 	return future
-}
-
-// Hack: Returns nil if commit fails to decode. This when etcd append the
-// initial configuration to the log. Fix: Make state machine return
-// clientID/clientSeq along with result, we can then use that to figure out who
-// to respond to instead of using the tag struct. Etcd uses the same hack
-// internally so we'll just leave it be for now.
-func (w *Wrapper) decodeCommit(commit []byte) *tag {
-	b := bytes.NewBuffer(commit)
-	dec := gob.NewDecoder(b)
-
-	var t tag
-	err := dec.Decode(&t)
-
-	if err != nil {
-		return nil
-	}
-
-	return &t
 }
 
 func NewRaft(logger logrus.FieldLogger,
@@ -152,16 +110,15 @@ func (w *Wrapper) Handler() http.Handler {
 }
 
 func (w *Wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, error) {
-	uid, prop, err := w.encodeProposal(req)
-
-	if err != nil {
-		return nil, err
-	}
+	uid := atomic.AddUint64(&w.uid, 1)
+	b := make([]byte, 9)
+	binary.LittleEndian.PutUint64(b, uid)
+	b[8] = 0x9
+	req = append(req, b...)
 
 	future := w.newFuture(uid)
-	err = w.n.Propose(ctx, prop)
 
-	if err != nil {
+	if err := w.n.Propose(ctx, req); err != nil {
 		w.propLock.Lock()
 		delete(w.proposals, uid)
 		w.propLock.Unlock()
@@ -235,79 +192,64 @@ func (w *Wrapper) run() {
 
 func (w *Wrapper) runSM() {
 	for entries := range w.apply {
-		tags := make(map[uint64]*tag)
-
-		for _, entry := range entries {
-			tags[entry.Index] = w.decodeCommit(entry.Data)
-		}
-
-		chs := make(map[uint64]chan<- raft.Result)
-
-		w.propLock.Lock()
-		for index, tag := range tags {
-			if tag == nil {
-				continue
-			}
-			chs[index] = w.proposals[tag.UID]
-		}
-		w.propLock.Unlock()
-
 		for _, entry := range entries {
 			rmetrics.commitIndex.Set(float64(entry.Index))
 
-			t := tags[entry.Index]
-			ch := chs[entry.Index]
-
 			switch entry.Type {
 			case raftpb.EntryNormal:
-				w.handleNormal(&entry, t, ch)
+				w.handleNormal(&entry)
 			case raftpb.EntryConfChange:
 				w.logger.WithField(
 					"entry", etcdraft.DescribeEntry(entry, nil),
 				).Warnln("Committed conf change entry")
 
-				w.handleConfChange(&entry, t, ch)
+				w.handleConfChange(&entry)
 			}
-
-			// TODO Respond to future.
 		}
-
-		w.propLock.Lock()
-		for _, tag := range tags {
-			if tag == nil {
-				continue
-			}
-			delete(w.proposals, tag.UID)
-		}
-		w.propLock.Unlock()
 	}
 }
 
-func (w *Wrapper) handleNormal(entry *raftpb.Entry, t *tag, respCh chan<- raft.Result) {
-	if t == nil {
+func (w *Wrapper) handleNormal(entry *raftpb.Entry) {
+	if len(entry.Data) == 0 {
 		return
 	}
+
+	uid := binary.LittleEndian.Uint64(entry.Data[len(entry.Data)-9 : len(entry.Data)-1])
+	data := entry.Data[:len(entry.Data)-9]
 
 	res := w.sm.Apply(&commonpb.Entry{
 		Term:      entry.Term,
 		Index:     entry.Index,
 		EntryType: commonpb.EntryNormal,
-		Data:      t.Data,
+		Data:      data,
 	})
 
-	if respCh == nil {
+	w.propLock.Lock()
+	ch, ok := w.proposals[uid]
+	w.propLock.Unlock()
+
+	if !ok {
 		return
 	}
 
-	respCh <- raft.Result{
+	ch <- raft.Result{
 		Index: entry.Index,
 		Value: res,
 	}
+
+	w.propLock.Lock()
+	delete(w.proposals, uid)
+	w.propLock.Unlock()
 }
 
-func (w *Wrapper) handleConfChange(entry *raftpb.Entry, t *tag, respCh chan<- raft.Result) {
+func (w *Wrapper) handleConfChange(entry *raftpb.Entry) {
+	var remove int
+	if entry.Data[len(entry.Data)-1] == 0x9 {
+		remove = 9
+	}
+	data := entry.Data[:len(entry.Data)-remove]
 	var cc raftpb.ConfChange
-	err := cc.Unmarshal(entry.Data)
+	err := cc.Unmarshal(data)
 
 	if err != nil {
 		panic("unmarshal conf change: " + err.Error())
@@ -329,16 +271,12 @@ func (w *Wrapper) handleConfChange(entry *raftpb.Entry, t *tag, respCh chan<- ra
 		w.transport.RemovePeer(tid)
 	}
 
-	if t == nil {
-		return
-	}
-
 	// Inform state machine about new configuration.
 	w.sm.Apply(&commonpb.Entry{
 		Term:      entry.Term,
 		Index:     entry.Index,
 		EntryType: commonpb.EntryReconf,
-		Data:      t.Data,
+		Data:      data,
 	})
 
 	// TODO Respond / Cleanup future.
