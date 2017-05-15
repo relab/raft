@@ -16,6 +16,7 @@ import (
 	etcdraft "github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/coreos/etcd/rafthttp"
+	"github.com/coreos/etcd/wal"
 	"github.com/relab/raft"
 	"github.com/relab/raft/commonpb"
 )
@@ -34,6 +35,7 @@ type Wrapper struct {
 	n         etcdraft.Node
 	sm        raft.StateMachine
 	storage   *etcdraft.MemoryStorage
+	wal       *wal.WAL
 	transport *rafthttp.Transport
 	logger    logrus.FieldLogger
 
@@ -58,12 +60,13 @@ func (w *Wrapper) newFuture(uid uint64) raft.Future {
 }
 
 func NewRaft(logger logrus.FieldLogger,
-	sm raft.StateMachine, storage *etcdraft.MemoryStorage, cfg *etcdraft.Config,
+	sm raft.StateMachine, storage *etcdraft.MemoryStorage, wal *wal.WAL, cfg *etcdraft.Config,
 	peers []etcdraft.Peer, heartbeat time.Duration,
 ) *Wrapper {
 	w := &Wrapper{
 		sm:        sm,
 		storage:   storage,
+		wal:       wal,
 		heartbeat: heartbeat,
 		proposals: make(map[uint64]chan<- raft.Result),
 		logger:    logger,
@@ -176,6 +179,7 @@ func (w *Wrapper) run() {
 				}
 				w.propLock.Unlock()
 			}
+			w.wal.Save(rd.HardState, rd.Entries)
 			w.storage.Append(rd.Entries)
 			if !etcdraft.IsEmptyHardState(rd.HardState) {
 				w.storage.SetHardState(rd.HardState)
