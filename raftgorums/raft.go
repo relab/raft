@@ -40,8 +40,6 @@ const None = 0
 // that directly depend on the number of requests being serviced.
 const BufferSize = 10000
 
-const maxInflight = 1000
-
 // Raft represents an instance of the Raft algorithm.
 type Raft struct {
 	// Must be acquired before mutating Raft state.
@@ -89,7 +87,8 @@ type Raft struct {
 
 	entriesPerMsg uint64
 	burst         uint64
-	inflight      uint64
+	maxInflight   int
+	inflight      int
 
 	heartbeatNow chan struct{}
 	countLock    sync.Mutex
@@ -173,6 +172,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
 		heartbeatNow:     make(chan struct{}, 128),
 		preElection:      true,
 		entriesPerMsg:    cfg.EntriesPerMsg,
+		maxInflight:      len(cfg.Servers) - 1,
 		burst:            cfg.EntriesPerMsg * cfg.CatchupMultiplier,
 		queue:            make(chan raft.PromiseEntry, BufferSize),
 		applyCh:          make(chan raft.PromiseLogEntry, 1024),
@@ -621,7 +621,7 @@ func (r *Raft) sendAppendEntries() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.inflight > maxInflight {
+	if r.inflight > r.maxInflight {
 		return
 	}
 
