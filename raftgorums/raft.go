@@ -29,7 +29,7 @@ const (
 // Timeouts in milliseconds.
 const (
 	// How long we wait for an answer.
-	TCPConnect   = 5000
+	TCPConnect   = 50000
 	TCPHeartbeat = 2000
 )
 
