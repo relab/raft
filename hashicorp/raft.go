@@ -14,13 +14,20 @@ import (
 )
 
 type future struct {
-	f   hraft.ApplyFuture
-	res chan raft.Result
+	apply hraft.ApplyFuture
+	index hraft.IndexFuture
+	res   chan raft.Result
 }
 
 func (f *future) ResultCh() <-chan raft.Result {
 	go func() {
-		err := f.f.Error()
+		confChange := false
+		var g hraft.Future = f.apply
+		if g == nil {
+			confChange = true
+			g = f.index
+		}
+		err := g.Error()
 
 		if err != nil {
 			f.res <- raft.Result{
@@ -29,9 +36,18 @@ func (f *future) ResultCh() <-chan raft.Result {
 			return
 		}
 
+		if !confChange {
+			f.res <- raft.Result{
+				Index: f.apply.Index(),
+				Value: f.apply.Response(),
+			}
+			return
+		}
 		f.res <- raft.Result{
-			Index: f.f.Index(),
-			Value: f.f.Response(),
+			Index: f.index.Index(),
+			Value: &commonpb.ReconfResponse{
+				Status: commonpb.ReconfOK,
+			},
 		}
 	}()
 
@@ -40,18 +56,21 @@ func (f *future) ResultCh() <-chan raft.Result {
 
 // Wrapper wraps a hashicorp/raft.Raft and implements relab/raft.Raft.
 type Wrapper struct {
-	n      *hraft.Raft
-	sm     raft.StateMachine
-	logger logrus.FieldLogger
+	n       *hraft.Raft
+	sm      raft.StateMachine
+	servers []hraft.Server
+	logger  logrus.FieldLogger
 }
 
 func NewRaft(logger logrus.FieldLogger,
 	sm raft.StateMachine, cfg *hraft.Config, servers []hraft.Server, trans hraft.Transport,
 	logs hraft.LogStore, stable hraft.StableStore, snaps hraft.SnapshotStore,
+	enabled []uint64,
 ) *Wrapper {
 	w := &Wrapper{
-		sm:     sm,
-		logger: logger,
+		sm:      sm,
+		servers: servers,
+		logger:  logger,
 	}
 
 	node, err := hraft.NewRaft(cfg, w, logs, stable, snaps, trans)
@@ -59,7 +78,13 @@ func NewRaft(logger logrus.FieldLogger,
 		panic(err)
 	}
 
-	f := node.BootstrapCluster(hraft.Configuration{Servers: servers})
+	voters := make([]hraft.Server, len(enabled))
+
+	for i, id := range enabled {
+		voters[i] = servers[id-1]
+	}
+
+	f := node.BootstrapCluster(hraft.Configuration{Servers: voters})
 	if err := f.Error(); err != nil {
 		panic(err)
 	}
@@ -73,7 +98,7 @@ func (w *Wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, erro
 	deadline, _ := ctx.Deadline()
 	timeout := time.Until(deadline)
 	f := w.n.Apply(req, timeout)
-	ff := &future{f, make(chan raft.Result, 1)}
+	ff := &future{f, nil, make(chan raft.Result, 1)}
 
 	return ff, nil
 }
@@ -83,7 +108,13 @@ func (w *Wrapper) ReadCmd(context.Context, []byte) (raft.Future, error) {
 }
 
 func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (raft.Future, error) {
-	panic("ProposeConf not implemented")
+	deadline, _ := ctx.Deadline()
+	timeout := time.Until(deadline)
+	server := w.servers[req.ServerID-1]
+	f := w.n.AddVoter(server.ID, server.Address, 0, timeout)
+	ff := &future{nil, f, make(chan raft.Result, 1)}
+
+	return ff, nil
 }
 
 func (w *Wrapper) Apply(logentry *hraft.Log) interface{} {
