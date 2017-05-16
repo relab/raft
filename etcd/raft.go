@@ -62,6 +62,7 @@ func (w *Wrapper) newFuture(uid uint64) raft.Future {
 func NewRaft(logger logrus.FieldLogger,
 	sm raft.StateMachine, storage *etcdraft.MemoryStorage, wal *wal.WAL, cfg *etcdraft.Config,
 	peers []etcdraft.Peer, heartbeat time.Duration,
+	single bool,
 ) *Wrapper {
 	w := &Wrapper{
 		sm:        sm,
@@ -72,7 +73,11 @@ func NewRaft(logger logrus.FieldLogger,
 		logger:    logger,
 		apply:     make(chan []raftpb.Entry, 2048),
 	}
-	w.n = etcdraft.StartNode(cfg, append(peers, etcdraft.Peer{ID: cfg.ID}))
+	rpeers := append(peers, etcdraft.Peer{ID: cfg.ID})
+	if single {
+		rpeers = nil
+	}
+	w.n = etcdraft.StartNode(cfg, rpeers)
 
 	ss := &stats.ServerStats{}
 	ss.Initialize()
