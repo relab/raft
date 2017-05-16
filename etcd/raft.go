@@ -2,7 +2,10 @@ package etcd
 
 import (
 	"encoding/binary"
+	"errors"
+	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -39,6 +42,10 @@ type Wrapper struct {
 	transport *rafthttp.Transport
 	logger    logrus.FieldLogger
 
+	lookup   map[uint64][]byte
+	confLock sync.Mutex
+	conf     uint64
+
 	heartbeat time.Duration
 
 	uid       uint64
@@ -62,7 +69,7 @@ func (w *Wrapper) newFuture(uid uint64) raft.Future {
 func NewRaft(logger logrus.FieldLogger,
 	sm raft.StateMachine, storage *etcdraft.MemoryStorage, wal *wal.WAL, cfg *etcdraft.Config,
 	peers []etcdraft.Peer, heartbeat time.Duration,
-	single bool,
+	single bool, servers []string,
 ) *Wrapper {
 	w := &Wrapper{
 		sm:        sm,
@@ -72,6 +79,7 @@ func NewRaft(logger logrus.FieldLogger,
 		proposals: make(map[uint64]chan<- raft.Result),
 		logger:    logger,
 		apply:     make(chan []raftpb.Entry, 2048),
+		lookup:    make(map[uint64][]byte),
 	}
 	rpeers := append(peers, etcdraft.Peer{ID: cfg.ID})
 	if single {
@@ -94,6 +102,21 @@ func NewRaft(logger logrus.FieldLogger,
 
 	if err != nil {
 		panic("start transport: " + err.Error())
+	}
+
+	for i, addr := range servers {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			w.logger.Fatal(err)
+		}
+		p, _ := strconv.Atoi(port)
+
+		ur, err := url.Parse("http://" + addr)
+		ur.Host = host + ":" + strconv.Itoa(p-100)
+		if err != nil {
+			w.logger.Fatal(err)
+		}
+		w.lookup[uint64(i+1)] = []byte(ur.String())
 	}
 
 	for i, peer := range peers {
@@ -142,11 +165,17 @@ func (w *Wrapper) ReadCmd(context.Context, []byte) (raft.Future, error) {
 }
 
 func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (raft.Future, error) {
+	w.propLock.Lock()
+	if w.conf != 0 {
+		return nil, errors.New("conf in progress")
+	}
+	w.propLock.Unlock()
+
 	cc := raftpb.ConfChange{
 		Type:    raftpb.ConfChangeType(req.ReconfType),
-		ID:      req.ServerID, // ?
+		ID:      req.ServerID,
 		NodeID:  req.ServerID,
-		Context: []byte(""), // ?
+		Context: w.lookup[req.ServerID],
 	}
 
 	err := w.n.ProposeConfChange(ctx, cc)
@@ -160,7 +189,12 @@ func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 		return nil, err
 	}
 
-	panic("ProposeConf not implemented")
+	w.propLock.Lock()
+	w.conf = atomic.AddUint64(&w.uid, 1)
+	w.propLock.Unlock()
+
+	future := w.newFuture(w.conf)
+	return future, nil
 }
 
 func (w *Wrapper) run() {
@@ -235,6 +269,7 @@ func (w *Wrapper) handleNormal(entry *raftpb.Entry) {
 
 	w.propLock.Lock()
 	ch, ok := w.proposals[uid]
+	delete(w.proposals, uid)
 	w.propLock.Unlock()
 
 	if !ok {
@@ -245,20 +280,11 @@ func (w *Wrapper) handleNormal(entry *raftpb.Entry) {
 		Index: entry.Index,
 		Value: res,
 	}
-
-	w.propLock.Lock()
-	delete(w.proposals, uid)
-	w.propLock.Unlock()
 }
 
 func (w *Wrapper) handleConfChange(entry *raftpb.Entry) {
-	var remove int
-	if entry.Data[len(entry.Data)-1] == 0x9 {
-		remove = 9
-	}
-	data := entry.Data[:len(entry.Data)-remove]
 	var cc raftpb.ConfChange
-	err := cc.Unmarshal(data)
+	err := cc.Unmarshal(entry.Data)
 
 	if err != nil {
 		panic("unmarshal conf change: " + err.Error())
@@ -285,10 +311,26 @@ func (w *Wrapper) handleConfChange(entry *raftpb.Entry) {
 		Term:      entry.Term,
 		Index:     entry.Index,
 		EntryType: commonpb.EntryReconf,
-		Data:      data,
+		Data:      entry.Data,
 	})
 
-	// TODO Respond / Cleanup future.
+	w.propLock.Lock()
+	ch, ok := w.proposals[w.conf]
+	delete(w.proposals, w.conf)
+	w.conf = 0
+	w.propLock.Unlock()
+
+	if !ok {
+		return
+	}
+
+	ch <- raft.Result{
+		Index: entry.Index,
+		Value: &commonpb.ReconfResponse{
+			Status: commonpb.ReconfOK,
+		},
+	}
+
 }
 
 func (w *Wrapper) Process(ctx context.Context, m raftpb.Message) error {
