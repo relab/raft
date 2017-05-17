@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -301,9 +302,11 @@ func (w *Wrapper) handleConfChange(entry *raftpb.Entry) {
 		tid := types.ID(cc.NodeID)
 		if tid == w.transport.ID {
 			w.logger.Warnln("Shutting down")
-			return
+			os.Exit(0)
 		}
-		w.transport.RemovePeer(tid)
+		if w.transport.Get(tid) != nil {
+			w.transport.RemovePeer(tid)
+		}
 	}
 
 	// Inform state machine about new configuration.
