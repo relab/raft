@@ -97,8 +97,8 @@ func NewRaft(logger logrus.FieldLogger,
 func (w *Wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, error) {
 	deadline, _ := ctx.Deadline()
 	timeout := time.Until(deadline)
-	f := w.n.Apply(req, timeout)
-	ff := &future{f, nil, make(chan raft.Result, 1)}
+	ff := &future{res: make(chan raft.Result, 1)}
+	ff.apply = w.n.Apply(req, timeout)
 
 	return ff, nil
 }
