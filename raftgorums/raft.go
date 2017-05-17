@@ -113,6 +113,9 @@ type Raft struct {
 	metricsEnabled bool
 
 	stop chan struct{}
+
+	lat *raft.Latency
+	cat *raft.Catchup
 }
 
 func (r *Raft) incCmd() {
@@ -183,6 +186,8 @@ func NewRaft(sm raft.StateMachine, cfg *Config, lat *raft.Latency, cat *raft.Cat
 		logger:           cfg.Logger.WithField("raftid", cfg.ID),
 		metricsEnabled:   cfg.MetricsEnabled,
 		stop:             make(chan struct{}),
+		lat:              lat,
+		cat:              cat,
 	}
 
 	return r
@@ -565,8 +570,11 @@ func (r *Raft) runStateMachine() {
 		}
 
 		promise.Respond(res)
+		dur := promise.Duration()
+		start := time.Now().Add(-dur)
+		r.lat.Record(start)
 		if r.metricsEnabled {
-			rmetrics.cmdCommit.Observe(promise.Duration().Seconds())
+			rmetrics.cmdCommit.Observe(dur.Seconds())
 		}
 	}
 

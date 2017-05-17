@@ -36,6 +36,7 @@ func (r *Raft) handleOutgoing() error {
 			r.logger.WithField("matchindex", req.matchIndex).Warnln("Sending catch-up")
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
 			leader := r.mem.getNode(req.leaderID)
+			r.cat.Record()
 			_, err := leader.RaftClient.CatchMeUp(ctx, &pb.CatchMeUpRequest{
 				FollowerID: r.id,
 				NextIndex:  req.matchIndex + 1,
