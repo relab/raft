@@ -43,6 +43,9 @@ type Wrapper struct {
 	transport *rafthttp.Transport
 	logger    logrus.FieldLogger
 
+	id     uint64
+	leader uint64
+
 	lookup   map[uint64][]byte
 	confLock sync.Mutex
 	conf     uint64
@@ -73,6 +76,7 @@ func NewRaft(logger logrus.FieldLogger,
 	single bool, servers []string,
 ) *Wrapper {
 	w := &Wrapper{
+		id:        cfg.ID,
 		sm:        sm,
 		storage:   storage,
 		wal:       wal,
@@ -142,6 +146,10 @@ func (w *Wrapper) Handler() http.Handler {
 }
 
 func (w *Wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, error) {
+	if atomic.LoadUint64(&w.leader) != w.id {
+		return nil, errors.New("not leader")
+	}
+
 	uid := atomic.AddUint64(&w.uid, 1)
 	b := make([]byte, 9)
 	binary.LittleEndian.PutUint64(b, uid)
@@ -161,11 +169,14 @@ func (w *Wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, erro
 }
 
 func (w *Wrapper) ReadCmd(context.Context, []byte) (raft.Future, error) {
-	w.logger.Warnln("ProposeRead")
-	return nil, nil
+	panic("ReadCmd not implemented")
 }
 
 func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (raft.Future, error) {
+	if atomic.LoadUint64(&w.leader) != w.id {
+		return nil, errors.New("not leader")
+	}
+
 	w.propLock.Lock()
 	if w.conf != 0 {
 		return nil, errors.New("conf in progress")
@@ -208,6 +219,9 @@ func (w *Wrapper) run() {
 		case rd := <-w.n.Ready():
 			if rd.SoftState != nil {
 				rmetrics.leader.Set(float64(rd.Lead))
+				if w.id == rd.Lead {
+					atomic.StoreUint64(&w.leader, rd.Lead)
+				}
 				w.propLock.Lock()
 				if rd.RaftState != etcdraft.StateLeader && len(w.proposals) > 0 {
 					for uid, respCh := range w.proposals {
