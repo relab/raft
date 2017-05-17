@@ -17,6 +17,8 @@ type future struct {
 	apply hraft.ApplyFuture
 	index hraft.IndexFuture
 	res   chan raft.Result
+	start time.Time
+	lat   *raft.Latency
 }
 
 func (f *future) ResultCh() <-chan raft.Result {
@@ -35,6 +37,8 @@ func (f *future) ResultCh() <-chan raft.Result {
 			}
 			return
 		}
+
+		f.lat.Record(f.start)
 
 		if !confChange {
 			f.res <- raft.Result{
@@ -59,6 +63,7 @@ type Wrapper struct {
 	n       *hraft.Raft
 	sm      raft.StateMachine
 	servers []hraft.Server
+	lat     *raft.Latency
 	logger  logrus.FieldLogger
 }
 
@@ -71,6 +76,7 @@ func NewRaft(logger logrus.FieldLogger,
 	w := &Wrapper{
 		sm:      sm,
 		servers: servers,
+		lat:     lat,
 		logger:  logger,
 	}
 
@@ -98,7 +104,7 @@ func NewRaft(logger logrus.FieldLogger,
 func (w *Wrapper) ProposeCmd(ctx context.Context, req []byte) (raft.Future, error) {
 	deadline, _ := ctx.Deadline()
 	timeout := time.Until(deadline)
-	ff := &future{res: make(chan raft.Result, 1)}
+	ff := &future{lat: w.lat, start: time.Now(), res: make(chan raft.Result, 1)}
 	ff.apply = w.n.Apply(req, timeout)
 
 	return ff, nil
@@ -112,7 +118,7 @@ func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 	deadline, _ := ctx.Deadline()
 	timeout := time.Until(deadline)
 	server := w.servers[req.ServerID-1]
-	ff := &future{res: make(chan raft.Result, 1)}
+	ff := &future{lat: w.lat, start: time.Now(), res: make(chan raft.Result, 1)}
 
 	switch req.ReconfType {
 	case commonpb.ReconfAdd:
