@@ -111,8 +111,16 @@ func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 	deadline, _ := ctx.Deadline()
 	timeout := time.Until(deadline)
 	server := w.servers[req.ServerID-1]
-	f := w.n.AddVoter(server.ID, server.Address, 0, timeout)
-	ff := &future{nil, f, make(chan raft.Result, 1)}
+	ff := &future{res: make(chan raft.Result, 1)}
+
+	switch req.ReconfType {
+	case commonpb.ReconfAdd:
+		ff.index = w.n.AddVoter(server.ID, server.Address, 0, timeout)
+	case commonpb.ReconfRemove:
+		ff.index = w.n.RemoveServer(server.ID, 0, timeout)
+	default:
+		panic("invalid reconf type")
+	}
 
 	return ff, nil
 }
