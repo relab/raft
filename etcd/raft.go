@@ -26,7 +26,8 @@ import (
 )
 
 type future struct {
-	res chan raft.Result
+	start time.Time
+	res   chan raft.Result
 }
 
 func (f *future) ResultCh() <-chan raft.Result {
@@ -54,17 +55,19 @@ type Wrapper struct {
 
 	uid       uint64
 	propLock  sync.Mutex
-	proposals map[uint64]chan<- raft.Result
+	proposals map[uint64]*future
 
 	apply chan []raftpb.Entry
+
+	lat *raft.Latency
 }
 
 func (w *Wrapper) newFuture(uid uint64) raft.Future {
 	res := make(chan raft.Result, 1)
-	future := &future{res}
+	future := &future{time.Now(), res}
 
 	w.propLock.Lock()
-	w.proposals[uid] = res
+	w.proposals[uid] = future
 	w.propLock.Unlock()
 
 	return future
@@ -82,10 +85,11 @@ func NewRaft(logger logrus.FieldLogger,
 		storage:   storage,
 		wal:       wal,
 		heartbeat: heartbeat,
-		proposals: make(map[uint64]chan<- raft.Result),
+		proposals: make(map[uint64]*future),
 		logger:    logger,
 		apply:     make(chan []raftpb.Entry, 2048),
 		lookup:    make(map[uint64][]byte),
+		lat:       lat,
 	}
 	rpeers := append(peers, etcdraft.Peer{ID: cfg.ID})
 	if single {
@@ -225,8 +229,8 @@ func (w *Wrapper) run() {
 				}
 				w.propLock.Lock()
 				if rd.RaftState != etcdraft.StateLeader && len(w.proposals) > 0 {
-					for uid, respCh := range w.proposals {
-						respCh <- raft.Result{
+					for uid, future := range w.proposals {
+						future.res <- raft.Result{
 							Value: raft.ErrNotLeader{Leader: rd.Lead},
 						}
 						delete(w.proposals, uid)
@@ -284,7 +288,7 @@ func (w *Wrapper) handleNormal(entry *raftpb.Entry) {
 	})
 
 	w.propLock.Lock()
-	ch, ok := w.proposals[uid]
+	future, ok := w.proposals[uid]
 	delete(w.proposals, uid)
 	w.propLock.Unlock()
 
@@ -292,7 +296,8 @@ func (w *Wrapper) handleNormal(entry *raftpb.Entry) {
 		return
 	}
 
-	ch <- raft.Result{
+	w.lat.Record(future.start)
+	future.res <- raft.Result{
 		Index: entry.Index,
 		Value: res,
 	}
@@ -333,7 +338,7 @@ func (w *Wrapper) handleConfChange(entry *raftpb.Entry) {
 	})
 
 	w.propLock.Lock()
-	ch, ok := w.proposals[w.conf]
+	future, ok := w.proposals[w.conf]
 	delete(w.proposals, w.conf)
 	w.conf = 0
 	w.propLock.Unlock()
@@ -342,7 +347,8 @@ func (w *Wrapper) handleConfChange(entry *raftpb.Entry) {
 		return
 	}
 
-	ch <- raft.Result{
+	w.lat.Record(future.start)
+	future.res <- raft.Result{
 		Index: entry.Index,
 		Value: &commonpb.ReconfResponse{
 			Status: commonpb.ReconfOK,
