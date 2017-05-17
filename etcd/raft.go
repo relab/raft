@@ -74,6 +74,7 @@ func NewRaft(logger logrus.FieldLogger,
 	sm raft.StateMachine, storage *etcdraft.MemoryStorage, wal *wal.WAL, cfg *etcdraft.Config,
 	peers []etcdraft.Peer, heartbeat time.Duration,
 	single bool, servers []string,
+	lat *raft.Latency,
 ) *Wrapper {
 	w := &Wrapper{
 		id:        cfg.ID,

@@ -137,7 +137,7 @@ type catchUpReq struct {
 }
 
 // NewRaft returns a new Raft given a configuration.
-func NewRaft(sm raft.StateMachine, cfg *Config) *Raft {
+func NewRaft(sm raft.StateMachine, cfg *Config, lat *raft.Latency, cat *raft.Catchup) *Raft {
 	err := validate(cfg)
 
 	// TODO Make NewRaft return error.

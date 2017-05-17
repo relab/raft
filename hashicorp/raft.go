@@ -66,6 +66,7 @@ func NewRaft(logger logrus.FieldLogger,
 	sm raft.StateMachine, cfg *hraft.Config, servers []hraft.Server, trans hraft.Transport,
 	logs hraft.LogStore, stable hraft.StableStore, snaps hraft.SnapshotStore,
 	enabled []uint64,
+	lat *raft.Latency,
 ) *Wrapper {
 	w := &Wrapper{
 		sm:      sm,
