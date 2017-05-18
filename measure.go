@@ -43,25 +43,39 @@ func (l *Latency) Write(path string) {
 	}
 }
 
-// Catchup is a slice of CSV records.
-type Catchup [][]string
+// EventType is the types of event that Event can record.
+type EventType int
 
-// NewCatchup returns a Catchup struct initialized with a header record.
-func NewCatchup() *Catchup {
-	cat := new(Catchup)
-	*cat = append(*cat, []string{"time"})
-	return cat
+// Event types.
+const (
+	EventCatchup EventType = 0
+	EventFailure EventType = 1
+)
+
+var eventName = map[EventType]string{
+	0: "catchup",
+	1: "failure",
+}
+
+// Event is a slice of CSV records.
+type Event [][]string
+
+// NewEvent returns a Event struct initialized with a header record.
+func NewEvent() *Event {
+	e := new(Event)
+	*e = append(*e, []string{"event", "time"})
+	return e
 }
 
 // Record records a new CSV record with time set to time.Now().
-func (c *Catchup) Record() {
-	*c = append(*c, []string{
-		fmt.Sprintf("%d", time.Now().UnixNano()),
+func (e *Event) Record(event EventType) {
+	*e = append(*e, []string{
+		fmt.Sprintf("%s,%d", eventName[event], time.Now().UnixNano()),
 	})
 }
 
 // Write writes all records to a file.
-func (c *Catchup) Write(path string) {
+func (e *Event) Write(path string) {
 	f, err := os.Create(path)
 
 	if err != nil {
@@ -69,7 +83,7 @@ func (c *Catchup) Write(path string) {
 	}
 
 	w := csv.NewWriter(f)
-	w.WriteAll(*c) // Checking error below.
+	w.WriteAll(*e) // Checking error below.
 
 	if err := w.Error(); err != nil {
 		panic("error writing csv: " + err.Error())

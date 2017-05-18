@@ -516,7 +516,7 @@ func TestHandleAppendEntriesRequest(t *testing.T) {
 				ElectionTimeout: time.Second,
 				Storage:         test.s,
 				Logger:          l,
-			}, raft.NewLatency(), raft.NewCatchup())
+			}, raft.NewLatency(), raft.NewEvent())
 
 			for i := 0; i < len(test.req); i++ {
 				res := r.HandleAppendEntriesRequest(test.req[i])

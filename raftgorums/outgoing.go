@@ -6,12 +6,15 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/relab/raft"
 	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
 func (r *Raft) handleOutgoing() error {
 	// January 1, 1970 UTC.
 	var lastCuReq time.Time
+
+	recorded := make(map[uint32]struct{})
 
 	for {
 		select {
@@ -25,6 +28,12 @@ func (r *Raft) handleOutgoing() error {
 			// no backup node available, don't do anything, but
 			// schedule the reconfiguratior.
 			r.logger.WithField("nodeid", err.NodeID).Warnln("Node unavailable")
+
+			if _, ok := recorded[err.NodeID]; !ok {
+				recorded[err.NodeID] = struct{}{}
+				r.event.Record(raft.EventFailure)
+			}
+
 		case req := <-r.cureqout:
 			// TODO Use config.
 			if time.Since(lastCuReq) < 100*time.Millisecond {
@@ -36,7 +45,7 @@ func (r *Raft) handleOutgoing() error {
 			r.logger.WithField("matchindex", req.matchIndex).Warnln("Sending catch-up")
 			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
 			leader := r.mem.getNode(req.leaderID)
-			r.cat.Record()
+			r.event.Record(raft.EventCatchup)
 			_, err := leader.RaftClient.CatchMeUp(ctx, &pb.CatchMeUpRequest{
 				FollowerID: r.id,
 				NextIndex:  req.matchIndex + 1,

@@ -135,7 +135,7 @@ func newTestServer(t *testing.T, wg *sync.WaitGroup, c *cfg, port uint64, exclud
 	}()
 
 	sm := &noopMachine{}
-	r := raftgorums.NewRaft(sm, cfg, raft.NewLatency(), raft.NewCatchup())
+	r := raftgorums.NewRaft(sm, cfg, raft.NewLatency(), raft.NewEvent())
 
 	server.grpcServer = grpcServer
 	server.raft = r
