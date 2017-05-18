@@ -53,7 +53,11 @@ const (
 	EventElection     EventType = 2
 	EventPreElection  EventType = 3
 	EventBecomeLeader EventType = 4
-	EventCaughtUp     EventType = 5
+	EventAddServer    EventType = 5
+	EventRemoveServer EventType = 6
+	EventCaughtUp     EventType = 7
+	EventRemoved      EventType = 8
+	EventAdded        EventType = 9
 )
 
 var eventName = map[EventType]string{
@@ -62,7 +66,11 @@ var eventName = map[EventType]string{
 	2: "election",
 	3: "preelection",
 	4: "becomeleader",
-	5: "caughtup",
+	5: "addserver",
+	6: "removeserver",
+	7: "caughtup",
+	8: "removed",
+	9: "added",
 }
 
 // Event is a slice of CSV records.

@@ -553,6 +553,13 @@ func (r *Raft) runStateMachine() {
 
 			enabled := r.mem.commit()
 
+			switch reconf.ReconfType {
+			case commonpb.ReconfAdd:
+				r.event.Record(raft.EventAdded)
+			case commonpb.ReconfRemove:
+				r.event.Record(raft.EventRemoved)
+			}
+
 			// Toggle if we need to change run routine.
 			if (enabled && r.state == Inactive) || !enabled {
 				select {
