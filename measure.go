@@ -86,7 +86,8 @@ func NewEvent() *Event {
 // Record records a new CSV record with time set to time.Now().
 func (e *Event) Record(event EventType) {
 	*e = append(*e, []string{
-		fmt.Sprintf("%s,%d", eventName[event], time.Now().UnixNano()),
+		fmt.Sprintf("%s", eventName[event]),
+		fmt.Sprintf("%d", time.Now().UnixNano()),
 	})
 }
 
