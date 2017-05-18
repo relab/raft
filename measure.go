@@ -48,13 +48,19 @@ type EventType int
 
 // Event types.
 const (
-	EventCatchup EventType = 0
-	EventFailure EventType = 1
+	EventCatchup      EventType = 0
+	EventFailure      EventType = 1
+	EventElection     EventType = 2
+	EventPreElection  EventType = 3
+	EventBecomeLeader EventType = 4
 )
 
 var eventName = map[EventType]string{
 	0: "catchup",
 	1: "failure",
+	2: "election",
+	3: "preelection",
+	4: "becomeleader",
 }
 
 // Event is a slice of CSV records.

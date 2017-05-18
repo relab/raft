@@ -594,6 +594,7 @@ func (r *Raft) startElection() {
 	term := r.currentTerm + 1
 
 	if !r.preElection {
+		r.event.Record(raft.EventElection)
 		// We are now a candidate. See Raft Paper Figure 2 -> Rules for Servers -> Candidates.
 		// #C1 Increment currentTerm.
 		r.currentTerm++
@@ -602,6 +603,8 @@ func (r *Raft) startElection() {
 		// #C2 Vote for self.
 		r.votedFor = r.id
 		r.storage.Set(raft.KeyVotedFor, r.id)
+	} else {
+		r.event.Record(raft.EventPreElection)
 	}
 
 	r.logger.WithFields(logrus.Fields{
