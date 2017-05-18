@@ -53,6 +53,7 @@ const (
 	EventElection     EventType = 2
 	EventPreElection  EventType = 3
 	EventBecomeLeader EventType = 4
+	EventCaughtUp     EventType = 5
 )
 
 var eventName = map[EventType]string{
@@ -61,6 +62,7 @@ var eventName = map[EventType]string{
 	2: "election",
 	3: "preelection",
 	4: "becomeleader",
+	5: "caughtup",
 }
 
 // Event is a slice of CSV records.
