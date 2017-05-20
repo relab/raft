@@ -87,7 +87,7 @@ func NewRaft(logger logrus.FieldLogger,
 		logger:  logger,
 	}
 
-	node, err := hraft.NewRaft(cfg, w, logs, stable, snaps, trans)
+	node, err := hraft.NewRaft(cfg, w, logs, stable, snaps, trans, event)
 	if err != nil {
 		panic(err)
 	}

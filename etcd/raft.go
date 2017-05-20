@@ -98,7 +98,7 @@ func NewRaft(logger logrus.FieldLogger,
 	if single {
 		rpeers = nil
 	}
-	w.n = etcdraft.StartNode(cfg, rpeers)
+	w.n = etcdraft.StartNode(cfg, rpeers, event)
 
 	ss := &stats.ServerStats{}
 	ss.Initialize()
