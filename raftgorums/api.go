@@ -33,10 +33,10 @@ func (r *Raft) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (ra
 
 	switch req.ReconfType {
 	case commonpb.ReconfAdd:
-		r.event.Record(raft.EventAddServer)
+		r.event.Record(raft.EventProposeAddServer)
 		go r.replicate(req.ServerID, promise)
 	case commonpb.ReconfRemove:
-		r.event.Record(raft.EventRemoveServer)
+		r.event.Record(raft.EventProposeRemoveServer)
 		r.queue <- promise
 	}
 

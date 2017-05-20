@@ -221,6 +221,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 				// configuration, rollback to the committed one.
 				if logLen == r.mem.getIndex() {
 					r.mem.rollback()
+					r.event.Record(raft.EventApplyConfiguration)
 				}
 				r.storage.RemoveEntries(logLen, logLen)
 				logLen = r.storage.NextIndex() - 1
@@ -245,6 +246,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 
 			r.mem.setPending(&reconf)
 			r.mem.set(entry.Index)
+			r.event.Record(raft.EventApplyConfiguration)
 		}
 	}
 

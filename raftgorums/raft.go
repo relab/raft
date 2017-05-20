@@ -678,6 +678,7 @@ LOOP:
 
 	if reconf > 0 {
 		r.mem.set(reconf)
+		r.event.Record(raft.EventApplyConfiguration)
 	}
 
 	r.aereqout <- r.getAppendEntriesRequest(r.nextIndex, nil)

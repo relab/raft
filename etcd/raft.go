@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"golang.org/x/net/context"
@@ -198,10 +199,10 @@ func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 
 	switch req.ReconfType {
 	case commonpb.ReconfAdd:
-		w.event.Record(raft.EventAddServer)
+		w.event.Record(raft.EventProposeAddServer)
 		cc.Type = raftpb.ConfChangeAddNode
 	case commonpb.ReconfRemove:
-		w.event.Record(raft.EventRemoveServer)
+		w.event.Record(raft.EventProposeRemoveServer)
 		cc.Type = raftpb.ConfChangeRemoveNode
 	}
 
@@ -324,18 +325,28 @@ func (w *Wrapper) handleConfChange(entry *raftpb.Entry) {
 
 	w.logger.WithField("cc", cc).Warnln("Applying conf change")
 	w.n.ApplyConfChange(cc)
+	w.event.Record(raft.EventApplyConfiguration)
 	switch cc.Type {
 	case raftpb.ConfChangeAddNode:
 		if len(cc.Context) > 0 {
+			w.event.Record(raft.EventAdded)
 			w.transport.AddPeer(types.ID(cc.NodeID), []string{string(cc.Context)})
 		}
 	case raftpb.ConfChangeRemoveNode:
 		tid := types.ID(cc.NodeID)
 		if tid == w.transport.ID {
+			w.event.Record(raft.EventRemoved)
 			w.logger.Warnln("Shutting down")
-			os.Exit(0)
+			p, err := os.FindProcess(os.Getpid())
+			if err != nil {
+				os.Exit(1)
+			}
+			if err := p.Signal(syscall.SIGINT); err != nil {
+				os.Exit(1)
+			}
 		}
 		if w.transport.Get(tid) != nil {
+			w.event.Record(raft.EventRemoved)
 			w.transport.RemovePeer(tid)
 		}
 	}

@@ -1,6 +1,7 @@
 package hashicorp
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/hashicorp/go-msgpack/codec"
 	hraft "github.com/hashicorp/raft"
 	"github.com/relab/raft"
 	"github.com/relab/raft/commonpb"
@@ -60,9 +62,11 @@ func (f *future) ResultCh() <-chan raft.Result {
 
 // Wrapper wraps a hashicorp/raft.Raft and implements relab/raft.Raft.
 type Wrapper struct {
+	id      hraft.ServerID
 	n       *hraft.Raft
 	sm      raft.StateMachine
 	servers []hraft.Server
+	conf    hraft.Configuration
 	lat     *raft.Latency
 	event   *raft.Event
 	logger  logrus.FieldLogger
@@ -75,6 +79,7 @@ func NewRaft(logger logrus.FieldLogger,
 	lat *raft.Latency, event *raft.Event,
 ) *Wrapper {
 	w := &Wrapper{
+		id:      cfg.LocalID,
 		sm:      sm,
 		servers: servers,
 		lat:     lat,
@@ -93,7 +98,9 @@ func NewRaft(logger logrus.FieldLogger,
 		voters[i] = servers[id-1]
 	}
 
-	f := node.BootstrapCluster(hraft.Configuration{Servers: voters})
+	w.conf = hraft.Configuration{Servers: voters}
+
+	f := node.BootstrapCluster(w.conf)
 	if err := f.Error(); err != nil {
 		panic(err)
 	}
@@ -132,10 +139,10 @@ func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 
 	switch req.ReconfType {
 	case commonpb.ReconfAdd:
-		w.event.Record(raft.EventAddServer)
+		w.event.Record(raft.EventProposeAddServer)
 		ff.index = w.n.AddVoter(server.ID, server.Address, 0, timeout)
 	case commonpb.ReconfRemove:
-		w.event.Record(raft.EventRemoveServer)
+		w.event.Record(raft.EventProposeRemoveServer)
 		ff.index = w.n.RemoveServer(server.ID, 0, timeout)
 	default:
 		panic("invalid reconf type")
@@ -156,6 +163,18 @@ func (w *Wrapper) Apply(logentry *hraft.Log) interface{} {
 			Data:      logentry.Data,
 		})
 		return res
+	case hraft.LogConfiguration:
+		var configuration hraft.Configuration
+		if err := decodeMsgPack(logentry.Data, &configuration); err != nil {
+			panic(fmt.Errorf("failed to decode configuration: %v", err))
+		}
+		// If the server didn't have a vote in the previous conf., but
+		// have a vote in the new configuration, this follower have
+		// recently been added and are now caught up.
+		if !hasVote(w.conf, w.id) && hasVote(configuration, w.id) {
+			w.event.Record(raft.EventCaughtUp)
+		}
+		w.conf = configuration
 	}
 
 	panic(fmt.Sprintf("no case for logtype: %v", logentry.Type))
@@ -168,3 +187,24 @@ type snapStore struct{}
 
 func (s *snapStore) Persist(sink hraft.SnapshotSink) error { return nil }
 func (s *snapStore) Release()                              {}
+
+// Decode reverses the encode operation on a byte slice input.
+// From hashicorp/raft/util.go.
+func decodeMsgPack(buf []byte, out interface{}) error {
+	r := bytes.NewBuffer(buf)
+	hd := codec.MsgpackHandle{}
+	dec := codec.NewDecoder(r, &hd)
+	return dec.Decode(out)
+}
+
+// hasVote returns true if the server identified by 'id' is a Voter in the
+// provided Configuration.
+// From hashicorp/raft/configuration.go.
+func hasVote(configuration hraft.Configuration, id hraft.ServerID) bool {
+	for _, server := range configuration.Servers {
+		if server.ID == id {
+			return server.Suffrage == hraft.Voter
+		}
+	}
+	return false
+}
