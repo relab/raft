@@ -46,19 +46,34 @@ func (l *Latency) Write(path string) {
 // EventType is the types of event that Event can record.
 type EventType int
 
-// Event types.
 const (
-	EventCatchup      EventType = 0
-	EventFailure      EventType = 1
-	EventElection     EventType = 2
-	EventPreElection  EventType = 3
+	// EventCatchup a follower invoked a catchup.
+	EventCatchup EventType = 0
+	// EventFailure a server suspected another server of failing.
+	EventFailure EventType = 1
+	// EventElection an election was initiated.
+	EventElection EventType = 2
+	// EventPreElection a pre-election was initiated.
+	EventPreElection EventType = 3
+	// EventBecomeLeader a candidate won an election.
 	EventBecomeLeader EventType = 4
-	EventAddServer    EventType = 5
-	EventRemoveServer EventType = 6
-	EventCaughtUp     EventType = 7
-	EventRemoved      EventType = 8
-	EventAdded        EventType = 9
-	EventTerminate    EventType = 10
+	// EventProposeAddServer a leader received a add server request.
+	EventProposeAddServer EventType = 5
+	// EventProposeRemoveServer a leader received a remove server request.
+	EventProposeRemoveServer EventType = 6
+	// EventCaughtUp indicates that the added server has caught up. For the
+	// Gorums version, this means caught up with a majority of the cluster.
+	// For etcd/hashicorp this means caught up to the point where it have
+	// applied the configuration adding itself to the cluster.
+	EventCaughtUp EventType = 7
+	// EventRemoved the remove server request was committed.
+	EventRemoved EventType = 8
+	// EventAdded the add server request was committed.
+	EventAdded EventType = 9
+	// EventApplyConfiguration a new configuration is now being used.
+	EventApplyConfiguration EventType = 10
+	// EventTerminated a server received a termination signal.
+	EventTerminated EventType = 11
 )
 
 var eventName = map[EventType]string{
@@ -67,12 +82,13 @@ var eventName = map[EventType]string{
 	2:  "election",
 	3:  "preelection",
 	4:  "becomeleader",
-	5:  "addserver",
-	6:  "removeserver",
+	5:  "proposeaddserver",
+	6:  "proposeremoveserver",
 	7:  "caughtup",
 	8:  "removed",
 	9:  "added",
-	10: "terminated",
+	10: "applyconfiguration",
+	11: "terminated",
 }
 
 // Event is a slice of CSV records.
