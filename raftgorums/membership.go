@@ -268,10 +268,10 @@ func (r *Raft) replicate(serverID uint64, promise raft.PromiseEntry) {
 	var errs int
 
 	for {
-		r.mu.Lock()
-		target := r.matchIndex
 
 		entries := r.getNextEntries(nextIndex)
+		r.mu.Lock()
+		target := r.matchIndex
 		req := r.getAppendEntriesRequest(nextIndex, entries)
 		r.mu.Unlock()
 
