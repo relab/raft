@@ -305,6 +305,7 @@ func (w *Wrapper) handleNormal(entry *raftpb.Entry) {
 	w.propLock.Unlock()
 
 	if !ok {
+		w.lat.Record(time.Now())
 		return
 	}
 

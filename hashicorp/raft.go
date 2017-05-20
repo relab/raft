@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/context"
@@ -69,6 +70,7 @@ type Wrapper struct {
 	conf    hraft.Configuration
 	lat     *raft.Latency
 	event   *raft.Event
+	leader  uint64
 	logger  logrus.FieldLogger
 }
 
@@ -110,7 +112,10 @@ func NewRaft(logger logrus.FieldLogger,
 	go func() {
 		for {
 			if <-node.LeaderCh() {
+				atomic.StoreUint64(&w.leader, 1)
 				event.Record(raft.EventBecomeLeader)
+			} else {
+				atomic.StoreUint64(&w.leader, 0)
 			}
 		}
 	}()
@@ -153,6 +158,9 @@ func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 
 func (w *Wrapper) Apply(logentry *hraft.Log) interface{} {
 	rmetrics.commitIndex.Set(float64(logentry.Index))
+	if atomic.LoadUint64(&w.leader) == 1 {
+		w.lat.Record(time.Now())
+	}
 
 	switch logentry.Type {
 	case hraft.LogCommand:
