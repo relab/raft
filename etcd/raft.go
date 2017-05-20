@@ -59,7 +59,8 @@ type Wrapper struct {
 
 	apply chan []raftpb.Entry
 
-	lat *raft.Latency
+	lat   *raft.Latency
+	event *raft.Event
 }
 
 func (w *Wrapper) newFuture(uid uint64) raft.Future {
@@ -77,7 +78,7 @@ func NewRaft(logger logrus.FieldLogger,
 	sm raft.StateMachine, storage *etcdraft.MemoryStorage, wal *wal.WAL, cfg *etcdraft.Config,
 	peers []etcdraft.Peer, heartbeat time.Duration,
 	single bool, servers []string,
-	lat *raft.Latency,
+	lat *raft.Latency, event *raft.Event,
 ) *Wrapper {
 	w := &Wrapper{
 		id:        cfg.ID,
@@ -90,6 +91,7 @@ func NewRaft(logger logrus.FieldLogger,
 		apply:     make(chan []raftpb.Entry, 2048),
 		lookup:    make(map[uint64][]byte),
 		lat:       lat,
+		event:     event,
 	}
 	rpeers := append(peers, etcdraft.Peer{ID: cfg.ID})
 	if single {

@@ -64,6 +64,7 @@ type Wrapper struct {
 	sm      raft.StateMachine
 	servers []hraft.Server
 	lat     *raft.Latency
+	event   *raft.Event
 	logger  logrus.FieldLogger
 }
 
@@ -71,12 +72,13 @@ func NewRaft(logger logrus.FieldLogger,
 	sm raft.StateMachine, cfg *hraft.Config, servers []hraft.Server, trans hraft.Transport,
 	logs hraft.LogStore, stable hraft.StableStore, snaps hraft.SnapshotStore,
 	enabled []uint64,
-	lat *raft.Latency,
+	lat *raft.Latency, event *raft.Event,
 ) *Wrapper {
 	w := &Wrapper{
 		sm:      sm,
 		servers: servers,
 		lat:     lat,
+		event:   event,
 		logger:  logger,
 	}
 
