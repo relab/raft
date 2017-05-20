@@ -158,7 +158,7 @@ func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 
 func (w *Wrapper) Apply(logentry *hraft.Log) interface{} {
 	rmetrics.commitIndex.Set(float64(logentry.Index))
-	if atomic.LoadUint64(&w.leader) == 1 {
+	if atomic.LoadUint64(&w.leader) != 1 {
 		w.lat.Record(time.Now())
 	}
 
