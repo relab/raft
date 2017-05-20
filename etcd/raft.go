@@ -191,10 +191,18 @@ func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 	w.propLock.Unlock()
 
 	cc := raftpb.ConfChange{
-		Type:    raftpb.ConfChangeType(req.ReconfType),
 		ID:      req.ServerID,
 		NodeID:  req.ServerID,
 		Context: w.lookup[req.ServerID],
+	}
+
+	switch req.ReconfType {
+	case commonpb.ReconfAdd:
+		w.event.Record(raft.EventAddServer)
+		cc.Type = raftpb.ConfChangeAddNode
+	case commonpb.ReconfRemove:
+		w.event.Record(raft.EventRemoveServer)
+		cc.Type = raftpb.ConfChangeRemoveNode
 	}
 
 	err := w.n.ProposeConfChange(ctx, cc)
@@ -227,6 +235,7 @@ func (w *Wrapper) run() {
 			if rd.SoftState != nil {
 				rmetrics.leader.Set(float64(rd.Lead))
 				if w.id == rd.Lead {
+					w.event.Record(raft.EventBecomeLeader)
 					atomic.StoreUint64(&w.leader, rd.Lead)
 				}
 				w.propLock.Lock()

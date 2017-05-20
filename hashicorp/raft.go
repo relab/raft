@@ -100,6 +100,14 @@ func NewRaft(logger logrus.FieldLogger,
 
 	w.n = node
 
+	go func() {
+		for {
+			if <-node.LeaderCh() {
+				event.Record(raft.EventBecomeLeader)
+			}
+		}
+	}()
+
 	return w
 }
 
@@ -124,8 +132,10 @@ func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 
 	switch req.ReconfType {
 	case commonpb.ReconfAdd:
+		w.event.Record(raft.EventAddServer)
 		ff.index = w.n.AddVoter(server.ID, server.Address, 0, timeout)
 	case commonpb.ReconfRemove:
+		w.event.Record(raft.EventRemoveServer)
 		ff.index = w.n.RemoveServer(server.ID, 0, timeout)
 	default:
 		panic("invalid reconf type")
