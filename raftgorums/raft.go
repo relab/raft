@@ -555,6 +555,9 @@ func (r *Raft) runStateMachine() {
 
 			switch reconf.ReconfType {
 			case commonpb.ReconfAdd:
+				if reconf.ServerID == r.id {
+					r.event.Record(raft.EventCaughtUp)
+				}
 				r.event.Record(raft.EventAdded)
 			case commonpb.ReconfRemove:
 				r.event.Record(raft.EventRemoved)

@@ -74,6 +74,9 @@ const (
 	EventApplyConfiguration EventType = 10
 	// EventTerminated a server received a termination signal.
 	EventTerminated EventType = 11
+	// EventStartReplicate the leader started replicating entries to a
+	// server.
+	EventStartReplicate = 12
 )
 
 var eventName = map[EventType]string{
@@ -89,6 +92,7 @@ var eventName = map[EventType]string{
 	9:  "added",
 	10: "applyconfiguration",
 	11: "terminated",
+	12: "startreplicate",
 }
 
 // Event is a slice of CSV records.

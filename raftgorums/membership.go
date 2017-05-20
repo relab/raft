@@ -308,7 +308,7 @@ func (r *Raft) replicate(serverID uint64, promise raft.PromiseEntry) {
 
 		if nextIndex > target || target-(nextIndex-1) < r.entriesPerMsg {
 			// TODO Context?
-			r.event.Record(raft.EventCaughtUp)
+			r.event.Record(raft.EventProposeAddServer)
 			r.queue <- promise
 			return
 		}
