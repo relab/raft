@@ -329,6 +329,9 @@ func (w *Wrapper) handleConfChange(entry *raftpb.Entry) {
 	switch cc.Type {
 	case raftpb.ConfChangeAddNode:
 		if len(cc.Context) > 0 {
+			if cc.NodeID == w.id {
+				w.event.Record(raft.EventCaughtUp)
+			}
 			w.event.Record(raft.EventAdded)
 			w.transport.AddPeer(types.ID(cc.NodeID), []string{string(cc.Context)})
 		}
