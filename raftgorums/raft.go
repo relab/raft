@@ -26,12 +26,9 @@ const (
 	Leader
 )
 
-// Timeouts in milliseconds.
-const (
-	// How long we wait for an answer.
-	TCPConnect   = 50000
-	TCPHeartbeat = 2000
-)
+// TCPConnect specifies how long the manager will attempt to establish a
+// connection to all servers.
+const TCPConnect = 50000
 
 // None represents no server.
 const None = 0

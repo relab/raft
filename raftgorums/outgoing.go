@@ -43,7 +43,7 @@ func (r *Raft) handleOutgoing() error {
 			rmetrics.catchups.Add(1)
 
 			r.logger.WithField("matchindex", req.matchIndex).Warnln("Sending catch-up")
-			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), r.electionTimeout)
 			leader := r.mem.getNode(req.leaderID)
 			r.event.Record(raft.EventCatchup)
 			_, err := leader.RaftClient.CatchMeUp(ctx, &pb.CatchMeUpRequest{
@@ -60,7 +60,7 @@ func (r *Raft) handleOutgoing() error {
 
 			r.logger.WithField("conf", conf.NodeIDs()).Println("Sending request for vote")
 
-			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*r.electionTimeout)
 			res, err := conf.RequestVote(ctx, req)
 			cancel()
 
@@ -122,7 +122,7 @@ func (r *Raft) handleOutgoing() error {
 			conf := r.mem.get()
 			r.logger.WithField("conf", conf.NodeIDs()).Println("Sending append entries request")
 
-			ctx, cancel := context.WithTimeout(context.Background(), TCPHeartbeat*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			res, err := conf.AppendEntries(ctx, req,
 				// These functions will be executed concurrently.
 				func(req pb.AppendEntriesRequest, nodeID uint32) *pb.AppendEntriesRequest {
