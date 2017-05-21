@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -81,6 +80,7 @@ func NewRaft(logger logrus.FieldLogger,
 	enabled []uint64,
 	lat *raft.Latency, event *raft.Event,
 	leaderOut chan struct{},
+	id uint64,
 ) *Wrapper {
 	w := &Wrapper{
 		id:      cfg.LocalID,
@@ -110,8 +110,6 @@ func NewRaft(logger logrus.FieldLogger,
 	}
 
 	w.n = node
-
-	id, _ := strconv.ParseUint(string(w.id), 10, 64)
 
 	go func() {
 		for {
