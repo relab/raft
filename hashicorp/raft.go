@@ -81,6 +81,7 @@ func NewRaft(logger logrus.FieldLogger,
 	lat *raft.Latency, event *raft.Event,
 	leaderOut chan struct{},
 	id uint64,
+	checkQuorum bool,
 ) *Wrapper {
 	w := &Wrapper{
 		id:      cfg.LocalID,
@@ -91,7 +92,7 @@ func NewRaft(logger logrus.FieldLogger,
 		logger:  logger,
 	}
 
-	node, err := hraft.NewRaft(cfg, w, logs, stable, snaps, trans, event)
+	node, err := hraft.NewRaft(cfg, w, logs, stable, snaps, trans, event, checkQuorum)
 	if err != nil {
 		panic(err)
 	}
