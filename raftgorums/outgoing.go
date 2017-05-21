@@ -127,6 +127,7 @@ func (r *Raft) handleOutgoing() error {
 				// These functions will be executed concurrently.
 				func(req pb.AppendEntriesRequest, nodeID uint32) *pb.AppendEntriesRequest {
 					if index, ok := next[nodeID]; ok {
+						r.event.Record(raft.EventInjectEntries)
 						req.PrevLogIndex = index - 1
 						req.PrevLogTerm = r.logTerm(index - 1)
 					}

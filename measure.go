@@ -77,6 +77,9 @@ const (
 	// EventStartReplicate the leader started replicating entries to a
 	// server.
 	EventStartReplicate = 12
+	// EventInjectEntries the leader responds to a catchup request by
+	// injecting the missing entries in the next request.
+	EventInjectEntries = 13
 )
 
 var eventName = map[EventType]string{
@@ -93,6 +96,7 @@ var eventName = map[EventType]string{
 	10: "applyconfiguration",
 	11: "terminated",
 	12: "startreplicate",
+	13: "injectentries",
 }
 
 // Event is a slice of CSV records.
