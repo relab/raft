@@ -104,9 +104,11 @@ func NewRaft(logger logrus.FieldLogger,
 
 	w.conf = hraft.Configuration{Servers: voters}
 
-	f := node.BootstrapCluster(w.conf)
-	if err := f.Error(); err != nil {
-		panic(err)
+	if servers[id-1].Suffrage == hraft.Voter {
+		f := node.BootstrapCluster(w.conf)
+		if err := f.Error(); err != nil {
+			panic(err)
+		}
 	}
 
 	w.n = node
