@@ -125,6 +125,7 @@ func NewRaft(logger logrus.FieldLogger,
 				}
 			} else {
 				atomic.StoreUint64(&w.leader, 0)
+				rmetrics.leader.Set(0)
 			}
 		}
 	}()
