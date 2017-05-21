@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -110,11 +111,14 @@ func NewRaft(logger logrus.FieldLogger,
 
 	w.n = node
 
+	id, _ := strconv.ParseUint(string(w.id), 10, 64)
+
 	go func() {
 		for {
 			if <-node.LeaderCh() {
 				atomic.StoreUint64(&w.leader, 1)
 				event.Record(raft.EventBecomeLeader)
+				rmetrics.leader.Set(float64(id))
 				select {
 				case leaderOut <- struct{}{}:
 					w.logger.Warnln("Sent become leader")
