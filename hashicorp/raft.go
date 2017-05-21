@@ -79,6 +79,7 @@ func NewRaft(logger logrus.FieldLogger,
 	logs hraft.LogStore, stable hraft.StableStore, snaps hraft.SnapshotStore,
 	enabled []uint64,
 	lat *raft.Latency, event *raft.Event,
+	leaderOut chan struct{},
 ) *Wrapper {
 	w := &Wrapper{
 		id:      cfg.LocalID,
@@ -114,6 +115,10 @@ func NewRaft(logger logrus.FieldLogger,
 			if <-node.LeaderCh() {
 				atomic.StoreUint64(&w.leader, 1)
 				event.Record(raft.EventBecomeLeader)
+				select {
+				case leaderOut <- struct{}{}:
+				default:
+				}
 			} else {
 				atomic.StoreUint64(&w.leader, 0)
 			}

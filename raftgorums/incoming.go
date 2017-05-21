@@ -385,6 +385,11 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		default:
 		}
 
+		select {
+		case r.leaderOut <- struct{}{}:
+		default:
+		}
+
 		return
 	}
 

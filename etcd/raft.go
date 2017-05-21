@@ -60,8 +60,9 @@ type Wrapper struct {
 
 	apply chan []raftpb.Entry
 
-	lat   *raft.Latency
-	event *raft.Event
+	lat       *raft.Latency
+	event     *raft.Event
+	leaderOut chan struct{}
 }
 
 func (w *Wrapper) newFuture(uid uint64) raft.Future {
@@ -80,6 +81,7 @@ func NewRaft(logger logrus.FieldLogger,
 	peers []etcdraft.Peer, heartbeat time.Duration,
 	single bool, servers []string,
 	lat *raft.Latency, event *raft.Event,
+	leaderOut chan struct{},
 ) *Wrapper {
 	w := &Wrapper{
 		id:        cfg.ID,
@@ -93,6 +95,7 @@ func NewRaft(logger logrus.FieldLogger,
 		lookup:    make(map[uint64][]byte),
 		lat:       lat,
 		event:     event,
+		leaderOut: leaderOut,
 	}
 	rpeers := append(peers, etcdraft.Peer{ID: cfg.ID})
 	if single {
@@ -236,8 +239,12 @@ func (w *Wrapper) run() {
 			if rd.SoftState != nil {
 				rmetrics.leader.Set(float64(rd.Lead))
 				if w.id == rd.Lead {
-					w.event.Record(raft.EventBecomeLeader)
 					atomic.StoreUint64(&w.leader, rd.Lead)
+					w.event.Record(raft.EventBecomeLeader)
+					select {
+					case w.leaderOut <- struct{}{}:
+					default:
+					}
 				}
 				w.propLock.Lock()
 				if rd.RaftState != etcdraft.StateLeader && len(w.proposals) > 0 {
