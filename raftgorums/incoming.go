@@ -408,9 +408,15 @@ func (r *Raft) HandleAppendEntriesResponse(response *pb.AppendEntriesQFResponse,
 		defer timer.ObserveDuration()
 	}
 
+	noquorum := response.Replies < uint64((len(r.mem.get().NodeIDs())+1)/2)
+
+	if !r.checkQuorum {
+		noquorum = false
+	}
+
 	// #A2 If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower.
 	// If we didn't get a response from a majority (excluding self) step down.
-	if response.Term > r.currentTerm || response.Replies < uint64((len(r.mem.get().NodeIDs())+1)/2) {
+	if response.Term > r.currentTerm || noquorum {
 		// Become follower.
 		select {
 		case r.toggle <- struct{}{}:

@@ -29,6 +29,7 @@ type Config struct {
 	CatchupMultiplier uint64
 
 	Logger         logrus.FieldLogger
+	CheckQuorum    bool
 	MetricsEnabled bool
 }
 

@@ -107,6 +107,7 @@ type Raft struct {
 
 	logger logrus.FieldLogger
 
+	checkQuorum    bool
 	metricsEnabled bool
 
 	stop chan struct{}
@@ -181,6 +182,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config, lat *raft.Latency, event *raft.E
 		cureqout:         make(chan *catchUpReq, 16),
 		toggle:           make(chan struct{}),
 		logger:           cfg.Logger.WithField("raftid", cfg.ID),
+		checkQuorum:      cfg.CheckQuorum,
 		metricsEnabled:   cfg.MetricsEnabled,
 		stop:             make(chan struct{}),
 		lat:              lat,
