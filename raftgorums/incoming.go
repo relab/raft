@@ -385,13 +385,6 @@ func (r *Raft) HandleRequestVoteResponse(response *pb.RequestVoteResponse) {
 		default:
 		}
 
-		select {
-		case r.leaderOut <- struct{}{}:
-			r.logger.Warnln("Sent become leader")
-		default:
-			r.logger.Warnln("Skipped sending become leader")
-		}
-
 		return
 	}
 

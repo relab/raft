@@ -469,6 +469,12 @@ func (r *Raft) advanceCommitIndex() {
 
 	if r.logTerm(r.matchIndex) == r.currentTerm {
 		r.mem.setStable(true)
+		select {
+		case r.leaderOut <- struct{}{}:
+			r.logger.Warnln("Sent become leader")
+		default:
+			r.logger.Warnln("Skipped sending become leader")
+		}
 		r.commitIndex = max(r.commitIndex, r.matchIndex)
 	}
 
