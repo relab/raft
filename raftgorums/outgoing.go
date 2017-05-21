@@ -79,22 +79,39 @@ func (r *Raft) handleOutgoing() error {
 			nextIndex := req.PrevLogIndex + 1
 
 			for nodeID, ch := range r.match {
-				select {
-				case index := <-ch:
-					atLeastMaxEntries := req.PrevLogIndex+1 > r.burst
-					tooFarBehind := index < req.PrevLogIndex+1-r.burst
+				if !r.mem.inLatest(nodeID) {
+				EMPTY:
+					// Empty channel.
+					for {
+						select {
+						case <-ch:
+						default:
+							break EMPTY
+						}
+					}
+					continue
+				}
+			LATEST:
+				// Get latest catchup index.
+				for {
+					select {
+					case index := <-ch:
+						atLeastMaxEntries := req.PrevLogIndex+1 > r.burst
+						tooFarBehind := index < req.PrevLogIndex+1-r.burst
 
-					if atLeastMaxEntries && tooFarBehind {
-						r.logger.WithFields(logrus.Fields{
-							"gorumsid": nodeID,
-						}).Warnln("Server too far behind")
-						index = req.PrevLogIndex + 1
+						if atLeastMaxEntries && tooFarBehind {
+							r.logger.WithFields(logrus.Fields{
+								"gorumsid": nodeID,
+							}).Warnln("Server too far behind")
+							index = req.PrevLogIndex + 1
+						}
+						next[nodeID] = index
+						if index < nextIndex {
+							nextIndex = index
+						}
+					default:
+						break LATEST
 					}
-					next[nodeID] = index
-					if index < nextIndex {
-						nextIndex = index
-					}
-				default:
 				}
 			}
 

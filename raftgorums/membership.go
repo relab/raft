@@ -153,6 +153,20 @@ func (m *membership) get() *gorums.Configuration {
 	return latest
 }
 
+func (m *membership) inLatest(id uint32) bool {
+	m.RLock()
+	latest := m.latest
+	m.RUnlock()
+
+	for _, nodeID := range latest.NodeIDs() {
+		if id == nodeID {
+			return true
+		}
+	}
+
+	return false
+}
+
 // TODO Return the same configuration if adding/removing self.
 
 // addServer returns a new configuration including the given server.
