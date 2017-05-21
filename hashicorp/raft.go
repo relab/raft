@@ -117,7 +117,9 @@ func NewRaft(logger logrus.FieldLogger,
 				event.Record(raft.EventBecomeLeader)
 				select {
 				case leaderOut <- struct{}{}:
+					w.logger.Warnln("Sent become leader")
 				default:
+					w.logger.Warnln("Skipped sending become leader")
 				}
 			} else {
 				atomic.StoreUint64(&w.leader, 0)

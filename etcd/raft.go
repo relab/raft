@@ -243,7 +243,9 @@ func (w *Wrapper) run() {
 					w.event.Record(raft.EventBecomeLeader)
 					select {
 					case w.leaderOut <- struct{}{}:
+						w.logger.Warnln("Sent become leader")
 					default:
+						w.logger.Warnln("Skipped sending become leader")
 					}
 				}
 				w.propLock.Lock()
