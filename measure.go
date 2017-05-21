@@ -61,10 +61,9 @@ const (
 	EventProposeAddServer EventType = 5
 	// EventProposeRemoveServer a leader received a remove server request.
 	EventProposeRemoveServer EventType = 6
-	// EventCaughtUp indicates that the added server has caught up. For the
-	// Gorums version, this means caught up with a majority of the cluster.
-	// For etcd/hashicorp this means caught up to the point where it have
-	// applied the configuration adding itself to the cluster.
+	// EventCaughtUp indicates that the a server has caught up to the point
+	// where it has applied the configuration change which added it to the
+	// cluster.
 	EventCaughtUp EventType = 7
 	// EventRemoved the remove server request was committed.
 	EventRemoved EventType = 8
