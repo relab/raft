@@ -110,6 +110,7 @@ func NewRaft(logger logrus.FieldLogger,
 	}
 
 	w.n = node
+	rmetrics.leader.Set(0)
 
 	go func() {
 		for {
