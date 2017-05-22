@@ -196,6 +196,11 @@ func (w *Wrapper) Apply(logentry *hraft.Log) interface{} {
 		if !hasVote(w.conf, w.id) && hasVote(configuration, w.id) {
 			w.event.Record(raft.EventCaughtUp)
 		}
+		if len(w.conf.Servers) < len(configuration.Servers) {
+			w.event.Record(raft.EventAdded)
+		} else {
+			w.event.Record(raft.EventRemoved)
+		}
 		w.conf = configuration
 	}
 
