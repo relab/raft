@@ -50,9 +50,6 @@ func (f *future) ResultCh() <-chan raft.Result {
 			}
 			return
 		}
-		// If recorded on the server being added, this is also the
-		// caught up event.
-		f.event.Record(raft.EventAdded)
 		f.res <- raft.Result{
 			Index: f.index.Index(),
 			Value: &commonpb.ReconfResponse{
