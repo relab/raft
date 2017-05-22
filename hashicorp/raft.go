@@ -2,7 +2,6 @@ package hashicorp
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"sync/atomic"
 	"time"
@@ -22,6 +21,7 @@ type future struct {
 	res   chan raft.Result
 	start time.Time
 	lat   *raft.Latency
+	event *raft.Event
 }
 
 func (f *future) ResultCh() <-chan raft.Result {
@@ -50,6 +50,9 @@ func (f *future) ResultCh() <-chan raft.Result {
 			}
 			return
 		}
+		// If recorded on the server being added, this is also the
+		// caught up event.
+		f.event.Record(raft.EventAdded)
 		f.res <- raft.Result{
 			Index: f.index.Index(),
 			Value: &commonpb.ReconfResponse{
@@ -154,7 +157,7 @@ func (w *Wrapper) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) 
 	deadline, _ := ctx.Deadline()
 	timeout := time.Until(deadline)
 	server := w.servers[req.ServerID-1]
-	ff := &future{lat: w.lat, start: time.Now(), res: make(chan raft.Result, 1)}
+	ff := &future{event: w.event, lat: w.lat, start: time.Now(), res: make(chan raft.Result, 1)}
 
 	switch req.ReconfType {
 	case commonpb.ReconfAdd:
@@ -176,37 +179,13 @@ func (w *Wrapper) Apply(logentry *hraft.Log) interface{} {
 		w.lat.Record(time.Now())
 	}
 
-	switch logentry.Type {
-	case hraft.LogCommand:
-		res := w.sm.Apply(&commonpb.Entry{
-			Term:      logentry.Term,
-			Index:     logentry.Index,
-			EntryType: commonpb.EntryNormal,
-			Data:      logentry.Data,
-		})
-		return res
-	case hraft.LogConfiguration:
-		var configuration hraft.Configuration
-		if err := decodeMsgPack(logentry.Data, &configuration); err != nil {
-			panic(fmt.Errorf("failed to decode configuration: %v", err))
-		}
-		w.logger.WithField("Configuration", configuration).Warnln("Configuration change")
-		// If the server didn't have a vote in the previous conf., but
-		// have a vote in the new configuration, this follower have
-		// recently been added and are now caught up.
-		if !hasVote(w.conf, w.id) && hasVote(configuration, w.id) {
-			w.event.Record(raft.EventCaughtUp)
-		}
-		if len(w.conf.Servers) < len(configuration.Servers) {
-			w.event.Record(raft.EventAdded)
-		} else {
-			w.event.Record(raft.EventRemoved)
-		}
-		w.conf = configuration
-		return nil
-	}
-
-	panic(fmt.Sprintf("no case for logtype: %v", logentry.Type))
+	res := w.sm.Apply(&commonpb.Entry{
+		Term:      logentry.Term,
+		Index:     logentry.Index,
+		EntryType: commonpb.EntryNormal,
+		Data:      logentry.Data,
+	})
+	return res
 }
 
 func (w *Wrapper) Snapshot() (hraft.FSMSnapshot, error) { return &snapStore{}, nil }
