@@ -190,6 +190,7 @@ func (w *Wrapper) Apply(logentry *hraft.Log) interface{} {
 		if err := decodeMsgPack(logentry.Data, &configuration); err != nil {
 			panic(fmt.Errorf("failed to decode configuration: %v", err))
 		}
+		w.logger.WithField("Configuration", configuration).Warnln("Configuration change")
 		// If the server didn't have a vote in the previous conf., but
 		// have a vote in the new configuration, this follower have
 		// recently been added and are now caught up.
