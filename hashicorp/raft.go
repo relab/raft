@@ -203,9 +203,10 @@ func (w *Wrapper) Apply(logentry *hraft.Log) interface{} {
 			w.event.Record(raft.EventRemoved)
 		}
 		w.conf = configuration
-	default:
-		panic(fmt.Sprintf("no case for logtype: %v", logentry.Type))
+		return nil
 	}
+
+	panic(fmt.Sprintf("no case for logtype: %v", logentry.Type))
 }
 
 func (w *Wrapper) Snapshot() (hraft.FSMSnapshot, error) { return &snapStore{}, nil }
