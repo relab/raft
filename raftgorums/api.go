@@ -37,7 +37,7 @@ func (r *Raft) ProposeConf(ctx context.Context, req *commonpb.ReconfRequest) (ra
 		go r.replicate(req.ServerID, promise)
 	case commonpb.ReconfRemove:
 		r.event.Record(raft.EventProposeRemoveServer)
-		r.queue <- promise
+		r.confch <- promise
 	}
 
 	return future, nil

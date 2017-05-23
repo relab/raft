@@ -91,6 +91,7 @@ type Raft struct {
 	countLock    sync.Mutex
 	cmdCount     uint64
 	queue        chan raft.PromiseEntry
+	confch       chan raft.PromiseEntry
 	pending      *list.List
 
 	pendingReads []raft.PromiseLogEntry
@@ -177,6 +178,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config, lat *raft.Latency, event *raft.E
 		maxInflight:      len(cfg.Servers) - 1,
 		burst:            cfg.EntriesPerMsg * cfg.CatchupMultiplier,
 		queue:            make(chan raft.PromiseEntry, BufferSize),
+		confch:           make(chan raft.PromiseEntry, 16),
 		applyCh:          make(chan raft.PromiseLogEntry, 1024),
 		rvreqout:         make(chan *pb.RequestVoteRequest, 1024),
 		aereqout:         make(chan *pb.AppendEntriesRequest, 1024),
@@ -663,23 +665,25 @@ func (r *Raft) sendAppendEntries() {
 	// first. This needs to be dealt with if we decide to store the initial
 	// configuration at the first index however.
 	var reconf uint64
+	var promise raft.PromiseEntry
 
-LOOP:
+COLLECT:
 	for i := r.entriesPerMsg; i > 0; i-- {
 		select {
-		case promise := <-r.queue:
-			promiseEntry := promise.Write(assignIndex)
-			entry := promiseEntry.Entry()
-
-			if entry.EntryType == commonpb.EntryReconf {
-				reconf = assignIndex
-			}
-			assignIndex++
-			toSave = append(toSave, entry)
-			r.pending.PushBack(promiseEntry)
+		case promise = <-r.confch:
+		case promise = <-r.queue:
 		default:
-			break LOOP
+			break COLLECT
 		}
+		promiseEntry := promise.Write(assignIndex)
+		entry := promiseEntry.Entry()
+
+		if entry.EntryType == commonpb.EntryReconf {
+			reconf = assignIndex
+		}
+		assignIndex++
+		toSave = append(toSave, entry)
+		r.pending.PushBack(promiseEntry)
 	}
 
 	if len(toSave) > 0 {
