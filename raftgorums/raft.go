@@ -519,7 +519,22 @@ func (r *Raft) newCommit(old uint64) {
 			e := r.pending.Front()
 			if e != nil {
 				future := e.Value.(raft.PromiseLogEntry)
-				if future.Entry().Index == i {
+				entry := future.Entry()
+				if entry.Index == i {
+					if entry.EntryType == commonpb.EntryReconf {
+						r.doReconf(entry)
+
+						res := &commonpb.ReconfResponse{
+							Status: commonpb.ReconfOK,
+						}
+						future.Respond(res)
+						dur := future.Duration()
+						start := time.Now().Add(-dur)
+						r.lat.Record(start)
+						if r.metricsEnabled {
+							rmetrics.cmdCommit.Observe(dur.Seconds())
+						}
+					}
 					r.applyCh <- future
 					r.pending.Remove(e)
 					break
@@ -531,7 +546,45 @@ func (r *Raft) newCommit(old uint64) {
 			if committed.Index != i {
 				panic("entry tried applied out of order")
 			}
+			if committed.EntryType == commonpb.EntryReconf {
+				r.doReconf(committed)
+			}
 			r.applyCh <- raft.NewPromiseNoFuture(committed)
+		}
+	}
+}
+
+func (r *Raft) doReconf(entry *commonpb.Entry) {
+	// TODO We should be able to skip the unmarshaling if we
+	// are not recovering.
+	var reconf commonpb.ReconfRequest
+	err := reconf.Unmarshal(entry.Data)
+
+	if err != nil {
+		panic("could not unmarshal reconf")
+	}
+
+	r.mem.setPending(&reconf)
+	r.mem.set(entry.Index)
+	r.logger.Warnln("Comitted configuration")
+
+	enabled := r.mem.commit()
+
+	switch reconf.ReconfType {
+	case commonpb.ReconfAdd:
+		if reconf.ServerID == r.id {
+			r.event.Record(raft.EventCaughtUp)
+		}
+		r.event.Record(raft.EventAdded)
+	case commonpb.ReconfRemove:
+		r.event.Record(raft.EventRemoved)
+	}
+
+	// Toggle if we need to change run routine.
+	if (enabled && r.state == Inactive) || !enabled {
+		select {
+		case r.toggle <- struct{}{}:
+		default:
 		}
 	}
 }
@@ -547,43 +600,6 @@ func (r *Raft) runStateMachine() {
 		case commonpb.EntryNormal:
 			res = r.sm.Apply(entry)
 		case commonpb.EntryReconf:
-			// TODO We should be able to skip the unmarshaling if we
-			// are not recovering.
-			var reconf commonpb.ReconfRequest
-			err := reconf.Unmarshal(entry.Data)
-
-			if err != nil {
-				panic("could not unmarshal reconf")
-			}
-
-			r.mem.setPending(&reconf)
-			r.mem.set(entry.Index)
-			r.logger.Warnln("Comitted configuration")
-
-			enabled := r.mem.commit()
-
-			switch reconf.ReconfType {
-			case commonpb.ReconfAdd:
-				if reconf.ServerID == r.id {
-					r.event.Record(raft.EventCaughtUp)
-				}
-				r.event.Record(raft.EventAdded)
-			case commonpb.ReconfRemove:
-				r.event.Record(raft.EventRemoved)
-			}
-
-			// Toggle if we need to change run routine.
-			if (enabled && r.state == Inactive) || !enabled {
-				select {
-				case r.toggle <- struct{}{}:
-				default:
-				}
-			}
-
-			res = &commonpb.ReconfResponse{
-				Status: commonpb.ReconfOK,
-			}
-
 			// Inform state machine about new configuration.
 			r.sm.Apply(entry)
 		}
