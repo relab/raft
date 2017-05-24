@@ -2,6 +2,7 @@ package raftgorums
 
 import (
 	"container/list"
+	"time"
 
 	"golang.org/x/net/context"
 
@@ -147,6 +148,11 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		MatchIndex: logLen,
 	}
 
+	// Wait on catchup for up to a minute.
+	if !req.Catchup && time.Since(r.catchingup) < time.Minute {
+		return res
+	}
+
 	// #AE1 Reply false if term < currentTerm.
 	if req.Term < r.currentTerm {
 		return res
@@ -192,6 +198,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	r.resetElection = true
 
 	if !success {
+		r.catchingup = time.Now()
 		r.cureqout <- &catchUpReq{
 			leaderID: req.LeaderID,
 			// TODO term: req.Term, ?

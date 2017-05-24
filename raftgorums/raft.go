@@ -116,6 +116,8 @@ type Raft struct {
 	lat       *raft.Latency
 	event     *raft.Event
 	leaderOut chan struct{}
+
+	catchingup time.Time
 }
 
 func (r *Raft) incCmd() {
