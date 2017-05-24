@@ -148,13 +148,13 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		MatchIndex: logLen,
 	}
 
-	var discarded, reset bool
+	var discarded bool
 	defer func() {
 		if len(req.Entries) > 0 {
-			r.cr.Record(req.PrevLogIndex+1, req.PrevLogIndex+uint64(len(req.Entries)), len(req.Entries), discarded, reset)
+			r.cr.Record(req.PrevLogIndex+1, req.PrevLogIndex+uint64(len(req.Entries)), len(req.Entries), discarded)
 			return
 		}
-		r.cr.Record(req.PrevLogIndex, req.PrevLogIndex, 0, discarded, reset)
+		r.cr.Record(req.PrevLogIndex, req.PrevLogIndex, 0, discarded)
 	}()
 
 	// #AE1 Reply false if term < currentTerm.
@@ -201,7 +201,6 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	}
 
 	// January 1, 1970 UTC.
-	reset = true
 	r.catchingup = time.Time{}
 
 	// We acknowledge this server as the leader as it's has the highest term
