@@ -109,7 +109,10 @@ func (c *Configuration) appendEntries(ctx context.Context, a *raftpb.AppendEntri
 
 	replyChan := make(chan appendEntriesReply, c.n)
 	for _, n := range c.nodes {
-		go callGRPCAppendEntries(ctx, n, f(*a, n.id), replyChan, c.errs)
+		node := n // Bind node to current n as n has changed when the function is actually executed.
+		n.rpcs <- func() {
+			callGRPCAppendEntries(ctx, node, f(*a, node.id), replyChan, c.errs)
+		}
 	}
 
 	var (
@@ -210,7 +213,10 @@ func (c *Configuration) requestVote(ctx context.Context, a *raftpb.RequestVoteRe
 
 	replyChan := make(chan requestVoteReply, c.n)
 	for _, n := range c.nodes {
-		go callGRPCRequestVote(ctx, n, a, replyChan, c.errs)
+		node := n // Bind node to current n as n has changed when the function is actually executed.
+		n.rpcs <- func() {
+			callGRPCRequestVote(ctx, node, a, replyChan, c.errs)
+		}
 	}
 
 	var (
@@ -279,6 +285,7 @@ type Node struct {
 	self bool
 	addr string
 	conn *grpc.ClientConn
+	rpcs chan func()
 
 	RaftClient RaftClient
 
@@ -307,6 +314,7 @@ func (n *Node) close() error {
 	if err := n.conn.Close(); err != nil {
 		return fmt.Errorf("conn close error: %v", err)
 	}
+	close(n.rpcs)
 	return nil
 }
 
@@ -535,7 +543,10 @@ func (m *Manager) createNode(addr string) (*Node, error) {
 		id:      id,
 		addr:    tcpAddr.String(),
 		latency: -1 * time.Second,
+		rpcs:    make(chan func(), 4096),
 	}
+
+	go node.orderRPCs()
 
 	return node, nil
 }
@@ -718,6 +729,12 @@ func (n *Node) ID() uint32 {
 // Address returns network address of m.
 func (n *Node) Address() string {
 	return n.addr
+}
+
+func (n *Node) orderRPCs() {
+	for f := range n.rpcs {
+		f()
+	}
 }
 
 func (n *Node) String() string {
