@@ -110,8 +110,12 @@ func (c *Configuration) appendEntries(ctx context.Context, a *raftpb.AppendEntri
 	replyChan := make(chan appendEntriesReply, c.n)
 	for _, n := range c.nodes {
 		node := n // Bind node to current n as n has changed when the function is actually executed.
-		n.rpcs <- func() {
+		select {
+		case n.rpcs <- func() {
 			callGRPCAppendEntries(ctx, node, f(*a, node.id), replyChan, c.errs)
+		}:
+		default:
+			go callGRPCAppendEntries(ctx, node, f(*a, node.id), replyChan, c.errs)
 		}
 	}
 
@@ -214,8 +218,12 @@ func (c *Configuration) requestVote(ctx context.Context, a *raftpb.RequestVoteRe
 	replyChan := make(chan requestVoteReply, c.n)
 	for _, n := range c.nodes {
 		node := n // Bind node to current n as n has changed when the function is actually executed.
-		n.rpcs <- func() {
+		select {
+		case n.rpcs <- func() {
 			callGRPCRequestVote(ctx, node, a, replyChan, c.errs)
+		}:
+		default:
+			go callGRPCRequestVote(ctx, node, a, replyChan, c.errs)
 		}
 	}
 
@@ -314,7 +322,9 @@ func (n *Node) close() error {
 	if err := n.conn.Close(); err != nil {
 		return fmt.Errorf("conn close error: %v", err)
 	}
-	close(n.rpcs)
+	if n.rpcs != nil {
+		close(n.rpcs)
+	}
 	return nil
 }
 
@@ -543,10 +553,12 @@ func (m *Manager) createNode(addr string) (*Node, error) {
 		id:      id,
 		addr:    tcpAddr.String(),
 		latency: -1 * time.Second,
-		rpcs:    make(chan func(), 4096),
 	}
 
-	go node.orderRPCs()
+	if m.opts.order {
+		node.rpcs = make(chan func(), 4096)
+		go node.orderRPCs()
+	}
 
 	return node, nil
 }
@@ -864,6 +876,7 @@ type managerOptions struct {
 	logger       *log.Logger
 	noConnect    bool
 	trace        bool
+	order        bool
 }
 
 // ManagerOption provides a way to set different options on a new Manager.
@@ -900,6 +913,14 @@ func WithNoConnect() ManagerOption {
 func WithTracing() ManagerOption {
 	return func(o *managerOptions) {
 		o.trace = true
+	}
+}
+
+// WithNodeOrdering controls whether Gorums should force RPCs to be sent (per
+// node) in the order their parent quorum call were invoked.
+func WithNodeOrdering() ManagerOption {
+	return func(o *managerOptions) {
+		o.order = true
 	}
 }
 
