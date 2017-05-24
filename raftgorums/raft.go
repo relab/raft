@@ -121,6 +121,7 @@ type Raft struct {
 	catchingup   time.Time
 	catchupIndex uint64
 	catchupDiff  uint64
+	catchupCount int
 }
 
 func (r *Raft) incCmd() {
