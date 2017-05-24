@@ -36,7 +36,7 @@ func (r *Raft) handleOutgoing() error {
 
 		case req := <-r.cureqout:
 			// TODO Use config.
-			if time.Since(lastCuReq) < 100*time.Millisecond {
+			if time.Since(lastCuReq) < 5000*time.Millisecond {
 				continue
 			}
 			lastCuReq = time.Now()
