@@ -141,8 +141,6 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	})
 	reqLogger.Infoln("Got AppendEntries")
 
-	r.cr.Record(req.PrevLogIndex+1, req.PrevLogIndex+uint64(len(req.Entries)))
-
 	logLen := r.storage.NextIndex() - 1
 
 	res := &pb.AppendEntriesResponse{
@@ -150,9 +148,13 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		MatchIndex: logLen,
 	}
 
+	var discarded bool
+	defer r.cr.Record(req.PrevLogIndex+1, req.PrevLogIndex+uint64(len(req.Entries)), len(req.Entries), discarded)
+
 	// Wait on catchup for up to a minute. Skip test if there was a leader
 	// change.
 	if req.LeaderID == r.leader && !req.Catchup && time.Since(r.catchingup) < time.Minute {
+		discarded = true
 		return res
 	}
 
