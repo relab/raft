@@ -149,13 +149,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	}
 
 	var discarded bool
-	defer func() {
-		if len(req.Entries) > 0 {
-			r.cr.Record(req.PrevLogIndex+1, req.PrevLogIndex+uint64(len(req.Entries)), len(req.Entries), discarded)
-			return
-		}
-		r.cr.Record(req.PrevLogIndex, req.PrevLogIndex, 0, discarded)
-	}()
+	defer r.cr.Record(req.PrevLogIndex+1, req.PrevLogIndex+uint64(len(req.Entries)), len(req.Entries), discarded)
 
 	// Wait on catchup for up to a minute. Skip test if there was a leader
 	// change.
