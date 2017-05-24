@@ -153,6 +153,9 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		return res
 	}
 
+	// January 1, 1970 UTC.
+	r.catchingup = time.Time{}
+
 	// #AE1 Reply false if term < currentTerm.
 	if req.Term < r.currentTerm {
 		return res
