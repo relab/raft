@@ -203,12 +203,9 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	// TODO Revisit heartbeat mechanism.
 	r.resetElection = true
 
-	// Skip if there was a leader change.
-	if req.LeaderID == oldLeader &&
-		// Skip if this is the catchup we have been waiting for.
-		!(req.PrevLogIndex == r.catchupIndex && len(req.Entries) >= r.catchupDiff) &&
-		// Wait on catchup for up to a minute.
-		time.Since(r.catchingup) < time.Minute {
+	// Wait on catchup for up to a minute. Skip test if there was a leader
+	// change.
+	if req.LeaderID == oldLeader && req.PrevLogIndex != r.catchupIndex && len(req.Entries) < r.catchupDiff && time.Since(r.catchingup) < time.Minute {
 		discarded = true
 		return res
 	}
