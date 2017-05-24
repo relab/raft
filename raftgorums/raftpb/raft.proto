@@ -30,7 +30,9 @@ message AppendEntriesRequest {
   uint64 prevLogTerm  = 4;
   uint64 commitIndex  = 5;
 
-  repeated commonpb.Entry entries = 6;
+  bool catchup = 6;
+
+  repeated commonpb.Entry entries = 7;
 }
 
 message AppendEntriesResponse {
