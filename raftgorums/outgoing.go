@@ -130,7 +130,6 @@ func (r *Raft) handleOutgoing() error {
 						r.event.Record(raft.EventInjectEntries)
 						req.PrevLogIndex = index - 1
 						req.PrevLogTerm = r.logTerm(index - 1)
-						req.Catchup = true
 					}
 
 					need := maxIndex - req.PrevLogIndex
