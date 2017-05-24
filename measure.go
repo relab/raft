@@ -143,7 +143,7 @@ func NewCatchupRecorder() *CatchupRecorder {
 }
 
 // Record records a new CSV record with time set to time.Now().
-func (c *CatchupRecorder) Record(to, from uint64, numEntries int, discarded, reset bool, index uint64, diff int, ct time.Time) {
+func (c *CatchupRecorder) Record(to, from uint64, numEntries int, discarded, reset bool, index, diff uint64, ct time.Time) {
 	*c = append(*c, []string{
 		fmt.Sprintf("%d", to),
 		fmt.Sprintf("%d", from),

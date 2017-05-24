@@ -120,7 +120,7 @@ type Raft struct {
 
 	catchingup   time.Time
 	catchupIndex uint64
-	catchupDiff  int
+	catchupDiff  uint64
 }
 
 func (r *Raft) incCmd() {

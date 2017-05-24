@@ -206,7 +206,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	// Skip if there was a leader change.
 	if req.LeaderID == oldLeader &&
 		// Skip if this is the catchup we have been waiting for.
-		!(req.PrevLogIndex == r.catchupIndex && len(req.Entries) >= r.catchupDiff) &&
+		!(req.PrevLogIndex == r.catchupIndex && uint64(len(req.Entries)) >= r.catchupDiff) &&
 		// Wait on catchup for up to a minute.
 		time.Since(r.catchingup) < time.Minute {
 		discarded = true
@@ -216,11 +216,11 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	reset = true
 	// January 1, 1970 UTC.
 	r.catchingup = time.Time{}
+	r.catchupDiff = max(0, (req.PrevLogIndex+uint64(len(req.Entries)))-res.MatchIndex)
 
 	if !success {
 		r.catchingup = time.Now()
 		r.catchupIndex = res.MatchIndex
-		r.catchupDiff = int(max(0, (req.PrevLogIndex+uint64(len(req.Entries)))-res.MatchIndex))
 		r.cureqout <- &catchUpReq{
 			leaderID: req.LeaderID,
 			// TODO term: req.Term, ?
