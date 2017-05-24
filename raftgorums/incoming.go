@@ -218,18 +218,13 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	r.catchingup = time.Time{}
 
 	if !success {
-		if r.catchupCount < 3 {
-			r.catchupCount++
-		} else {
-			r.catchingup = time.Now()
-			r.catchupIndex = res.MatchIndex
-			r.catchupDiff = max(0, (req.PrevLogIndex+uint64(len(req.Entries)))-res.MatchIndex)
-			r.catchupCount = 0
-			r.cureqout <- &catchUpReq{
-				leaderID: req.LeaderID,
-				// TODO term: req.Term, ?
-				matchIndex: res.MatchIndex,
-			}
+		r.catchingup = time.Now()
+		r.catchupIndex = res.MatchIndex
+		r.catchupDiff = max(0, (req.PrevLogIndex+uint64(len(req.Entries)))-res.MatchIndex)
+		r.cureqout <- &catchUpReq{
+			leaderID: req.LeaderID,
+			// TODO term: req.Term, ?
+			matchIndex: res.MatchIndex,
 		}
 
 		return res
