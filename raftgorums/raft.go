@@ -209,18 +209,11 @@ func (r *Raft) Stop() {
 }
 
 // Run starts a server running the Raft algorithm.
-func (r *Raft) Run(server *grpc.Server) error {
+func (r *Raft) Run(server *grpc.Server, opts ...gorums.ManagerOption) error {
 	addrs := make([]string, len(r.addrs))
 	// We don't want to mutate r.addrs.
 	copy(addrs, r.addrs)
 	peers, lookup := initPeers(r.id, addrs)
-
-	opts := []gorums.ManagerOption{
-		gorums.WithGrpcDialOptions(
-			grpc.WithBlock(),
-			grpc.WithInsecure(),
-			grpc.WithTimeout(TCPConnect*time.Millisecond)),
-	}
 
 	mgr, err := gorums.NewManager(peers, opts...)
 
