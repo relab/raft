@@ -205,7 +205,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 
 	// Wait on catchup for up to a minute. Skip test if there was a leader
 	// change.
-	if req.LeaderID == oldLeader && req.PrevLogIndex != r.catchupIndex && len(req.Entries) >= r.catchupDiff && time.Since(r.catchingup) < time.Minute {
+	if req.LeaderID == oldLeader && req.PrevLogIndex != r.catchupIndex && len(req.Entries) < r.catchupDiff && time.Since(r.catchingup) < time.Minute {
 		discarded = true
 		return res
 	}
