@@ -138,18 +138,21 @@ type CatchupRecorder [][]string
 // NewCatchupRecorder returns a CatchupRecorder struct initialized with a header record.
 func NewCatchupRecorder() *CatchupRecorder {
 	lat := new(CatchupRecorder)
-	*lat = append(*lat, []string{"from", "to", "entries", "discarded", "reset", "time"})
+	*lat = append(*lat, []string{"from", "to", "entries", "discarded", "reset", "index", "diff", "ct", "time"})
 	return lat
 }
 
 // Record records a new CSV record with time set to time.Now().
-func (c *CatchupRecorder) Record(to, from uint64, numEntries int, discarded, reset bool) {
+func (c *CatchupRecorder) Record(to, from uint64, numEntries int, discarded, reset bool, index uint64, diff int, ct time.Time) {
 	*c = append(*c, []string{
 		fmt.Sprintf("%d", to),
 		fmt.Sprintf("%d", from),
 		fmt.Sprintf("%d", numEntries),
 		fmt.Sprintf("%t", discarded),
 		fmt.Sprintf("%t", reset),
+		fmt.Sprintf("%d", index),
+		fmt.Sprintf("%d", diff),
+		fmt.Sprintf("%d", ct.UnixNano()),
 		fmt.Sprintf("%d", time.Now().UnixNano()),
 	})
 }

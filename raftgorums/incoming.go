@@ -151,10 +151,10 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	var discarded, reset bool
 	defer func() {
 		if len(req.Entries) > 0 {
-			r.cr.Record(req.PrevLogIndex+1, req.PrevLogIndex+uint64(len(req.Entries)), len(req.Entries), discarded, reset)
+			r.cr.Record(req.PrevLogIndex+1, req.PrevLogIndex+uint64(len(req.Entries)), len(req.Entries), discarded, reset, r.catchupIndex, r.catchupDiff, r.catchingup)
 			return
 		}
-		r.cr.Record(req.PrevLogIndex, req.PrevLogIndex, 0, discarded, reset)
+		r.cr.Record(req.PrevLogIndex, req.PrevLogIndex, 0, discarded, reset, r.catchupIndex, r.catchupDiff, r.catchingup)
 	}()
 
 	// #AE1 Reply false if term < currentTerm.
