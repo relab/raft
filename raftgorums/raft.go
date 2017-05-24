@@ -118,7 +118,8 @@ type Raft struct {
 	cr        *raft.CatchupRecorder
 	leaderOut chan struct{}
 
-	catchingup time.Time
+	catchingup   time.Time
+	catchupIndex uint64
 }
 
 func (r *Raft) incCmd() {

@@ -195,13 +195,13 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 
 	// Wait on catchup for up to a minute. Skip test if there was a leader
 	// change.
-	if req.LeaderID == r.leader && !req.Catchup && time.Since(r.catchingup) < time.Minute {
+	if req.LeaderID == r.leader && req.PrevLogIndex != r.catchupIndex && time.Since(r.catchingup) < time.Minute {
 		discarded = true
 		return res
 	}
 
-	// January 1, 1970 UTC.
 	reset = true
+	// January 1, 1970 UTC.
 	r.catchingup = time.Time{}
 
 	// We acknowledge this server as the leader as it's has the highest term
@@ -214,6 +214,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 
 	if !success {
 		r.catchingup = time.Now()
+		r.catchupIndex = res.MatchIndex
 		r.cureqout <- &catchUpReq{
 			leaderID: req.LeaderID,
 			// TODO term: req.Term, ?
