@@ -148,8 +148,9 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		MatchIndex: logLen,
 	}
 
-	// Wait on catchup for up to a minute.
-	if !req.Catchup && time.Since(r.catchingup) < time.Minute {
+	// Wait on catchup for up to a minute. Skip test if there was a leader
+	// change.
+	if req.LeaderID == r.leader && !req.Catchup && time.Since(r.catchingup) < time.Minute {
 		return res
 	}
 
