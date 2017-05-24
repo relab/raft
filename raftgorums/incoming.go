@@ -218,7 +218,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	r.catchingup = time.Time{}
 	r.catchupDiff = max(0, (req.PrevLogIndex+uint64(len(req.Entries)))-res.MatchIndex)
 
-	if !success {
+	if !success && r.catchupDiff >= r.entriesPerMsg/4 {
 		r.catchingup = time.Now()
 		r.catchupIndex = res.MatchIndex
 		r.cureqout <- &catchUpReq{
