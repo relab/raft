@@ -216,11 +216,11 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	reset = true
 	// January 1, 1970 UTC.
 	r.catchingup = time.Time{}
-	r.catchupDiff = max(0, (req.PrevLogIndex+uint64(len(req.Entries)))-res.MatchIndex)
 
-	if !success && r.catchupDiff >= r.entriesPerMsg/4 {
+	if !success {
 		r.catchingup = time.Now()
 		r.catchupIndex = res.MatchIndex
+		r.catchupDiff = max(0, (req.PrevLogIndex+uint64(len(req.Entries)))-res.MatchIndex)
 		r.cureqout <- &catchUpReq{
 			leaderID: req.LeaderID,
 			// TODO term: req.Term, ?
