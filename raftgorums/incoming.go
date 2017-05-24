@@ -193,16 +193,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 		rmetrics.leader.Set(float64(req.LeaderID))
 	}
 
-	// Wait on catchup for up to a minute. Skip test if there was a leader
-	// change.
-	if req.LeaderID == r.leader && req.PrevLogIndex != r.catchupIndex && time.Since(r.catchingup) < time.Minute {
-		discarded = true
-		return res
-	}
-
-	reset = true
-	// January 1, 1970 UTC.
-	r.catchingup = time.Time{}
+	oldLeader := r.leader
 
 	// We acknowledge this server as the leader as it's has the highest term
 	// we have seen, and there can only be one leader per term.
@@ -211,6 +202,17 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	r.seenLeader = true
 	// TODO Revisit heartbeat mechanism.
 	r.resetElection = true
+
+	// Wait on catchup for up to a minute. Skip test if there was a leader
+	// change.
+	if req.LeaderID == oldLeader && req.PrevLogIndex != r.catchupIndex && time.Since(r.catchingup) < time.Minute {
+		discarded = true
+		return res
+	}
+
+	reset = true
+	// January 1, 1970 UTC.
+	r.catchingup = time.Time{}
 
 	if !success {
 		r.catchingup = time.Now()
