@@ -200,7 +200,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	// TODO Revisit heartbeat mechanism.
 	r.resetElection = true
 
-	if !success {
+	if !success && req.PrevLogIndex+1 > r.commitIndex {
 		r.catchingup = time.Now()
 		r.cureqout <- &catchUpReq{
 			leaderID: req.LeaderID,
