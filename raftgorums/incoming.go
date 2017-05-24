@@ -141,6 +141,8 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	})
 	reqLogger.Infoln("Got AppendEntries")
 
+	r.cr.Record(req.PrevLogIndex+1, req.PrevLogIndex+uint64(len(req.Entries)))
+
 	logLen := r.storage.NextIndex() - 1
 
 	res := &pb.AppendEntriesResponse{

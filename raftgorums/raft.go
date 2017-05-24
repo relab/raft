@@ -115,6 +115,7 @@ type Raft struct {
 
 	lat       *raft.Latency
 	event     *raft.Event
+	cr        *raft.CatchupRecorder
 	leaderOut chan struct{}
 
 	catchingup time.Time
@@ -142,7 +143,7 @@ type catchUpReq struct {
 }
 
 // NewRaft returns a new Raft given a configuration.
-func NewRaft(sm raft.StateMachine, cfg *Config, lat *raft.Latency, event *raft.Event, leaderOut chan struct{}) *Raft {
+func NewRaft(sm raft.StateMachine, cfg *Config, lat *raft.Latency, event *raft.Event, cr *raft.CatchupRecorder, leaderOut chan struct{}) *Raft {
 	err := validate(cfg)
 
 	// TODO Make NewRaft return error.
@@ -192,6 +193,7 @@ func NewRaft(sm raft.StateMachine, cfg *Config, lat *raft.Latency, event *raft.E
 		stop:             make(chan struct{}),
 		lat:              lat,
 		event:            event,
+		cr:               cr,
 		leaderOut:        leaderOut,
 	}
 

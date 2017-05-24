@@ -131,3 +131,38 @@ func (e *Event) Write(path string) {
 		panic("error writing csv: " + err.Error())
 	}
 }
+
+// CatchupRecorder is a slice of CSV records.
+type CatchupRecorder [][]string
+
+// NewCatchupRecorder returns a CatchupRecorder struct initialized with a header record.
+func NewCatchupRecorder() *CatchupRecorder {
+	lat := new(CatchupRecorder)
+	*lat = append(*lat, []string{"from", "to", "time"})
+	return lat
+}
+
+// Record records a new CSV record with time set to time.Now().
+func (c *CatchupRecorder) Record(to, from uint64) {
+	*c = append(*c, []string{
+		fmt.Sprintf("%d", to),
+		fmt.Sprintf("%d", from),
+		fmt.Sprintf("%d", time.Now().UnixNano()),
+	})
+}
+
+// Write writes all records to a file.
+func (c *CatchupRecorder) Write(path string) {
+	f, err := os.Create(path)
+
+	if err != nil {
+		panic("error creating file: " + err.Error())
+	}
+
+	w := csv.NewWriter(f)
+	w.WriteAll(*c) // Checking error below.
+
+	if err := w.Error(); err != nil {
+		panic("error writing csv: " + err.Error())
+	}
+}
