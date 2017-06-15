@@ -2,6 +2,5 @@
 
 This repository contains an implementation of the [[https://raft.github.io/raft.pdf][Raft Consensus Algorithm]] for use with the [[https://github.com/relab/gorums][Gorums framework]].
 
-- github.com/relab/raft :: Shared code.
-- github.com/relab/raft/raftgorums :: Gorums code.
-- github.com/relab/raft/raftgrpc :: gRPC code.
+- github.com/relab/raft :: Shared code and common interfaces.
+- github.com/relab/raft/raftgorums :: Raft with Gorums code.
