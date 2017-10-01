@@ -9,6 +9,34 @@ import (
 	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
+func TestNewQuorumSpec(t *testing.T) {
+	minTests := []struct {
+		name  string
+		peers int
+		n, q  int
+	}{
+		{"3 peers", 3, 2, 1},
+		{"4 peers", 4, 3, 2},
+		{"5 peers", 5, 4, 2},
+		{"6 peers", 6, 5, 3},
+		{"7 peers", 7, 6, 3},
+	}
+
+	for _, test := range minTests {
+		t.Run(test.name, func(t *testing.T) {
+			qs := raftgorums.NewQuorumSpec(test.peers)
+
+			if qs.N != test.n {
+				t.Errorf("got %d, want %d", qs.N, test.n)
+			}
+
+			if qs.Q != test.q {
+				t.Errorf("got %d, want %d", qs.Q, test.q)
+			}
+		})
+	}
+}
+
 var requestVoteQFTests = []struct {
 	name    string
 	qs      spec

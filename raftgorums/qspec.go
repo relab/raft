@@ -6,18 +6,26 @@ import (
 	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
-// QuorumSpec holds information about the quorum size of the current
-// configuration and allows us to invoke QRPCs.
-// TODO Rename so it's not confused with gorums.QuorumSpec
-type QuorumSpec struct {
+// RaftQuorumSpec holds information about the quorum size of the current
+// configuration and allows us to invoke quorum calls.
+type RaftQuorumSpec struct {
 	N int
 	Q int
+}
+
+// NewQuorumSpec returns a RaftQuorumSpec for len(peers).
+// You need to add 1 if you don't include yourself.
+func NewQuorumSpec(peers int) *RaftQuorumSpec {
+	return &RaftQuorumSpec{
+		N: peers - 1,
+		Q: peers / 2,
+	}
 }
 
 // RequestVoteQF gathers RequestVoteResponses and delivers a reply when a higher
 // term is seen or a quorum of votes is received.
 // TODO Implements gorums.QuorumSpec interface.
-func (qs *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.RequestVoteResponse) (*pb.RequestVoteResponse, bool) {
+func (qs *RaftQuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.RequestVoteResponse) (*pb.RequestVoteResponse, bool) {
 	// Make copy of last reply.
 	response := *replies[len(replies)-1]
 	response.VoteGranted = false
@@ -56,7 +64,7 @@ func (qs *QuorumSpec) RequestVoteQF(req *pb.RequestVoteRequest, replies []*pb.Re
 // AppendEntriesQF gathers AppendEntriesResponses and calculates the log entries
 // replicated, depending on the quorum configuration.
 // TODO Implements gorums.QuorumSpec interface.
-func (qs *QuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*pb.AppendEntriesResponse) (*pb.AppendEntriesQFResponse, bool) {
+func (qs *RaftQuorumSpec) AppendEntriesQF(req *pb.AppendEntriesRequest, replies []*pb.AppendEntriesResponse) (*pb.AppendEntriesQFResponse, bool) {
 	latest := replies[len(replies)-1]
 
 	response := &pb.AppendEntriesQFResponse{
