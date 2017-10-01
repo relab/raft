@@ -9,7 +9,7 @@ import (
 	pb "github.com/relab/raft/raftgorums/raftpb"
 )
 
-func TestNewQuorumSpec(t *testing.T) {
+func TestNewRaftQuorumSpec(t *testing.T) {
 	minTests := []struct {
 		name  string
 		peers int
@@ -39,7 +39,6 @@ func TestNewQuorumSpec(t *testing.T) {
 
 var requestVoteQFTests = []struct {
 	name    string
-	qs      spec
 	request *pb.RequestVoteRequest
 	replies []*pb.RequestVoteResponse
 	quorum  bool
@@ -47,7 +46,6 @@ var requestVoteQFTests = []struct {
 }{
 	{
 		"do not grant vote, single reply",
-		n3q1,
 		&pb.RequestVoteRequest{Term: 2},
 		[]*pb.RequestVoteResponse{
 			{Term: 2, VoteGranted: false},
@@ -57,7 +55,6 @@ var requestVoteQFTests = []struct {
 	},
 	{
 		"do not grant vote, all replies",
-		n3q1,
 		&pb.RequestVoteRequest{Term: 2},
 		[]*pb.RequestVoteResponse{
 			{Term: 2, VoteGranted: false},
@@ -68,7 +65,6 @@ var requestVoteQFTests = []struct {
 	},
 	{
 		"grant vote",
-		n3q1,
 		&pb.RequestVoteRequest{Term: 3},
 		[]*pb.RequestVoteResponse{
 			{Term: 3, VoteGranted: true},
@@ -78,7 +74,6 @@ var requestVoteQFTests = []struct {
 	},
 	{
 		"reply with higher Term",
-		n3q1,
 		&pb.RequestVoteRequest{Term: 3},
 		[]*pb.RequestVoteResponse{
 			{Term: 4, VoteGranted: false},
@@ -90,7 +85,6 @@ var requestVoteQFTests = []struct {
 
 var appendEntriesQFTests = []struct {
 	name    string
-	qs      spec
 	request *pb.AppendEntriesRequest
 	replies []*pb.AppendEntriesResponse
 	quorum  bool
@@ -98,7 +92,6 @@ var appendEntriesQFTests = []struct {
 }{
 	{
 		"reply with higher Term",
-		n3q1,
 		&pb.AppendEntriesRequest{Term: 5},
 		[]*pb.AppendEntriesResponse{
 			{
@@ -113,7 +106,6 @@ var appendEntriesQFTests = []struct {
 	},
 	{
 		"one unsuccessful MatchIndex",
-		n3q1,
 		&pb.AppendEntriesRequest{Term: 5},
 		[]*pb.AppendEntriesResponse{
 			{
@@ -132,7 +124,6 @@ var appendEntriesQFTests = []struct {
 	},
 	{
 		"two unsuccessful same MatchIndex",
-		n3q1,
 		&pb.AppendEntriesRequest{Term: 5},
 		[]*pb.AppendEntriesResponse{
 			{
@@ -156,7 +147,6 @@ var appendEntriesQFTests = []struct {
 	},
 	{
 		"two unsuccessful different MatchIndex",
-		n3q1,
 		&pb.AppendEntriesRequest{Term: 5},
 		[]*pb.AppendEntriesResponse{
 			{
@@ -180,7 +170,6 @@ var appendEntriesQFTests = []struct {
 	},
 	{
 		"quorum successful",
-		n3q1,
 		&pb.AppendEntriesRequest{Term: 5},
 		[]*pb.AppendEntriesResponse{
 			{
@@ -199,58 +188,60 @@ var appendEntriesQFTests = []struct {
 	},
 }
 
-type spec struct {
+var specs = []struct {
 	name string
 	qs   gorums.QuorumSpec
-}
-
-var (
-	n1q1 = spec{
+}{
+	{
 		"QuorumSpec N1 Q1",
 		raftgorums.NewQuorumSpec(3),
-	}
-	n2q1 = spec{
+	},
+	{
 		"QuorumSpec N2 Q1",
 		raftgorums.NewQuorumSpec(3),
-	}
-	n3q1 = spec{
+	},
+	{
 		"QuorumSpec N3 Q1",
 		raftgorums.NewQuorumSpec(3),
-	}
-	n7q4 = spec{
+	},
+	{
 		"QuorumSpec N7 Q4",
 		raftgorums.NewQuorumSpec(3),
-	}
-)
+	},
+}
 
 func TestRequestVoteQF(t *testing.T) {
 	for _, test := range requestVoteQFTests {
-		t.Run(test.qs.name+"-"+test.name, func(t *testing.T) {
-			reply, quorum := test.qs.qs.RequestVoteQF(test.request, test.replies)
+		for _, spec := range specs {
+			t.Run(spec.name+"-"+test.name, func(t *testing.T) {
+				reply, quorum := spec.qs.RequestVoteQF(test.request, test.replies)
 
-			if quorum != test.quorum {
-				t.Errorf("got %t, want %t", quorum, test.quorum)
-			}
+				if quorum != test.quorum {
+					t.Errorf("got %t, want %t", quorum, test.quorum)
+				}
 
-			if !reflect.DeepEqual(reply, test.reply) {
-				t.Errorf("got %+v, want %+v", reply, test.reply)
-			}
-		})
+				if !reflect.DeepEqual(reply, test.reply) {
+					t.Errorf("got %+v, want %+v", reply, test.reply)
+				}
+			})
+		}
 	}
 }
 
 func TestAppendEntriesFastQF(t *testing.T) {
 	for _, test := range appendEntriesQFTests {
-		t.Run(test.qs.name+"-"+test.name, func(t *testing.T) {
-			reply, quorum := test.qs.qs.AppendEntriesQF(test.request, test.replies)
+		for _, spec := range specs {
+			t.Run(spec.name+"-"+test.name, func(t *testing.T) {
+				reply, quorum := spec.qs.AppendEntriesQF(test.request, test.replies)
 
-			if quorum != test.quorum {
-				t.Errorf("got %t, want %t", quorum, test.quorum)
-			}
+				if quorum != test.quorum {
+					t.Errorf("got %t, want %t", quorum, test.quorum)
+				}
 
-			if !reflect.DeepEqual(reply, test.reply) {
-				t.Errorf("got %+v, want %+v", reply, test.reply)
-			}
-		})
+				if !reflect.DeepEqual(reply, test.reply) {
+					t.Errorf("got %+v, want %+v", reply, test.reply)
+				}
+			})
+		}
 	}
 }
