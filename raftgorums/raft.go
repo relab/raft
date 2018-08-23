@@ -116,6 +116,10 @@ type Raft struct {
 	lat       *raft.Latency
 	event     *raft.Event
 	leaderOut chan struct{}
+
+	maxMissingCommit uint64
+	maxaebuffer      int
+	appendEntryQueue *AEQueue
 }
 
 func (r *Raft) incCmd() {
@@ -191,6 +195,9 @@ func NewRaft(sm raft.StateMachine, cfg *Config, lat *raft.Latency, event *raft.E
 		lat:              lat,
 		event:            event,
 		leaderOut:        leaderOut,
+		maxMissingCommit: cfg.MaxMissingCommit,
+		maxaebuffer:      int(cfg.MaxAEBuffer),
+		appendEntryQueue: InitAEQueue(cfg),
 	}
 
 	return r

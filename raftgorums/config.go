@@ -27,6 +27,10 @@ type Config struct {
 	// CatchupMultiplier is how many times more EntriesPerMsg we are allowed
 	// to use when doing a catch up, i.e., EntriesPerMsg*CatchupMultiplier.
 	CatchupMultiplier uint64
+	// Catchup will be sent if this many committed entries are missing from the log
+	MaxMissingCommit uint64
+	// Maximum number of out of order append entry requests buffered, before sending catchup
+	MaxAEBuffer uint64
 
 	Logger         logrus.FieldLogger
 	CheckQuorum    bool

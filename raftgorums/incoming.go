@@ -124,6 +124,14 @@ func (r *Raft) HandleRequestVoteRequest(req *pb.RequestVoteRequest) *pb.RequestV
 func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	res := r.handleAppendEntriesRequest(req)
+	if res.Success {
+		r.tryEnqued()
+	}
+	return res
+}
+
+func (r *Raft) handleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
 	if r.metricsEnabled {
 		timer := metrics.NewTimer(rmetrics.aereq)
 		defer timer.ObserveDuration()
@@ -192,10 +200,13 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	r.resetElection = true
 
 	if !success {
-		r.cureqout <- &catchUpReq{
-			leaderID: req.LeaderID,
-			// TODO term: req.Term, ?
-			matchIndex: res.MatchIndex,
+
+		if r.enque(req) {
+			r.cureqout <- &catchUpReq{
+				leaderID: req.LeaderID,
+				// TODO term: req.Term, ?
+				matchIndex: res.MatchIndex,
+			}
 		}
 
 		return res
@@ -274,6 +285,7 @@ func (r *Raft) HandleAppendEntriesRequest(req *pb.AppendEntriesRequest) *pb.Appe
 	}).Infoln("Saved entries to stable storage")
 
 	res.Success = true
+
 	return res
 }
 
